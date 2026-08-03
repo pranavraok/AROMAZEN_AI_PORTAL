@@ -1,0 +1,41 @@
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import URL
+
+
+class Settings(BaseSettings):
+    app_name: str = "AROMAZEN AI API"
+    app_env: str = "development"
+    debug: bool = False
+    api_v1_prefix: str = "/api/v1"
+    database_url: str | None = None
+    database_host: str = "postgres"
+    database_port: int = 5432
+    database_name: str = "aromazen_ai"
+    database_user: str = "aromazen"
+    database_password: str | None = None
+    redis_url: str
+    log_level: str = "INFO"
+    jwt_secret_key: str
+    jwt_access_token_minutes: int = 15
+    jwt_refresh_token_days: int = 30
+    cookie_secure: bool = False
+    bootstrap_owner_email: str | None = None
+    bootstrap_owner_password: str | None = None
+    bootstrap_owner_name: str = "AROMAZEN Owner"
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @property
+    def resolved_database_url(self) -> str:
+        if self.database_url:
+            return self.database_url
+        if not self.database_password:
+            raise ValueError("DATABASE_PASSWORD must be configured when DATABASE_URL is not set.")
+        return URL.create("postgresql+asyncpg", username=self.database_user, password=self.database_password, host=self.database_host, port=self.database_port, database=self.database_name).render_as_string(hide_password=False)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
