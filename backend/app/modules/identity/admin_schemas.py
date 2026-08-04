@@ -67,3 +67,35 @@ class AuditEventResponse(BaseModel):
     target_id: str | None
     metadata: dict
     created_at: datetime
+
+
+class ManageKnowledgeCollectionRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=160)
+    description: str | None = Field(default=None, max_length=500)
+    is_shared: bool = False
+    department_ids: list[str] = Field(default_factory=list, max_length=20)
+
+
+class KnowledgeCollectionAdminResponse(BaseModel):
+    id: str
+    name: str
+    slug: str
+    description: str | None
+    is_shared: bool
+    status: str
+    department_ids: list[str]
+    department_names: list[str]
+    document_count: int
+    created_at: datetime
+
+
+class AdminKnowledgeDocumentResponse(BaseModel):
+    id: str
+    collection_id: str
+    collection_name: str
+    name: str
+    status: str
+    size_bytes: int
+    extracted_characters: int
+    version: int
+    created_at: datetime

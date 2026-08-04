@@ -53,8 +53,10 @@ export interface KnowledgeDocument {
 export interface ChatCitation {
   document_id: string
   document_name: string
+  collection_id: string
   collection_name: string
   page: number | null
+  chunk_index: number
   relevance: number | null
 }
 
@@ -68,7 +70,15 @@ export interface ChatMessage {
 
 export interface CreateChatMessageRequest {
   content: string
+  conversation_id?: string | null
   collection_ids: string[]
+}
+
+export interface UsageSummary {
+  totals: { cost: number; requests: number; input_tokens: number; output_tokens: number }
+  providers: { provider: string; model: string; requests: number; input_tokens: number; output_tokens: number; cost: number }[]
+  departments: { department: string; requests: number; cost: number }[]
+  users: { name: string; department: string; provider: string; model: string; requests: number; cost: number }[]
 }
 
 export interface DashboardOverview {
@@ -110,6 +120,31 @@ export interface AuditEvent {
   target_type: string
   target_id: string | null
   metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface AdminKnowledgeCollection {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  is_shared: boolean
+  status: 'active' | 'archived'
+  department_ids: string[]
+  department_names: string[]
+  document_count: number
+  created_at: string
+}
+
+export interface AdminKnowledgeDocument {
+  id: string
+  collection_id: string
+  collection_name: string
+  name: string
+  status: DocumentStatus
+  size_bytes: number
+  extracted_characters: number
+  version: number
   created_at: string
 }
 

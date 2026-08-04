@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password, hash_refresh_token, new_refresh_token
@@ -9,9 +9,12 @@ from app.db.session import get_db_session
 from app.modules.identity.admin_schemas import (
     AcceptInvitationRequest, AdminUserResponse, AuditEventResponse, CreateDepartmentRequest,
     DepartmentResponse, InvitationResponse, InviteUserRequest, RoleResponse, UpdateUserRequest,
+    ManageKnowledgeCollectionRequest, KnowledgeCollectionAdminResponse, AdminKnowledgeDocumentResponse,
 )
 from app.modules.identity.authorization import require_permissions
-from app.modules.identity.models import AuditEvent, Department, Invitation, Permission, Role, User, role_permissions, user_roles
+from app.modules.identity.models import AuditEvent, Department, Invitation, KnowledgeCollection, KnowledgeDocument, Permission, Role, User, collection_departments, role_permissions, user_roles
+from app.core.config import get_settings
+from pathlib import Path
 from app.modules.identity.service import permission_keys_for_user, role_keys_for_user
 
 router = APIRouter()
@@ -46,6 +49,19 @@ async def roles_for_request(session: AsyncSession, organization_id, role_ids: li
 async def is_department_limited(session: AsyncSession, user: User) -> bool:
     role_keys = await role_keys_for_user(session, user.id)
     return "department_admin" in role_keys and not role_keys.intersection({"owner", "super_admin"})
+
+
+async def serialize_collection(session: AsyncSession, collection: KnowledgeCollection) -> KnowledgeCollectionAdminResponse:
+    departments = list(await session.scalars(select(Department).join(collection_departments, Department.id == collection_departments.c.department_id).where(collection_departments.c.collection_id == collection.id).order_by(Department.name)))
+    document_count = await session.scalar(select(func.count(KnowledgeDocument.id)).where(KnowledgeDocument.collection_id == collection.id))
+    return KnowledgeCollectionAdminResponse(id=str(collection.id), name=collection.name, slug=collection.slug, description=collection.description, is_shared=collection.is_shared, status=collection.status, department_ids=[str(item.id) for item in departments], department_names=[item.name for item in departments], document_count=document_count or 0, created_at=collection.created_at)
+
+
+async def validate_collection_departments(session: AsyncSession, organization_id, department_ids: list[str]) -> list[Department]:
+    departments = list(await session.scalars(select(Department).where(Department.organization_id == organization_id, Department.id.in_(department_ids)))) if department_ids else []
+    if len(departments) != len(set(department_ids)):
+        raise HTTPException(status_code=422, detail="One or more selected departments are invalid.")
+    return departments
 
 
 @router.get("/departments", response_model=list[DepartmentResponse])
@@ -102,6 +118,83 @@ async def archive_department(department_id: str, user: User = Depends(require_pe
 async def list_roles(user: User = Depends(require_permissions("users.manage")), session: AsyncSession = Depends(get_db_session)) -> list[RoleResponse]:
     roles = await session.scalars(select(Role).where(Role.organization_id == user.organization_id).order_by(Role.name))
     return [await serialize_role(session, role) for role in roles]
+
+
+@router.get("/knowledge/collections", response_model=list[KnowledgeCollectionAdminResponse])
+async def list_knowledge_collections(user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> list[KnowledgeCollectionAdminResponse]:
+    collections = await session.scalars(select(KnowledgeCollection).where(KnowledgeCollection.organization_id == user.organization_id).order_by(KnowledgeCollection.status, KnowledgeCollection.name))
+    return [await serialize_collection(session, item) for item in collections]
+
+
+@router.post("/knowledge/collections", response_model=KnowledgeCollectionAdminResponse, status_code=status.HTTP_201_CREATED)
+async def create_knowledge_collection(payload: ManageKnowledgeCollectionRequest, user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> KnowledgeCollectionAdminResponse:
+    slug = slugify(payload.name)
+    if not slug:
+        raise HTTPException(status_code=422, detail="Collection name must contain letters or numbers.")
+    if await session.scalar(select(KnowledgeCollection.id).where(KnowledgeCollection.organization_id == user.organization_id, KnowledgeCollection.slug == slug)):
+        raise HTTPException(status_code=409, detail="A collection with this name already exists.")
+    if not payload.is_shared and not payload.department_ids:
+        raise HTTPException(status_code=422, detail="Choose at least one department or make this collection company-wide.")
+    departments = await validate_collection_departments(session, user.organization_id, payload.department_ids)
+    collection = KnowledgeCollection(organization_id=user.organization_id, name=payload.name.strip(), slug=slug, description=payload.description.strip() if payload.description else None, is_shared=payload.is_shared, created_by_user_id=user.id, status="active")
+    session.add(collection)
+    await session.flush()
+    if departments:
+        await session.execute(collection_departments.insert(), [{"collection_id": collection.id, "department_id": item.id} for item in departments])
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="knowledge.collection_created", target_type="knowledge_collection", target_id=str(collection.id), metadata_json={"name": collection.name, "is_shared": collection.is_shared}))
+    await session.commit()
+    return await serialize_collection(session, collection)
+
+
+@router.patch("/knowledge/collections/{collection_id}", response_model=KnowledgeCollectionAdminResponse)
+async def update_knowledge_collection(collection_id: str, payload: ManageKnowledgeCollectionRequest, user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> KnowledgeCollectionAdminResponse:
+    collection = await session.get(KnowledgeCollection, collection_id)
+    if not collection or collection.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Collection not found.")
+    slug = slugify(payload.name)
+    duplicate = await session.scalar(select(KnowledgeCollection.id).where(KnowledgeCollection.organization_id == user.organization_id, KnowledgeCollection.slug == slug, KnowledgeCollection.id != collection.id))
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A collection with this name already exists.")
+    if not payload.is_shared and not payload.department_ids:
+        raise HTTPException(status_code=422, detail="Choose at least one department or make this collection company-wide.")
+    departments = await validate_collection_departments(session, user.organization_id, payload.department_ids)
+    collection.name, collection.slug = payload.name.strip(), slug
+    collection.description, collection.is_shared = payload.description.strip() if payload.description else None, payload.is_shared
+    await session.execute(delete(collection_departments).where(collection_departments.c.collection_id == collection.id))
+    if departments:
+        await session.execute(collection_departments.insert(), [{"collection_id": collection.id, "department_id": item.id} for item in departments])
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="knowledge.collection_updated", target_type="knowledge_collection", target_id=str(collection.id), metadata_json={"name": collection.name, "is_shared": collection.is_shared}))
+    await session.commit()
+    return await serialize_collection(session, collection)
+
+
+@router.post("/knowledge/collections/{collection_id}/archive", response_model=KnowledgeCollectionAdminResponse)
+async def archive_knowledge_collection(collection_id: str, user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> KnowledgeCollectionAdminResponse:
+    collection = await session.get(KnowledgeCollection, collection_id)
+    if not collection or collection.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Collection not found.")
+    collection.status, collection.archived_at = "archived", datetime.now(timezone.utc)
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="knowledge.collection_archived", target_type="knowledge_collection", target_id=str(collection.id), metadata_json={"name": collection.name}))
+    await session.commit()
+    return await serialize_collection(session, collection)
+
+
+@router.get("/knowledge/documents", response_model=list[AdminKnowledgeDocumentResponse])
+async def list_knowledge_documents(user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> list[AdminKnowledgeDocumentResponse]:
+    rows = await session.execute(select(KnowledgeDocument, KnowledgeCollection.name).join(KnowledgeCollection, KnowledgeDocument.collection_id == KnowledgeCollection.id).where(KnowledgeDocument.organization_id == user.organization_id).order_by(KnowledgeDocument.created_at.desc()))
+    return [AdminKnowledgeDocumentResponse(id=str(document.id), collection_id=str(document.collection_id), collection_name=collection_name, name=document.original_filename, status=document.status, size_bytes=document.size_bytes, extracted_characters=document.extracted_characters, version=document.version, created_at=document.created_at) for document, collection_name in rows]
+
+
+@router.delete("/knowledge/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_knowledge_document(document_id: str, user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> None:
+    document = await session.get(KnowledgeDocument, document_id)
+    if not document or document.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    file_path = Path(get_settings().upload_storage_path) / document.stored_filename
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="knowledge.document_deleted", target_type="knowledge_document", target_id=str(document.id), metadata_json={"name": document.original_filename}))
+    await session.delete(document)
+    await session.commit()
+    file_path.unlink(missing_ok=True)
 
 
 @router.get("/users", response_model=list[AdminUserResponse])

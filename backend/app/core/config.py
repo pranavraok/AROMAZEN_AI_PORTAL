@@ -26,6 +26,20 @@ class Settings(BaseSettings):
     bootstrap_owner_name: str = "AROMAZEN Owner"
     upload_storage_path: str = "/data/uploads"
     max_upload_size_mb: int = 25
+    openai_api_key: str | None = None
+    openai_chat_model: str = "gpt-5.5"
+    openai_embedding_model: str = "text-embedding-3-small"
+    anthropic_api_key: str | None = None
+    anthropic_default_model: str = "claude-sonnet-4-6"
+    anthropic_fast_model: str = "claude-haiku-4-5"
+    ai_default_provider: str = "anthropic"
+    ai_request_timeout_seconds: float = 120.0
+    ai_connect_timeout_seconds: float = 10.0
+    ai_max_output_tokens: int = 1400
+    ai_rate_limit_per_minute: int = 10
+    ai_retrieval_limit: int = 6
+    ai_chunk_size: int = 1200
+    ai_chunk_overlap: int = 200
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

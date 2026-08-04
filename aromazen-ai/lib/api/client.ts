@@ -45,3 +45,25 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   return payload as T
 }
+
+export async function apiStreamRequest(path: string, options: RequestOptions = {}): Promise<Response> {
+  const { body, headers, ...init } = options
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    body: toRequestBody(body),
+    credentials: 'include',
+    headers: {
+      Accept: 'text/event-stream',
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...headers,
+    },
+  })
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => undefined)
+    const message = typeof payload === 'object' && payload !== null && 'detail' in payload
+      ? String(payload.detail)
+      : 'The AI request could not be started.'
+    throw new ApiError(message, response.status, payload)
+  }
+  return response
+}

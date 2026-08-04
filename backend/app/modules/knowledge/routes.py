@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +30,7 @@ async def can_access_collection(session: AsyncSession, user: User, collection: K
 @router.get("/collections")
 async def list_collections(user: User = Depends(require_permissions("knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> list[dict]:
     role_keys = await role_keys_for_user(session, user.id)
-    query = select(KnowledgeCollection).where(KnowledgeCollection.organization_id == user.organization_id)
+    query = select(KnowledgeCollection).where(KnowledgeCollection.organization_id == user.organization_id, KnowledgeCollection.status == "active")
     if not role_keys.intersection({"owner", "super_admin"}):
         if user.department_id:
             query = query.outerjoin(collection_departments, KnowledgeCollection.id == collection_departments.c.collection_id).where(or_(KnowledgeCollection.is_shared.is_(True), collection_departments.c.department_id == user.department_id))
@@ -53,6 +54,20 @@ async def list_documents(collection_id: str, user: User = Depends(require_permis
         raise HTTPException(status_code=403, detail="You do not have access to this collection.")
     documents = await session.scalars(select(KnowledgeDocument).where(KnowledgeDocument.collection_id == collection.id).order_by(KnowledgeDocument.created_at.desc()))
     return [{"id": str(item.id), "name": item.original_filename, "status": item.status, "version": item.version, "size_bytes": item.size_bytes, "extracted_characters": item.extracted_characters, "created_at": item.created_at.isoformat(), "processed_at": item.processed_at.isoformat() if item.processed_at else None} for item in documents]
+
+
+@router.get("/collections/{collection_id}/documents/{document_id}/content")
+async def view_document(collection_id: str, document_id: str, user: User = Depends(require_permissions("knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> FileResponse:
+    collection = await session.get(KnowledgeCollection, collection_id)
+    document = await session.get(KnowledgeDocument, document_id)
+    if not collection or not document or document.collection_id != collection.id or collection.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if not await can_access_collection(session, user, collection):
+        raise HTTPException(status_code=403, detail="You do not have access to this document.")
+    path = Path(get_settings().upload_storage_path) / document.stored_filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="The stored file is unavailable.")
+    return FileResponse(path, media_type=document.mime_type or "application/octet-stream", filename=document.original_filename, content_disposition_type="inline")
 
 
 @router.post("/collections/{collection_id}/documents/{document_id}/process")

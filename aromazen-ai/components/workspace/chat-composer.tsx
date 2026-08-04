@@ -15,8 +15,8 @@ export function ChatComposer({ disabled = false, onSend }: ChatComposerProps) {
   async function handleSend() {
     const value = message.trim()
     if (!value || disabled) return
-    await onSend(value)
     setMessage('')
+    await onSend(value)
   }
 
   return <div className="border-t border-border bg-card/50 backdrop-blur-sm p-4 space-y-3">

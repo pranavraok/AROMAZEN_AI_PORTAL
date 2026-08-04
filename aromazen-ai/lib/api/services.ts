@@ -1,6 +1,5 @@
-import { apiRequest } from './client'
+import { apiRequest, apiStreamRequest } from './client'
 import type {
-  ChatMessage,
   CreateChatMessageRequest,
   CurrentUser,
   DashboardOverview,
@@ -14,6 +13,9 @@ import type {
   Department,
   InvitationResponse,
   InviteUserRequest,
+  AdminKnowledgeCollection,
+  AdminKnowledgeDocument,
+  UsageSummary,
 } from './types'
 
 export const api = {
@@ -30,11 +32,13 @@ export const api = {
     collections: (accessToken: string) => apiRequest<KnowledgeCollection[]>('/knowledge/collections', { headers: { Authorization: `Bearer ${accessToken}` } }),
     documents: (accessToken: string, collectionId: string) => apiRequest<KnowledgeDocument[]>(`/knowledge/collections/${collectionId}/documents`, { headers: { Authorization: `Bearer ${accessToken}` } }),
     processDocument: (accessToken: string, collectionId: string, documentId: string) => apiRequest<{ id: string; status: string; extracted_characters: number }>(`/knowledge/collections/${collectionId}/documents/${documentId}/process`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    documentContentUrl: (collectionId: string, documentId: string) => `/api/v1/knowledge/collections/${collectionId}/documents/${documentId}/content`,
     uploadDocument: (accessToken: string, collectionId: string, file: File) => apiRequest<{ id: string; name: string; status: string; version: number }>(`/knowledge/collections/${collectionId}/documents`, { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form })(), headers: { Authorization: `Bearer ${accessToken}` } }),
   },
   workspace: {
-    sendMessage: (payload: CreateChatMessageRequest) =>
-      apiRequest<ChatMessage>('/workspace/messages', { method: 'POST', body: payload }),
+    streamMessage: (accessToken: string, payload: CreateChatMessageRequest) =>
+      apiStreamRequest('/workspace/messages/stream', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    usageSummary: (accessToken: string) => apiRequest<UsageSummary>('/workspace/usage/summary', { headers: { Authorization: `Bearer ${accessToken}` } }),
   },
   admin: {
     users: (accessToken: string) => apiRequest<AdminUser[]>('/admin/users', { headers: { Authorization: `Bearer ${accessToken}` } }),
@@ -47,5 +51,11 @@ export const api = {
     updateUser: (accessToken: string, userId: string, payload: { full_name?: string; phone_number?: string | null; department_id?: string | null; role_ids?: string[]; status?: 'active' | 'disabled' }) => apiRequest<AdminUser>(`/admin/users/${userId}`, { method: 'PATCH', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
     deleteUser: (accessToken: string, userId: string) => apiRequest<void>(`/admin/users/${userId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }),
     auditEvents: (accessToken: string) => apiRequest<AuditEvent[]>('/admin/audit-events', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    knowledgeCollections: (accessToken: string) => apiRequest<AdminKnowledgeCollection[]>('/admin/knowledge/collections', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    createKnowledgeCollection: (accessToken: string, payload: { name: string; description: string | null; is_shared: boolean; department_ids: string[] }) => apiRequest<AdminKnowledgeCollection>('/admin/knowledge/collections', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    updateKnowledgeCollection: (accessToken: string, id: string, payload: { name: string; description: string | null; is_shared: boolean; department_ids: string[] }) => apiRequest<AdminKnowledgeCollection>(`/admin/knowledge/collections/${id}`, { method: 'PATCH', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    archiveKnowledgeCollection: (accessToken: string, id: string) => apiRequest<AdminKnowledgeCollection>(`/admin/knowledge/collections/${id}/archive`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    knowledgeDocuments: (accessToken: string) => apiRequest<AdminKnowledgeDocument[]>('/admin/knowledge/documents', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    deleteKnowledgeDocument: (accessToken: string, id: string) => apiRequest<void>(`/admin/knowledge/documents/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }),
   },
 }

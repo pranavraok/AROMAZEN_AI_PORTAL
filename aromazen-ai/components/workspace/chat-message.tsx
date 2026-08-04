@@ -1,6 +1,8 @@
 import { FileText, ExternalLink } from 'lucide-react'
 
 interface Source {
+  documentId: string
+  collectionId: string
   name: string
   page?: number
   collection: string
@@ -12,9 +14,11 @@ interface ChatMessageProps {
   content: string
   sources?: Source[]
   timestamp?: Date
+  status?: string | null
+  onOpenSource?: (source: Source) => void
 }
 
-export function ChatMessage({ role, content, sources, timestamp }: ChatMessageProps) {
+export function ChatMessage({ role, content, sources, timestamp, status, onOpenSource }: ChatMessageProps) {
   return (
     <div className={`flex gap-4 ${role === 'assistant' ? 'justify-start' : 'justify-end'}`}>
       {role === 'assistant' && (
@@ -30,15 +34,18 @@ export function ChatMessage({ role, content, sources, timestamp }: ChatMessagePr
             : 'bg-primary text-primary-foreground rounded-lg p-4'
         }`}
       >
-        <p className="text-sm leading-relaxed whitespace-pre-wrap">{content}</p>
+        {status && !content && <div className="flex items-center gap-2 text-sm text-muted-foreground"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" />{status}</div>}
+        {content && <p className="text-sm leading-relaxed whitespace-pre-wrap">{content}</p>}
 
         {sources && sources.length > 0 && (
           <div className="pt-2 border-t border-border space-y-2">
             <p className="text-xs font-medium text-muted-foreground">Sources</p>
             <div className="flex flex-wrap gap-2">
               {sources.map((source, idx) => (
-                <div
+                <button
+                  type="button"
                   key={idx}
+                  onClick={() => onOpenSource?.(source)}
                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-card/50 border border-border hover:border-primary/50 transition-colors group cursor-pointer"
                 >
                   <FileText className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
@@ -53,7 +60,7 @@ export function ChatMessage({ role, content, sources, timestamp }: ChatMessagePr
                     </p>
                   </div>
                   <ExternalLink className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
+                </button>
               ))}
             </div>
           </div>
