@@ -46,7 +46,9 @@ def set_refresh_cookie(response: Response, token: str) -> None:
 
 @router.post("/login", response_model=AuthResponse)
 async def login(payload: LoginRequest, response: Response, session: AsyncSession = Depends(get_db_session)) -> AuthResponse:
-    user = await session.scalar(select(User).where(User.email == payload.email.lower()))
+    user_query = select(User).where(User.email == payload.email.lower())
+    user_query = user_query.where(User.phone_number == payload.phone_number.strip() if payload.phone_number else User.phone_number.is_(None))
+    user = await session.scalar(user_query)
     if not user or user.status != "active" or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
     roles = await role_names_for_user(session, user.id)

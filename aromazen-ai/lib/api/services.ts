@@ -8,6 +8,11 @@ import type {
   KnowledgeDocument,
   LoginRequest,
   LoginResponse,
+  AdminRole,
+  AdminUser,
+  Department,
+  InvitationResponse,
+  InviteUserRequest,
 } from './types'
 
 export const api = {
@@ -27,5 +32,12 @@ export const api = {
   workspace: {
     sendMessage: (payload: CreateChatMessageRequest) =>
       apiRequest<ChatMessage>('/workspace/messages', { method: 'POST', body: payload }),
+  },
+  admin: {
+    users: (accessToken: string) => apiRequest<AdminUser[]>('/admin/users', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    departments: (accessToken: string) => apiRequest<Department[]>('/admin/departments', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    roles: (accessToken: string) => apiRequest<AdminRole[]>('/admin/roles', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    invite: (accessToken: string, payload: InviteUserRequest) => apiRequest<InvitationResponse>('/admin/users/invitations', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    updateUser: (accessToken: string, userId: string, payload: { status?: 'active' | 'disabled' }) => apiRequest<AdminUser>(`/admin/users/${userId}`, { method: 'PATCH', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
   },
 }

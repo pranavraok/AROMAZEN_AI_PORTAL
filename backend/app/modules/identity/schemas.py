@@ -3,6 +3,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 class LoginRequest(BaseModel):
     email: EmailStr
+    phone_number: str | None = Field(default=None, min_length=7, max_length=32)
     password: str = Field(min_length=1, max_length=1024)
     remember_me: bool = False
 

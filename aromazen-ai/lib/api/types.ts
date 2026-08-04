@@ -14,6 +14,7 @@ export interface CurrentUser {
 
 export interface LoginRequest {
   email: string
+  phone_number?: string | null
   password: string
   remember_me: boolean
 }
@@ -70,4 +71,44 @@ export interface DashboardOverview {
   documents_indexed: number
   active_users: number
   ai_requests_this_month: number
+}
+
+export interface Department {
+  id: string
+  name: string
+  slug: string
+}
+
+export interface AdminRole {
+  id: string
+  key: string
+  name: string
+  description: string | null
+  permission_keys: string[]
+}
+
+export interface AdminUser {
+  id: string
+  full_name: string
+  email: string
+  phone_number: string | null
+  status: UserStatus
+  department: Department | null
+  roles: AdminRole[]
+  last_login_at: string | null
+  created_at: string
+}
+
+export interface InviteUserRequest {
+  full_name: string
+  email: string
+  phone_number: string | null
+  department_id: string | null
+  role_ids: string[]
+}
+
+export interface InvitationResponse {
+  user: AdminUser
+  invitation_token: string
+  expires_at: string
 }
