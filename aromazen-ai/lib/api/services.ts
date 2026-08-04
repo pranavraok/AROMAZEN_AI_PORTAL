@@ -28,7 +28,9 @@ export const api = {
   },
   knowledge: {
     collections: (accessToken: string) => apiRequest<KnowledgeCollection[]>('/knowledge/collections', { headers: { Authorization: `Bearer ${accessToken}` } }),
-    documents: () => apiRequest<KnowledgeDocument[]>('/knowledge/documents'),
+    documents: (accessToken: string, collectionId: string) => apiRequest<KnowledgeDocument[]>(`/knowledge/collections/${collectionId}/documents`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    processDocument: (accessToken: string, collectionId: string, documentId: string) => apiRequest<{ id: string; status: string; extracted_characters: number }>(`/knowledge/collections/${collectionId}/documents/${documentId}/process`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    uploadDocument: (accessToken: string, collectionId: string, file: File) => apiRequest<{ id: string; name: string; status: string; version: number }>(`/knowledge/collections/${collectionId}/documents`, { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form })(), headers: { Authorization: `Bearer ${accessToken}` } }),
   },
   workspace: {
     sendMessage: (payload: CreateChatMessageRequest) =>

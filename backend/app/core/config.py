@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     bootstrap_owner_email: str | None = None
     bootstrap_owner_password: str | None = None
     bootstrap_owner_name: str = "AROMAZEN Owner"
+    upload_storage_path: str = "/data/uploads"
+    max_upload_size_mb: int = 25
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

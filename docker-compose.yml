@@ -26,6 +26,9 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
       BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:?set BOOTSTRAP_OWNER_EMAIL in .env}
       BOOTSTRAP_OWNER_PASSWORD: ${BOOTSTRAP_OWNER_PASSWORD:?set BOOTSTRAP_OWNER_PASSWORD in .env}
+      UPLOAD_STORAGE_PATH: /data/uploads
+    volumes:
+      - knowledge_uploads:/data/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,3 +91,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  knowledge_uploads:

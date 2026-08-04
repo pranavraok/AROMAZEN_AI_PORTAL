@@ -1,5 +1,5 @@
 export type UserStatus = 'active' | 'invited' | 'disabled'
-export type DocumentStatus = 'indexed' | 'processing' | 'failed'
+export type DocumentStatus = 'ready' | 'processing' | 'failed' | 'uploaded'
 export type ChatRole = 'user' | 'assistant'
 
 export interface CurrentUser {
@@ -44,7 +44,10 @@ export interface KnowledgeDocument {
   uploaded_by_name: string
   status: DocumentStatus
   version: number
+  size_bytes: number
+  extracted_characters: number
   created_at: string
+  processed_at: string | null
 }
 
 export interface ChatCitation {

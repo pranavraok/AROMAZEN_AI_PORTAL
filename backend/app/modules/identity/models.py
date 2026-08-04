@@ -105,6 +105,24 @@ class KnowledgeCollection(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class KnowledgeDocument(Base):
+    __tablename__ = "knowledge_documents"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    collection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("knowledge_collections.id", ondelete="CASCADE"), index=True)
+    uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    original_filename: Mapped[str] = mapped_column(String(500))
+    stored_filename: Mapped[str] = mapped_column(String(500), unique=True)
+    mime_type: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    size_bytes: Mapped[int] = mapped_column()
+    version: Mapped[int] = mapped_column(default=1)
+    status: Mapped[str] = mapped_column(String(32), default="processing", index=True)
+    extracted_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    extracted_characters: Mapped[int] = mapped_column(default=0)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
