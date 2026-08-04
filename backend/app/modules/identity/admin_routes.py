@@ -12,6 +12,7 @@ from app.modules.identity.admin_schemas import (
 )
 from app.modules.identity.authorization import require_permissions
 from app.modules.identity.models import AuditEvent, Department, Invitation, Permission, Role, User, role_permissions, user_roles
+from app.modules.identity.service import permission_keys_for_user, role_keys_for_user
 
 router = APIRouter()
 
@@ -42,6 +43,11 @@ async def roles_for_request(session: AsyncSession, organization_id, role_ids: li
     return roles
 
 
+async def is_department_limited(session: AsyncSession, user: User) -> bool:
+    role_keys = await role_keys_for_user(session, user.id)
+    return "department_admin" in role_keys and not role_keys.intersection({"owner", "super_admin"})
+
+
 @router.get("/departments", response_model=list[DepartmentResponse])
 async def list_departments(user: User = Depends(require_permissions("users.manage")), session: AsyncSession = Depends(get_db_session)) -> list[DepartmentResponse]:
     departments = await session.scalars(select(Department).where(Department.organization_id == user.organization_id).order_by(Department.name))
@@ -49,7 +55,7 @@ async def list_departments(user: User = Depends(require_permissions("users.manag
 
 
 @router.post("/departments", response_model=DepartmentResponse, status_code=status.HTTP_201_CREATED)
-async def create_department(payload: CreateDepartmentRequest, user: User = Depends(require_permissions("users.manage")), session: AsyncSession = Depends(get_db_session)) -> DepartmentResponse:
+async def create_department(payload: CreateDepartmentRequest, user: User = Depends(require_permissions("departments.manage")), session: AsyncSession = Depends(get_db_session)) -> DepartmentResponse:
     slug = slugify(payload.name)
     if not slug:
         raise HTTPException(status_code=422, detail="Department name must contain letters or numbers.")
@@ -63,6 +69,35 @@ async def create_department(payload: CreateDepartmentRequest, user: User = Depen
     return DepartmentResponse(id=str(department.id), name=department.name, slug=department.slug)
 
 
+@router.patch("/departments/{department_id}", response_model=DepartmentResponse)
+async def update_department(department_id: str, payload: CreateDepartmentRequest, user: User = Depends(require_permissions("departments.manage")), session: AsyncSession = Depends(get_db_session)) -> DepartmentResponse:
+    department = await session.get(Department, department_id)
+    if not department or department.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Department not found.")
+    slug = slugify(payload.name)
+    duplicate = await session.scalar(select(Department.id).where(Department.organization_id == user.organization_id, Department.slug == slug, Department.id != department.id))
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A department with this name already exists.")
+    old_name = department.name
+    department.name, department.slug = payload.name.strip(), slug
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="identity.department_updated", target_type="department", target_id=str(department.id), metadata_json={"from": old_name, "to": department.name}))
+    await session.commit()
+    return DepartmentResponse(id=str(department.id), name=department.name, slug=department.slug)
+
+
+@router.delete("/departments/{department_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def archive_department(department_id: str, user: User = Depends(require_permissions("departments.manage")), session: AsyncSession = Depends(get_db_session)) -> None:
+    department = await session.get(Department, department_id)
+    if not department or department.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Department not found.")
+    assigned_users = await session.scalar(select(User.id).where(User.department_id == department.id).limit(1))
+    if assigned_users:
+        raise HTTPException(status_code=409, detail="Move assigned users before removing this department.")
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="identity.department_archived", target_type="department", target_id=str(department.id), metadata_json={"name": department.name}))
+    await session.delete(department)
+    await session.commit()
+
+
 @router.get("/roles", response_model=list[RoleResponse])
 async def list_roles(user: User = Depends(require_permissions("users.manage")), session: AsyncSession = Depends(get_db_session)) -> list[RoleResponse]:
     roles = await session.scalars(select(Role).where(Role.organization_id == user.organization_id).order_by(Role.name))
@@ -71,12 +106,24 @@ async def list_roles(user: User = Depends(require_permissions("users.manage")), 
 
 @router.get("/users", response_model=list[AdminUserResponse])
 async def list_users(user: User = Depends(require_permissions("users.manage")), session: AsyncSession = Depends(get_db_session)) -> list[AdminUserResponse]:
-    users = await session.scalars(select(User).where(User.organization_id == user.organization_id).order_by(User.created_at.desc()))
+    query = select(User).where(User.organization_id == user.organization_id)
+    if await is_department_limited(session, user):
+        if not user.department_id:
+            return []
+        query = query.where(User.department_id == user.department_id)
+    users = await session.scalars(query.order_by(User.created_at.desc()))
     return [await serialize_user(session, item) for item in users]
 
 
 @router.post("/users/invitations", response_model=InvitationResponse, status_code=status.HTTP_201_CREATED)
 async def invite_user(payload: InviteUserRequest, actor: User = Depends(require_permissions("users.manage")), session: AsyncSession = Depends(get_db_session)) -> InvitationResponse:
+    limited_admin = await is_department_limited(session, actor)
+    if limited_admin:
+        if not actor.department_id:
+            raise HTTPException(status_code=422, detail="Assign a department to this Department Admin before inviting users.")
+        payload.department_id = str(actor.department_id)
+        employee_role = await session.scalar(select(Role).where(Role.organization_id == actor.organization_id, Role.key == "employee"))
+        payload.role_ids = [str(employee_role.id)]
     email = payload.email.lower()
     phone_number = payload.phone_number.strip() if payload.phone_number else None
     matching_email = await session.scalar(select(User).where(User.organization_id == actor.organization_id, User.email == email, User.phone_number == phone_number if phone_number else User.phone_number.is_(None)))
@@ -90,6 +137,8 @@ async def invite_user(payload: InviteUserRequest, actor: User = Depends(require_
         department = await session.get(Department, payload.department_id)
         if not department or department.organization_id != actor.organization_id:
             raise HTTPException(status_code=422, detail="Selected department is invalid.")
+    if not limited_admin and "roles.manage" not in await permission_keys_for_user(session, actor.id):
+        raise HTTPException(status_code=403, detail="You do not have permission to assign roles.")
     roles = await roles_for_request(session, actor.organization_id, payload.role_ids)
     new_user = User(organization_id=actor.organization_id, department_id=payload.department_id, full_name=payload.full_name.strip(), email=email, phone_number=phone_number, password_hash=hash_password(new_refresh_token()), status="invited")
     session.add(new_user)
@@ -110,12 +159,32 @@ async def update_user(user_id: str, payload: UpdateUserRequest, actor: User = De
         raise HTTPException(status_code=404, detail="User not found.")
     if target.id == actor.id and payload.status == "disabled":
         raise HTTPException(status_code=422, detail="You cannot disable your own account.")
-    if payload.department_id is not None:
-        department = await session.get(Department, payload.department_id)
-        if not department or department.organization_id != actor.organization_id:
-            raise HTTPException(status_code=422, detail="Selected department is invalid.")
-        target.department_id = department.id
+    limited_admin = await is_department_limited(session, actor)
+    if limited_admin and target.department_id != actor.department_id:
+        raise HTTPException(status_code=403, detail="You can manage users only in your own department.")
+    fields = payload.model_fields_set
+    if payload.full_name is not None:
+        target.full_name = payload.full_name.strip()
+    if "phone_number" in fields:
+        phone_number = payload.phone_number.strip() if payload.phone_number else None
+        if phone_number and await session.scalar(select(User.id).where(User.phone_number == phone_number, User.id != target.id)):
+            raise HTTPException(status_code=409, detail="This phone number is already assigned to another account.")
+        if phone_number is None and await session.scalar(select(User.id).where(User.organization_id == actor.organization_id, User.email == target.email, User.phone_number.is_(None), User.id != target.id)):
+            raise HTTPException(status_code=422, detail="This email already has an email-only account. Keep a unique phone number for this account.")
+        target.phone_number = phone_number
+    if "department_id" in fields:
+        if payload.department_id is None:
+            target.department_id = None
+        else:
+            department = await session.get(Department, payload.department_id)
+            if not department or department.organization_id != actor.organization_id:
+                raise HTTPException(status_code=422, detail="Selected department is invalid.")
+            target.department_id = department.id
     if payload.role_ids is not None:
+        if limited_admin:
+            raise HTTPException(status_code=403, detail="Department Admins cannot change roles.")
+        if "roles.manage" not in await permission_keys_for_user(session, actor.id):
+            raise HTTPException(status_code=403, detail="You do not have permission to change roles.")
         roles = await roles_for_request(session, actor.organization_id, payload.role_ids)
         await session.execute(delete(user_roles).where(user_roles.c.user_id == target.id))
         await session.execute(user_roles.insert(), [{"user_id": target.id, "role_id": role.id} for role in roles])
@@ -124,6 +193,23 @@ async def update_user(user_id: str, payload: UpdateUserRequest, actor: User = De
     session.add(AuditEvent(organization_id=actor.organization_id, actor_user_id=actor.id, action="identity.user_updated", target_type="user", target_id=str(target.id), metadata_json=payload.model_dump(exclude_none=True)))
     await session.commit()
     return await serialize_user(session, target)
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(user_id: str, actor: User = Depends(require_permissions("users.manage")), session: AsyncSession = Depends(get_db_session)) -> None:
+    target = await session.get(User, user_id)
+    if not target or target.organization_id != actor.organization_id:
+        raise HTTPException(status_code=404, detail="User not found.")
+    if target.id == actor.id:
+        raise HTTPException(status_code=422, detail="You cannot delete your own account.")
+    if await is_department_limited(session, actor) and target.department_id != actor.department_id:
+        raise HTTPException(status_code=403, detail="You can manage users only in your own department.")
+    target_roles = set(await session.scalars(select(Role.key).join(user_roles, Role.id == user_roles.c.role_id).where(user_roles.c.user_id == target.id)))
+    if "owner" in target_roles:
+        raise HTTPException(status_code=422, detail="The owner account cannot be deleted. Transfer ownership first.")
+    session.add(AuditEvent(organization_id=actor.organization_id, actor_user_id=actor.id, action="identity.user_deleted", target_type="user", target_id=str(target.id), metadata_json={"email": target.email, "full_name": target.full_name}))
+    await session.delete(target)
+    await session.commit()
 
 
 @router.post("/invitations/{token}/accept", status_code=status.HTTP_204_NO_CONTENT)
@@ -143,6 +229,11 @@ async def accept_invitation(token: str, payload: AcceptInvitationRequest, sessio
 
 
 @router.get("/audit-events", response_model=list[AuditEventResponse])
-async def list_audit_events(user: User = Depends(require_permissions("users.manage")), session: AsyncSession = Depends(get_db_session)) -> list[AuditEventResponse]:
+async def list_audit_events(user: User = Depends(require_permissions("audit.read")), session: AsyncSession = Depends(get_db_session)) -> list[AuditEventResponse]:
     events = await session.scalars(select(AuditEvent).where(AuditEvent.organization_id == user.organization_id).order_by(AuditEvent.created_at.desc()).limit(100))
     return [AuditEventResponse(id=str(item.id), action=item.action, target_type=item.target_type, target_id=item.target_id, metadata=item.metadata_json, created_at=item.created_at) for item in events]
+    limited_admin = await is_department_limited(session, actor)
+    if limited_admin and target.department_id != actor.department_id:
+        raise HTTPException(status_code=403, detail="You can manage users only in your own department.")
+    if await is_department_limited(session, actor) and target.department_id != actor.department_id:
+        raise HTTPException(status_code=403, detail="You can manage users only in your own department.")

@@ -5,10 +5,12 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/components/auth/auth-provider'
 import { ApiError } from '@/lib/api/client'
+import { useToast } from '@/components/ui/toast-provider'
 
 export function LoginForm() {
   const router = useRouter()
   const { signIn } = useAuth()
+  const { notify } = useToast()
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -25,7 +27,8 @@ export function LoginForm() {
       router.replace('/dashboard')
       router.refresh()
     } catch (error) {
-      setError(error instanceof ApiError ? error.message : 'Unable to sign in. Please try again.')
+      const message = error instanceof ApiError ? error.message : 'Unable to sign in. Please try again.'
+      setError(message); notify('error', message)
     } finally {
       setIsSubmitting(false)
     }

@@ -15,6 +15,9 @@ DEFAULT_PERMISSIONS = [
     ("knowledge.write", "Manage knowledge"),
     ("ai.workspace.use", "Use AI workspace"),
     ("usage.read", "Read usage"),
+    ("departments.manage", "Manage departments"),
+    ("audit.read", "Read audit log"),
+    ("settings.manage", "Manage organization settings"),
 ]
 DEFAULT_ROLES = [
     ("owner", "Owner", "Full platform control"),
@@ -22,6 +25,12 @@ DEFAULT_ROLES = [
     ("department_admin", "Department Admin", "Department administration"),
     ("employee", "Employee", "Standard employee access"),
 ]
+ROLE_PERMISSION_KEYS = {
+    "owner": {key for key, _ in DEFAULT_PERMISSIONS},
+    "super_admin": {"users.manage", "roles.manage", "knowledge.read", "knowledge.write", "ai.workspace.use", "usage.read", "departments.manage", "audit.read", "settings.manage"},
+    "department_admin": {"users.manage", "knowledge.read", "knowledge.write", "ai.workspace.use", "audit.read"},
+    "employee": {"knowledge.read", "ai.workspace.use"},
+}
 
 
 async def role_names_for_user(session: AsyncSession, user_id) -> list[str]:
@@ -38,6 +47,11 @@ async def permission_keys_for_user(session: AsyncSession, user_id) -> list[str]:
         .distinct()
     )
     return list(result)
+
+
+async def role_keys_for_user(session: AsyncSession, user_id) -> set[str]:
+    result = await session.scalars(select(Role.key).join(user_roles, Role.id == user_roles.c.role_id).where(user_roles.c.user_id == user_id))
+    return set(result)
 
 
 async def create_refresh_session(session: AsyncSession, user_id, raw_token: str) -> RefreshSession:
@@ -68,9 +82,10 @@ async def bootstrap_owner(session: AsyncSession) -> None:
         role = Role(organization_id=organization.id, key=key, name=name, description=description)
         session.add(role)
         await session.flush()
+        permission_ids = {permission.key: permission.id for permission in permissions}
+        await session.execute(insert(role_permissions), [{"role_id": role.id, "permission_id": permission_ids[permission_key]} for permission_key in ROLE_PERMISSION_KEYS[key]])
         if key == "owner":
             owner_role = role
-            await session.execute(insert(role_permissions), [{"role_id": role.id, "permission_id": permission.id} for permission in permissions])
 
     owner = User(organization_id=organization.id, email=settings.bootstrap_owner_email.lower(), full_name=settings.bootstrap_owner_name, password_hash=hash_password(settings.bootstrap_owner_password), status="active")
     session.add(owner)

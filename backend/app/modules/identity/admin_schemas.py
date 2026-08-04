@@ -48,6 +48,8 @@ class InvitationResponse(BaseModel):
 
 
 class UpdateUserRequest(BaseModel):
+    full_name: str | None = Field(default=None, min_length=2, max_length=160)
+    phone_number: str | None = Field(default=None, min_length=7, max_length=32)
     department_id: str | None = None
     role_ids: list[str] | None = Field(default=None, min_length=1, max_length=4)
     status: str | None = Field(default=None, pattern="^(active|disabled)$")
@@ -55,7 +57,7 @@ class UpdateUserRequest(BaseModel):
 
 class AcceptInvitationRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=160)
-    password: str = Field(min_length=12, max_length=1024)
+    password: str = Field(min_length=4, max_length=1024)
 
 
 class AuditEventResponse(BaseModel):

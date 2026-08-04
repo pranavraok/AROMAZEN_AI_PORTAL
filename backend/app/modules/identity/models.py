@@ -18,6 +18,12 @@ role_permissions = Table(
     Column("permission_id", ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True),
 )
 
+collection_departments = Table(
+    "collection_departments", Base.metadata,
+    Column("collection_id", ForeignKey("knowledge_collections.id", ondelete="CASCADE"), primary_key=True),
+    Column("department_id", ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 class Organization(Base):
     __tablename__ = "organizations"
@@ -84,6 +90,19 @@ class Invitation(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class KnowledgeCollection(Base):
+    __tablename__ = "knowledge_collections"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    slug: Mapped[str] = mapped_column(String(160))
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    is_shared: Mapped[bool] = mapped_column(default=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class AuditEvent(Base):

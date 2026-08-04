@@ -99,6 +99,15 @@ export interface AdminUser {
   created_at: string
 }
 
+export interface AuditEvent {
+  id: string
+  action: string
+  target_type: string
+  target_id: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
 export interface InviteUserRequest {
   full_name: string
   email: string
