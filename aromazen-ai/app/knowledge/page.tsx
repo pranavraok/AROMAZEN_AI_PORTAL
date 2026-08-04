@@ -1,92 +1,30 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
-import { DataTable } from '@/components/ui/data-table'
-import { StatusBadge } from '@/components/ui/status-badge'
 import { Button } from '@/components/ui/button'
-import { mockCollections, mockDocuments } from '@/lib/mock-data'
-import { Upload, ArrowRight } from 'lucide-react'
-import Link from 'next/link'
+import { useAuth } from '@/components/auth/auth-provider'
+import { useToast } from '@/components/ui/toast-provider'
+import { api } from '@/lib/api/services'
+import { ApiError } from '@/lib/api/client'
+import type { KnowledgeCollection } from '@/lib/api/types'
+import { BookOpen, Lock, Upload, Users } from 'lucide-react'
 
 export default function KnowledgePage() {
-  const collectionIcons: Record<string, string> = {
-    Share2: '🔗',
-    Factory: '🏭',
-    FlaskConical: '⚗️',
-    Megaphone: '📢',
-    Users: '👥',
-  }
+  const { accessToken, hasPermission } = useAuth()
+  const { notify } = useToast()
+  const [collections, setCollections] = useState<KnowledgeCollection[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const documentsColumns = [
-    { header: 'Document', key: 'name' as const },
-    { header: 'Collection', key: 'collection' as const },
-    { header: 'Uploader', key: 'uploader' as const },
-    {
-      header: 'Status',
-      key: 'status' as const,
-      render: (value: string) => <StatusBadge status={value as any} />,
-    },
-    { header: 'Version', key: 'version' as const },
-    { header: 'Date', key: 'date' as const },
-  ]
+  useEffect(() => {
+    if (!accessToken) return
+    void api.knowledge.collections(accessToken).then(setCollections).catch((reason) => notify('error', reason instanceof ApiError ? reason.message : 'Unable to load knowledge collections.')).finally(() => setLoading(false))
+  }, [accessToken, notify])
 
-  return (
-    <AppLayout>
-      <div className="space-y-6 p-6">
-        <PageHeader
-          title="Knowledge Base"
-          description="Manage documents and collections"
-          actions={
-            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground flex items-center gap-2">
-              <Upload className="w-4 h-4" />
-              Upload Document
-            </Button>
-          }
-        />
-
-        {/* Collections Grid */}
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-foreground">Collections</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            {mockCollections.map((collection) => (
-              <Link key={collection.id} href={`/knowledge/${collection.id}`}>
-                <div className="rounded-lg border border-border bg-card p-4 hover:bg-card/80 hover:border-primary/50 transition-all cursor-pointer group">
-                  <div className="text-3xl mb-3 group-hover:scale-110 transition-transform">
-                    {collectionIcons[collection.icon] || '📁'}
-                  </div>
-                  <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors mb-1">
-                    {collection.name}
-                  </h3>
-                  <p className="text-xs text-muted-foreground mb-3">{collection.scope}</p>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">{collection.docs} docs</span>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Updated {collection.lastUpdate}
-                  </p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Documents */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-foreground">Recent Documents</h2>
-            <Button variant="ghost" size="sm" className="text-primary">
-              View all <ArrowRight className="w-4 h-4 ml-1" />
-            </Button>
-          </div>
-          <div className="rounded-lg border border-border bg-card overflow-hidden">
-            <DataTable columns={documentsColumns} data={mockDocuments} />
-          </div>
-        </div>
-      </div>
-    </AppLayout>
-  )
-}
-
-function ChevronRight({ className }: { className: string }) {
-  return <span className={`${className}`}>→</span>
+  return <AppLayout><div className="space-y-6 p-6"><PageHeader title="Knowledge Base" description="Collections are automatically filtered to the knowledge you are allowed to access." actions={hasPermission('knowledge.write') ? <Button className="bg-primary"><Upload className="mr-2 w-4 h-4" />Upload document</Button> : undefined} />
+    {loading ? <p className="text-sm text-muted-foreground">Loading collections…</p> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{collections.map((collection) => <Link key={collection.id} href={`/knowledge/${collection.slug}`} className="rounded-lg border border-border bg-card p-5 transition hover:border-primary/60 hover:bg-card/80"><div className="mb-4 flex items-start justify-between"><div className="rounded-lg bg-primary/15 p-2 text-primary"><BookOpen className="h-5 w-5" /></div>{collection.is_shared ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><Users className="h-3 w-3" />Shared</span> : <span className="flex items-center gap-1 text-xs text-muted-foreground"><Lock className="h-3 w-3" />Restricted</span>}</div><h2 className="font-semibold text-foreground">{collection.name}</h2><p className="mt-1 min-h-10 text-sm text-muted-foreground">{collection.description}</p><div className="mt-4 border-t border-border pt-3 text-xs text-muted-foreground">{collection.is_shared ? 'Available company-wide' : collection.department_names.join(' · ')} · {collection.document_count} documents</div></Link>)}</div>}
+    {!loading && collections.length === 0 && <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">No knowledge collections are available for your role yet.</div>}
+  </div></AppLayout>
 }

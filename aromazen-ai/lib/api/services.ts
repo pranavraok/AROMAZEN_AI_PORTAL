@@ -27,7 +27,7 @@ export const api = {
     overview: () => apiRequest<DashboardOverview>('/dashboard/overview'),
   },
   knowledge: {
-    collections: () => apiRequest<KnowledgeCollection[]>('/knowledge/collections'),
+    collections: (accessToken: string) => apiRequest<KnowledgeCollection[]>('/knowledge/collections', { headers: { Authorization: `Bearer ${accessToken}` } }),
     documents: () => apiRequest<KnowledgeDocument[]>('/knowledge/documents'),
   },
   workspace: {

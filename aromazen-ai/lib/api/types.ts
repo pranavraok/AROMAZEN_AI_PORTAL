@@ -32,6 +32,8 @@ export interface KnowledgeCollection {
   description: string | null
   document_count: number
   updated_at: string
+  is_shared: boolean
+  department_names: string[]
 }
 
 export interface KnowledgeDocument {
