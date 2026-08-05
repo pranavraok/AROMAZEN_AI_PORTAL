@@ -6,9 +6,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY app ./app
 COPY pyproject.toml ./
-RUN pip install --upgrade pip && pip install .
+RUN mkdir -p app && touch app/__init__.py && pip install --upgrade pip && pip install . && rm -rf app
+
+COPY app ./app
 
 COPY alembic.ini ./
 COPY alembic ./alembic

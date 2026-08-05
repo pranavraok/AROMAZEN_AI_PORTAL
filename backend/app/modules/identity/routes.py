@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.security import create_access_token, decode_access_token, hash_refresh_token, new_refresh_token, verify_password
 from app.db.session import get_db_session
-from app.modules.identity.models import RefreshSession, User
+from app.modules.identity.models import Department, RefreshSession, User
 from app.modules.identity.schemas import AuthResponse, CurrentUserResponse, LoginRequest
 from app.modules.identity.service import create_refresh_session, permission_keys_for_user, role_names_for_user
 
@@ -17,8 +17,9 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def to_current_user_response(session: AsyncSession, user: User) -> CurrentUserResponse:
+    department = await session.get(Department, user.department_id) if user.department_id else None
     return CurrentUserResponse(
-        id=str(user.id), email=user.email, full_name=user.full_name, department_name=None,
+        id=str(user.id), email=user.email, full_name=user.full_name, department_name=department.name if department else None,
         role_names=await role_names_for_user(session, user.id),
         permission_keys=await permission_keys_for_user(session, user.id), status=user.status,
     )

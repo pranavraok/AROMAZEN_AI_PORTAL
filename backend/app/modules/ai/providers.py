@@ -1,6 +1,6 @@
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import AsyncIterator
 
 import httpx
@@ -16,6 +16,7 @@ class ProviderEvent:
     text: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
+    sources: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -65,7 +66,7 @@ class OpenAIProvider:
     def available(self) -> bool:
         return bool(self.settings.openai_api_key)
 
-    async def stream(self, system: str, prompt: str) -> AsyncIterator[ProviderEvent]:
+    async def stream(self, system: str, prompt: str, *, use_web_search: bool = False) -> AsyncIterator[ProviderEvent]:
         if not self.settings.openai_api_key:
             raise ProviderError(self.name, "not_configured", "OpenAI is not configured.")
         headers = {"Authorization": f"Bearer {self.settings.openai_api_key}", "Content-Type": "application/json"}
@@ -78,6 +79,18 @@ class OpenAIProvider:
             "stream": True,
             "store": False,
         }
+        if use_web_search:
+            payload["tools"] = [{"type": "web_search", "search_context_size": "low"}]
+        web_sources: list[dict[str, str]] = []
+        seen_source_urls: set[str] = set()
+
+        def remember_web_source(annotation: dict) -> None:
+            citation = annotation.get("url_citation") or annotation
+            url = str(citation.get("url") or "")
+            if not url or url in seen_source_urls:
+                return
+            seen_source_urls.add(url)
+            web_sources.append({"title": str(citation.get("title") or url), "url": url})
         try:
             async with httpx.AsyncClient(timeout=_timeouts(self.settings)) as client:
                 async with client.stream("POST", "https://api.openai.com/v1/responses", headers=headers, json=payload) as response:
@@ -89,8 +102,24 @@ class OpenAIProvider:
                         event_type = event.get("type")
                         if event_type == "response.output_text.delta":
                             yield ProviderEvent("delta", self.name, self.model, text=event.get("delta", ""))
+                        elif event_type == "response.output_text.annotation.added" and use_web_search:
+                            annotation = event.get("annotation") or {}
+                            if annotation.get("type") == "url_citation" or annotation.get("url_citation"):
+                                remember_web_source(annotation)
                         elif event_type == "response.completed":
-                            usage = event.get("response", {}).get("usage") or {}
+                            completed_response = event.get("response", {})
+                            usage = completed_response.get("usage") or {}
+                            if use_web_search:
+                                for output_item in completed_response.get("output") or []:
+                                    if output_item.get("type") != "message":
+                                        continue
+                                    for content_item in output_item.get("content") or []:
+                                        for annotation in content_item.get("annotations") or []:
+                                            if annotation.get("type") != "url_citation":
+                                                continue
+                                            remember_web_source(annotation)
+                                if web_sources:
+                                    yield ProviderEvent("sources", self.name, self.model, sources=web_sources)
                             yield ProviderEvent("usage", self.name, self.model, input_tokens=int(usage.get("input_tokens") or 0), output_tokens=int(usage.get("output_tokens") or 0))
                         elif event_type == "error":
                             raise ProviderError(self.name, str(event.get("code") or "stream_error"), "OpenAI stream failed.")
@@ -182,7 +211,7 @@ class AIProviderRouter:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
 
-    def _providers(self, question: str):
+    def _providers(self, question: str, *, use_web_search: bool = False):
         lowered = question.lower()
         complex_markers = ("analyse", "analyze", "compare", "strategy", "calculate", "deep", "detailed", "risk", "forecast", "formulation")
         simple = len(question) <= 180 and not any(marker in lowered for marker in complex_markers)
@@ -190,6 +219,8 @@ class AIProviderRouter:
         openai = OpenAIProvider(self.settings)
         sonnet = AnthropicProvider(self.settings, self.settings.anthropic_default_model)
         haiku = AnthropicProvider(self.settings, self.settings.anthropic_fast_model)
+        if use_web_search:
+            return [openai] if openai.available else []
         if complex_request and openai.available:
             primary = openai
         elif self.settings.ai_default_provider.lower() == "anthropic" and sonnet.available:
@@ -203,8 +234,8 @@ class AIProviderRouter:
         fallback = openai if primary.name == "anthropic" else sonnet
         return [primary] + ([fallback] if fallback.available and (fallback.name, fallback.model) != (primary.name, primary.model) else [])
 
-    async def stream(self, system: str, prompt: str, question: str) -> AsyncIterator[ProviderEvent]:
-        providers = self._providers(question)
+    async def stream(self, system: str, prompt: str, question: str, *, use_web_search: bool = False) -> AsyncIterator[ProviderEvent]:
+        providers = self._providers(question, use_web_search=use_web_search)
         if not providers:
             raise ProviderError("router", "no_provider", "No AI provider is configured.")
         last_error: ProviderError | None = None
@@ -213,7 +244,11 @@ class AIProviderRouter:
             for attempt in range(attempts):
                 emitted_text = False
                 try:
-                    async for event in provider.stream(system, prompt):
+                    if isinstance(provider, OpenAIProvider):
+                        event_stream = provider.stream(system, prompt, use_web_search=use_web_search)
+                    else:
+                        event_stream = provider.stream(system, prompt)
+                    async for event in event_stream:
                         if event.kind == "delta" and event.text:
                             emitted_text = True
                         yield event

@@ -1,4 +1,4 @@
-import { apiRequest, apiStreamRequest } from './client'
+import { apiFileRequest, apiRequest, apiStreamRequest } from './client'
 import type {
   CreateChatMessageRequest,
   CurrentUser,
@@ -16,6 +16,10 @@ import type {
   AdminKnowledgeCollection,
   AdminKnowledgeDocument,
   UsageSummary,
+  DocumentTemplate,
+  DocumentTemplateSchema,
+  GeneratedDocument,
+  DocumentDraftUpdate,
 } from './types'
 
 export const api = {
@@ -39,6 +43,21 @@ export const api = {
     streamMessage: (accessToken: string, payload: CreateChatMessageRequest) =>
       apiStreamRequest('/workspace/messages/stream', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
     usageSummary: (accessToken: string) => apiRequest<UsageSummary>('/workspace/usage/summary', { headers: { Authorization: `Bearer ${accessToken}` } }),
+  },
+  documentGenerator: {
+    templates: (accessToken: string) => apiRequest<DocumentTemplate[]>('/document-generator/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    schema: (accessToken: string, templateId: string) => apiRequest<DocumentTemplateSchema>(`/document-generator/templates/${templateId}/schema`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    excelTemplate: (accessToken: string, templateId: string) => apiFileRequest(`/document-generator/templates/${templateId}/excel-template`, accessToken),
+    transcribe: (accessToken: string, audio: File) => {
+      const form = new FormData(); form.append('audio_file', audio)
+      return apiRequest<{ text: string }>('/document-generator/transcribe', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    draftFromNotes: (accessToken: string, payload: { templateId: string; notes: string; currentFields: Record<string, string>; currentRows: Record<string, string>[] }) => apiRequest<DocumentDraftUpdate>('/document-generator/draft-from-notes', { method: 'POST', body: { template_document_id: payload.templateId, notes: payload.notes, current_fields: payload.currentFields, current_rows: payload.currentRows }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    generate: (accessToken: string, payload: { templateId: string; documentType: 'coa' | 'sds'; fields: Record<string, string>; rows: Record<string, string>[]; outputFilename?: string; excel?: File | null }) => {
+      const form = new FormData(); form.append('template_document_id', payload.templateId); form.append('document_type', payload.documentType); form.append('fields_json', JSON.stringify(payload.fields)); form.append('rows_json', JSON.stringify(payload.rows)); if (payload.outputFilename?.trim()) form.append('output_filename', payload.outputFilename.trim()); if (payload.excel) form.append('excel_file', payload.excel)
+      return apiRequest<GeneratedDocument>('/document-generator/generate', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    download: (accessToken: string, generationId: string) => apiFileRequest(`/document-generator/generations/${generationId}/download`, accessToken),
   },
   admin: {
     users: (accessToken: string) => apiRequest<AdminUser[]>('/admin/users', { headers: { Authorization: `Bearer ${accessToken}` } }),

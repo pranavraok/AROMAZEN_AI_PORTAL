@@ -81,6 +81,12 @@ export interface UsageSummary {
   users: { name: string; department: string; provider: string; model: string; requests: number; cost: number }[]
 }
 
+export interface DocumentTemplate { id: string; name: string; collection_name: string; document_type: 'coa' | 'sds' }
+export interface DocumentField { key: string; label: string; required: boolean }
+export interface DocumentTemplateSchema { document_type: 'coa' | 'sds'; fields: DocumentField[]; row_fields: string[]; default_rows: Record<string, string>[]; can_edit_filename: boolean }
+export interface GeneratedDocument { id: string; filename: string; status: 'draft'; warnings: string[] }
+export interface DocumentDraftUpdate { field_updates: Record<string, string>; row_updates: Record<string, string>[]; unassigned_notes: string; provider: string; model: string }
+
 export interface DashboardOverview {
   ai_cost_today: number
   documents_indexed: number

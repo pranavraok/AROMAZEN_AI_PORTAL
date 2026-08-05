@@ -67,3 +67,15 @@ export async function apiStreamRequest(path: string, options: RequestOptions = {
   }
   return response
 }
+
+export async function apiFileRequest(path: string, accessToken: string): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(`${API_BASE_URL}${path}`, { credentials: 'include', headers: { Authorization: `Bearer ${accessToken}` } })
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => undefined)
+    const message = typeof payload === 'object' && payload !== null && 'detail' in payload ? String(payload.detail) : 'The file could not be downloaded.'
+    throw new ApiError(message, response.status, payload)
+  }
+  const disposition = response.headers.get('content-disposition') ?? ''
+  const match = disposition.match(/filename="?([^";]+)"?/i)
+  return { blob: await response.blob(), filename: match?.[1] ?? 'download' }
+}
