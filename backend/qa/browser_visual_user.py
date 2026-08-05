@@ -10,7 +10,7 @@ from app.db.session import SessionLocal
 from app.modules.identity.models import Department, Role, User, user_roles
 
 
-EMAIL = "qa-browser-rd@aromazen.invalid"
+EMAIL = "qa-browser-rd@aromazen.com"
 PASSWORD = "QAVisual2026!"
 
 
