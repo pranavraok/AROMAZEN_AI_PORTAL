@@ -34,6 +34,17 @@ class Organization(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class OrganizationSetting(Base):
+    __tablename__ = "organization_settings"
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True)
+    platform_name: Mapped[str] = mapped_column(String(160), default="AROMAZEN AI")
+    theme: Mapped[str] = mapped_column(String(20), default="dark")
+    default_ai_provider: Mapped[str] = mapped_column(String(20), default="anthropic")
+    session_timeout_minutes: Mapped[int] = mapped_column(default=480)
+    timezone: Mapped[str] = mapped_column(String(80), default="Asia/Calcutta")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Department(Base):
     __tablename__ = "departments"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -175,8 +186,26 @@ class AIMessage(Base):
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text())
     citations_json: Mapped[list] = mapped_column(JSON, default=list)
+    web_sources_json: Mapped[list] = mapped_column(JSON, default=list)
     provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
     model: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class AIChatAttachment(Base):
+    __tablename__ = "ai_chat_attachments"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=True, index=True)
+    message_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("ai_messages.id", ondelete="CASCADE"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(24), default="upload")
+    original_filename: Mapped[str] = mapped_column(String(500))
+    stored_filename: Mapped[str] = mapped_column(String(500), unique=True)
+    mime_type: Mapped[str] = mapped_column(String(160))
+    size_bytes: Mapped[int] = mapped_column()
+    extracted_text: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="ready", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 

@@ -24,7 +24,7 @@ export function LoginForm() {
         password: String(formData.get('password') ?? ''),
         remember_me: formData.get('remember_me') === 'on',
       })
-      router.replace('/dashboard')
+      router.replace('/workspace')
       router.refresh()
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Unable to sign in. Please try again.'

@@ -7,35 +7,6 @@ export const mockUser = {
   avatar: 'PR',
 }
 
-export const mockDashboard = {
-  greeting: 'Good morning, Pranav',
-  metrics: [
-    { label: 'AI Cost Today', value: '$247.82', trend: '+12.5%', positive: false },
-    { label: 'Documents Indexed', value: '1,247', trend: '+45 new', positive: true },
-    { label: 'Active Users', value: '22', trend: '2 online', positive: true },
-    { label: 'AI Requests', value: '4,892', trend: '+23%', positive: true },
-  ],
-  recentActivity: [
-    { user: 'Sarah Chen', action: 'uploaded IFRA guidelines', time: '2 hours ago', department: 'R&D' },
-    { user: 'Marcus Rodriguez', action: 'created new collection: Q1 Formulations', time: '4 hours ago', department: 'Production' },
-    { user: 'Yuki Tanaka', action: 'indexed batch 47 production SOPs', time: '6 hours ago', department: 'AI Labs' },
-    { user: 'Emma Watson', action: 'shared marketing strategy outline', time: '1 day ago', department: 'Marketing' },
-  ],
-  departmentUsage: [
-    { department: 'R&D', requests: 1240, cost: '$89.50' },
-    { department: 'Production', requests: 892, cost: '$64.20' },
-    { department: 'Marketing', requests: 756, cost: '$54.30' },
-    { department: 'Creation Labs', requests: 621, cost: '$44.60' },
-    { department: 'Sourcing', requests: 383, cost: '$27.40' },
-  ],
-  recentUploads: [
-    { name: 'IFRA_Q1_2025_Guidelines.pdf', collection: 'Production', uploader: 'Sarah Chen', status: 'Indexed', version: 'v2.1', date: '2 hours ago' },
-    { name: 'Batch_Mixing_SOP_Rev47.docx', collection: 'Production', uploader: 'Marcus R.', status: 'Indexed', version: 'v1.0', date: '8 hours ago' },
-    { name: 'Marketing_Campaign_Strategy.pptx', collection: 'Marketing', uploader: 'Emma Watson', status: 'Processing', version: 'v1.2', date: '1 day ago' },
-    { name: 'Fragrance_Ingredient_Comparison.xlsx', collection: 'R&D', uploader: 'David Kim', status: 'Failed', version: 'v1.0', date: '1 day ago' },
-  ],
-}
-
 export const mockCollections = [
   { id: 'shared', name: 'Shared', icon: 'Share2', scope: 'Company-wide', docs: 234, lastUpdate: '2 hours ago' },
   { id: 'production', name: 'Production', icon: 'Factory', scope: 'Production Team', docs: 156, lastUpdate: '4 hours ago' },
@@ -62,8 +33,8 @@ export const mockTeamUsers = [
 ]
 
 export const mockRoles = [
-  { id: 'owner', name: 'Owner', description: 'Full control over workspace' },
-  { id: 'super-admin', name: 'Super Admin', description: 'Manage users and settings' },
+  { id: 'owner', name: 'Super Admin', description: 'Full platform control and highest-level administration' },
+  { id: 'super-admin', name: 'Admin', description: 'Manage organization users and settings' },
   { id: 'dept-admin', name: 'Department Admin', description: 'Manage department access' },
   { id: 'employee', name: 'Employee', description: 'Standard employee access' },
 ]

@@ -20,6 +20,7 @@ from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_c
 from app.modules.document_generator.engine import coa_parameter_rows, field_schema, generate_docx, normalise, read_excel
 from app.modules.identity.authorization import require_permissions
 from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, DocumentGeneration, KnowledgeCollection, KnowledgeDocument, User
+from app.modules.settings.service import provider_runtime_settings
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.routes import can_access_collection
 
@@ -342,7 +343,8 @@ async def draft_from_notes(payload: DraftNotesRequest, user: User = Depends(requ
     input_tokens = output_tokens = 0
     answer = ""
     try:
-        async for event in AIProviderRouter().stream(system, prompt, payload.notes):
+        runtime_settings = await provider_runtime_settings(session, user.organization_id)
+        async for event in AIProviderRouter(runtime_settings).stream(system, prompt, payload.notes):
             if event.kind == "meta":
                 provider, model = event.provider, event.model
             elif event.kind == "delta":

@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.security import create_access_token, decode_access_token, hash_refresh_token, new_refresh_token, verify_password
 from app.db.session import get_db_session
-from app.modules.identity.models import Department, RefreshSession, User
+from app.modules.identity.models import Department, Organization, RefreshSession, User
 from app.modules.identity.schemas import AuthResponse, CurrentUserResponse, LoginRequest
 from app.modules.identity.service import create_refresh_session, permission_keys_for_user, role_names_for_user
+from app.modules.settings.service import organization_settings
 
 router = APIRouter()
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -18,10 +19,13 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 async def to_current_user_response(session: AsyncSession, user: User) -> CurrentUserResponse:
     department = await session.get(Department, user.department_id) if user.department_id else None
+    organization = await session.get(Organization, user.organization_id)
+    preferences = await organization_settings(session, user.organization_id)
     return CurrentUserResponse(
         id=str(user.id), email=user.email, full_name=user.full_name, department_name=department.name if department else None,
         role_names=await role_names_for_user(session, user.id),
         permission_keys=await permission_keys_for_user(session, user.id), status=user.status,
+        organization_name=organization.name, platform_name=preferences.platform_name, theme=preferences.theme,
     )
 
 
@@ -53,12 +57,13 @@ async def login(payload: LoginRequest, response: Response, session: AsyncSession
     if not user or user.status != "active" or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
     roles = await role_names_for_user(session, user.id)
+    organization_preferences = await organization_settings(session, user.organization_id)
     refresh_token = new_refresh_token()
     await create_refresh_session(session, user.id, refresh_token)
     user.last_login_at = datetime.now(timezone.utc)
     await session.commit()
     set_refresh_cookie(response, refresh_token)
-    return AuthResponse(access_token=create_access_token(str(user.id), str(user.organization_id), roles), user=await to_current_user_response(session, user))
+    return AuthResponse(access_token=create_access_token(str(user.id), str(user.organization_id), roles, organization_preferences.session_timeout_minutes), user=await to_current_user_response(session, user))
 
 
 @router.post("/refresh", response_model=AuthResponse)
@@ -75,10 +80,11 @@ async def refresh(request: Request, response: Response, session: AsyncSession = 
     refresh_session.revoked_at = datetime.now(timezone.utc)
     new_token = new_refresh_token()
     await create_refresh_session(session, user.id, new_token)
-    await session.commit()
     roles = await role_names_for_user(session, user.id)
+    organization_preferences = await organization_settings(session, user.organization_id)
+    await session.commit()
     set_refresh_cookie(response, new_token)
-    return AuthResponse(access_token=create_access_token(str(user.id), str(user.organization_id), roles), user=await to_current_user_response(session, user))
+    return AuthResponse(access_token=create_access_token(str(user.id), str(user.organization_id), roles, organization_preferences.session_timeout_minutes), user=await to_current_user_response(session, user))
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

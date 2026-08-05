@@ -1,8 +1,9 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Check, ChevronDown, Copy, ExternalLink, FileText, Globe2, Library } from 'lucide-react'
+import { Check, ChevronDown, Copy, Download, ExternalLink, FileText, Globe2, Library, Sparkles } from 'lucide-react'
 import { MarkdownContent } from '@/components/workspace/markdown-content'
+import type { ChatAttachment } from '@/lib/api/types'
 
 interface Source {
   documentId: string
@@ -22,9 +23,11 @@ interface ChatMessageProps {
   timestamp?: Date
   status?: string | null
   onOpenSource?: (source: Source) => void
+  attachments?: ChatAttachment[]
+  onOpenAttachment?: (attachment: ChatAttachment) => void
 }
 
-export function ChatMessage({ role, content, sources = [], webSources = [], status, onOpenSource }: ChatMessageProps) {
+export function ChatMessage({ role, content, sources = [], webSources = [], status, onOpenSource, attachments = [], onOpenAttachment }: ChatMessageProps) {
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const usedSources = useMemo(() => {
@@ -53,14 +56,16 @@ export function ChatMessage({ role, content, sources = [], webSources = [], stat
   }
 
   if (role === 'user') {
-    return <div className="flex justify-end"><div className="max-w-[82%] rounded-3xl bg-muted px-4 py-3 text-[15px] leading-6 text-foreground shadow-sm">{content}</div></div>
+    return <div className="flex justify-end"><div className="max-w-[82%] space-y-2"><div className="flex flex-wrap justify-end gap-2">{attachments.map((attachment) => <button type="button" key={attachment.id} onClick={() => onOpenAttachment?.(attachment)} className="flex max-w-56 items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-left text-xs text-foreground hover:bg-muted"><FileText className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{attachment.name}</span></button>)}</div><div className="rounded-3xl bg-muted px-4 py-3 text-[15px] leading-6 text-foreground shadow-sm">{content}</div></div></div>
   }
 
   return <div className="flex w-full gap-3.5">
     <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/25 bg-primary/10 text-[11px] font-bold text-primary">AZ</div>
     <div className="min-w-0 flex-1 pb-2">
-      {status && !content && <div className="flex items-center gap-2 py-1 text-sm text-muted-foreground"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" />{status}</div>}
+      {status && !content && <div className="flex items-center gap-2.5 py-1.5 text-sm text-muted-foreground" role="status" aria-live="polite"><span className="relative flex h-7 w-7 items-center justify-center"><span className="absolute inset-0 animate-ping rounded-full bg-primary/10" /><Sparkles className="relative h-4 w-4 animate-pulse text-primary" /></span><span className="bg-gradient-to-r from-muted-foreground via-foreground to-muted-foreground bg-[length:200%_100%] bg-clip-text text-transparent animate-pulse">{status}</span><span className="flex items-end gap-1" aria-hidden="true"><span className="h-1 w-1 animate-bounce rounded-full bg-primary [animation-delay:-0.3s]" /><span className="h-1 w-1 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" /><span className="h-1 w-1 animate-bounce rounded-full bg-primary" /></span></div>}
       {content && <MarkdownContent content={content} onCitation={sourceForCitation} />}
+      {attachments.filter((attachment) => attachment.kind === 'generated' && !attachment.preview_url).map((attachment) => <div key={attachment.id} className="mt-4 flex aspect-square max-w-xl items-center justify-center overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-muted via-card to-muted"><div className="flex items-center gap-2 text-sm text-muted-foreground"><Sparkles className="h-4 w-4 animate-pulse text-primary" />Finishing image preview…</div></div>)}
+      {attachments.filter((attachment) => attachment.kind === 'generated' && attachment.preview_url).map((attachment) => <div key={attachment.id} className="mt-4 max-w-xl overflow-hidden rounded-2xl border border-border bg-muted"><button type="button" onClick={() => onOpenAttachment?.(attachment)} className="block w-full"><img src={attachment.preview_url} alt={attachment.name} className="aspect-square w-full object-cover" /></button><div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground"><span>AI-generated image</span><button type="button" onClick={() => onOpenAttachment?.(attachment)} className="inline-flex items-center gap-1 hover:text-foreground"><Download className="h-3.5 w-3.5" />Open</button></div></div>)}
       {content && <div className="mt-3 flex items-center gap-1 text-muted-foreground">
         <button type="button" onClick={() => void copyAnswer()} className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs transition-colors hover:bg-muted hover:text-foreground" aria-label="Copy answer">{copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{copied ? 'Copied' : 'Copy'}</button>
         {sourceCount > 0 && <button type="button" onClick={() => setSourcesOpen((current) => !current)} className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs transition-colors hover:bg-muted hover:text-foreground" aria-expanded={sourcesOpen}><Library className="h-3.5 w-3.5" />Sources <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-foreground">{sourceCount}</span><ChevronDown className={`h-3.5 w-3.5 transition-transform ${sourcesOpen ? 'rotate-180' : ''}`} /></button>}

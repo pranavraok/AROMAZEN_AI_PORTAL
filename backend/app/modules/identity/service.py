@@ -20,8 +20,8 @@ DEFAULT_PERMISSIONS = [
     ("settings.manage", "Manage organization settings"),
 ]
 DEFAULT_ROLES = [
-    ("owner", "Owner", "Full platform control"),
-    ("super_admin", "Super Admin", "Organization administration"),
+    ("owner", "Super Admin", "Full platform control and highest-level administration"),
+    ("super_admin", "Admin", "Organization administration without Super Admin authority"),
     ("department_admin", "Department Admin", "Department administration"),
     ("employee", "Employee", "Standard employee access"),
 ]
@@ -91,5 +91,5 @@ async def bootstrap_owner(session: AsyncSession) -> None:
     session.add(owner)
     await session.flush()
     await session.execute(insert(user_roles).values(user_id=owner.id, role_id=owner_role.id))
-    session.add(AuditEvent(organization_id=organization.id, actor_user_id=owner.id, action="identity.owner_bootstrapped", target_type="user", target_id=str(owner.id), metadata_json={"email": owner.email}))
+    session.add(AuditEvent(organization_id=organization.id, actor_user_id=owner.id, action="identity.super_admin_bootstrapped", target_type="user", target_id=str(owner.id), metadata_json={"email": owner.email}))
     await session.commit()

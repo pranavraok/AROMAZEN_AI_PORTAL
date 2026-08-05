@@ -16,6 +16,9 @@ class CurrentUserResponse(BaseModel):
     role_names: list[str]
     permission_keys: list[str]
     status: str
+    organization_name: str
+    platform_name: str
+    theme: str
 
 
 class AuthResponse(BaseModel):

@@ -23,13 +23,14 @@ class Settings(BaseSettings):
     cookie_secure: bool = False
     bootstrap_owner_email: str | None = None
     bootstrap_owner_password: str | None = None
-    bootstrap_owner_name: str = "AROMAZEN Owner"
+    bootstrap_owner_name: str = "AROMAZEN Super Admin"
     upload_storage_path: str = "/data/uploads"
     max_upload_size_mb: int = 25
     openai_api_key: str | None = None
     openai_chat_model: str = "gpt-5.5"
     openai_embedding_model: str = "text-embedding-3-small"
     openai_transcription_model: str = "gpt-4o-mini-transcribe"
+    openai_image_model: str = "gpt-image-2"
     anthropic_api_key: str | None = None
     anthropic_default_model: str = "claude-sonnet-4-6"
     anthropic_fast_model: str = "claude-haiku-4-5"
@@ -41,6 +42,7 @@ class Settings(BaseSettings):
     ai_retrieval_limit: int = 6
     ai_chunk_size: int = 1200
     ai_chunk_overlap: int = 200
+    ai_max_chat_attachments: int = 8
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

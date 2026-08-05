@@ -37,7 +37,7 @@ export default function RndDocumentsPage() {
   const draftSequence = useRef(0)
   const finishRequestedRef = useRef(false)
   const selected = useMemo(() => templates.find((item) => item.id === templateId), [templateId, templates])
-  const canUseGenerator = user?.department_name === 'R&D' || user?.role_names.some((role) => role === 'Owner' || role === 'Super Admin')
+  const canUseGenerator = user?.department_name === 'R&D' || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
 
   useEffect(() => {
     if (!accessToken || !canUseGenerator) return
@@ -142,7 +142,7 @@ export default function RndDocumentsPage() {
   }
   async function downloadGenerated() { if (!accessToken || !generated) return; try { const file = await api.documentGenerator.download(accessToken, generated.id); saveFile(file.blob, file.filename) } catch (reason) { notify('error', reason instanceof ApiError ? reason.message : 'Unable to download the Word document.') } }
 
-  if (!canUseGenerator) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="max-w-md text-center"><h1 className="text-2xl font-semibold">Access restricted</h1><p className="mt-2 text-muted-foreground">Ready-Made R&D Documents are available only to the R&D department, Owner, and Super Admin.</p></div></main></AppLayout>
+  if (!canUseGenerator) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="max-w-md text-center"><h1 className="text-2xl font-semibold">Access restricted</h1><p className="mt-2 text-muted-foreground">Ready-Made R&D Documents are available only to the R&D department, Super Admin, and Admin.</p></div></main></AppLayout>
 
   return <AppLayout><div className="space-y-6 p-6"><PageHeader title="AI Draft Assistant" description="Speak naturally or type your notes. The assistant progressively fills the authorized COA or SDS template." />
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -168,7 +168,7 @@ export default function RndDocumentsPage() {
       </section>
 
       <aside className="space-y-4">
-        {schema?.can_edit_filename && <div className="rounded-lg border border-border bg-card p-5"><label className="text-sm font-semibold">Document filename</label><p className="mt-1 text-xs text-muted-foreground">Available to Owner and administrators.</p><div className="mt-3 flex items-center gap-2"><input value={outputFilename} onChange={(event) => setOutputFilename(event.target.value)} placeholder="Example: Orange Blossom COA" className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm" /><span className="text-xs text-muted-foreground">.docx</span></div></div>}
+        {schema?.can_edit_filename && <div className="rounded-lg border border-border bg-card p-5"><label className="text-sm font-semibold">Document filename</label><p className="mt-1 text-xs text-muted-foreground">Available to the Super Admin and administrators.</p><div className="mt-3 flex items-center gap-2"><input value={outputFilename} onChange={(event) => setOutputFilename(event.target.value)} placeholder="Example: Orange Blossom COA" className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm" /><span className="text-xs text-muted-foreground">.docx</span></div></div>}
         <div className="rounded-lg border border-border bg-card p-5"><h2 className="font-semibold">Excel entry</h2><p className="mt-1 text-sm text-muted-foreground">The COA Excel format already contains all constant test parameters.</p><Button variant="outline" onClick={() => void downloadExcel()} disabled={!templateId} className="mt-4 w-full"><Download className="mr-2 h-4 w-4" />Download Excel format</Button><label className="mt-3 flex cursor-pointer items-center justify-center rounded-md border border-dashed border-border p-5 text-center text-sm hover:bg-muted"><input type="file" accept=".xlsx" className="hidden" onChange={(event: ChangeEvent<HTMLInputElement>) => setExcel(event.target.files?.[0] ?? null)} /><span><Upload className="mx-auto mb-2 h-5 w-5" />{excel?.name ?? 'Choose filled XLSX file'}</span></label></div>
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm"><p className="font-medium">Review before issue</p><p className="mt-1 text-muted-foreground">The AI only organizes stated facts. Missing information remains blank, and SDS regulatory information still requires qualified review.</p></div>
         <Button onClick={() => void generate()} disabled={busy || drafting || !schema} className="w-full"><FileOutput className="mr-2 h-4 w-4" />{busy ? 'Creating Word file…' : 'Generate Word document'}</Button>

@@ -20,6 +20,10 @@ import type {
   DocumentTemplateSchema,
   GeneratedDocument,
   DocumentDraftUpdate,
+  OrganizationSettings,
+  ChatAttachment,
+  ChatConversation,
+  ChatMessage,
 } from './types'
 
 export const api = {
@@ -30,7 +34,11 @@ export const api = {
     me: (accessToken: string) => apiRequest<CurrentUser>('/auth/me', { headers: { Authorization: `Bearer ${accessToken}` } }),
   },
   dashboard: {
-    overview: () => apiRequest<DashboardOverview>('/dashboard/overview'),
+    overview: (accessToken: string) => apiRequest<DashboardOverview>('/dashboard/overview', { headers: { Authorization: `Bearer ${accessToken}` } }),
+  },
+  settings: {
+    get: (accessToken: string) => apiRequest<OrganizationSettings>('/settings', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    update: (accessToken: string, payload: Pick<OrganizationSettings, 'organization_name' | 'platform_name' | 'theme' | 'default_ai_provider' | 'session_timeout_minutes' | 'timezone'>) => apiRequest<OrganizationSettings>('/settings', { method: 'PUT', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
   },
   knowledge: {
     collections: (accessToken: string) => apiRequest<KnowledgeCollection[]>('/knowledge/collections', { headers: { Authorization: `Bearer ${accessToken}` } }),
@@ -43,6 +51,12 @@ export const api = {
     streamMessage: (accessToken: string, payload: CreateChatMessageRequest) =>
       apiStreamRequest('/workspace/messages/stream', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
     usageSummary: (accessToken: string) => apiRequest<UsageSummary>('/workspace/usage/summary', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    conversations: (accessToken: string) => apiRequest<ChatConversation[]>('/workspace/conversations', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    messages: (accessToken: string, conversationId: string) => apiRequest<ChatMessage[]>(`/workspace/conversations/${conversationId}/messages`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    renameConversation: (accessToken: string, conversationId: string, title: string) => apiRequest<ChatConversation>(`/workspace/conversations/${conversationId}`, { method: 'PATCH', body: { title }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    deleteConversation: (accessToken: string, conversationId: string) => apiRequest<void>(`/workspace/conversations/${conversationId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }),
+    uploadAttachment: (accessToken: string, file: File) => apiRequest<ChatAttachment>('/workspace/attachments', { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form })(), headers: { Authorization: `Bearer ${accessToken}` } }),
+    attachmentContentUrl: (attachmentId: string) => `/api/v1/workspace/attachments/${attachmentId}/content`,
   },
   documentGenerator: {
     templates: (accessToken: string) => apiRequest<DocumentTemplate[]>('/document-generator/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),

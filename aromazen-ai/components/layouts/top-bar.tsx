@@ -2,6 +2,7 @@
 
 import { Menu, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useAuth } from '@/components/auth/auth-provider'
 
 interface TopBarProps {
   sidebarOpen: boolean
@@ -9,6 +10,8 @@ interface TopBarProps {
 }
 
 export function TopBar({ sidebarOpen, onSidebarToggle }: TopBarProps) {
+  const { user } = useAuth()
+  const initials = user?.full_name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'AZ'
   return (
     <header className="h-16 border-b border-border bg-card/50 backdrop-blur-sm flex items-center gap-4 px-6">
       {/* Menu toggle */}
@@ -36,7 +39,7 @@ export function TopBar({ sidebarOpen, onSidebarToggle }: TopBarProps) {
 
       {/* User avatar (placeholder) */}
       <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-xs font-bold text-primary">
-        PR
+        {initials}
       </div>
     </header>
   )

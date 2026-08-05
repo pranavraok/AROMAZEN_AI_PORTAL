@@ -12,6 +12,7 @@ type AuthContextValue = {
   isLoading: boolean
   signIn: (payload: LoginRequest) => Promise<void>
   signOut: () => Promise<void>
+  refreshProfile: () => Promise<void>
   hasPermission: (permission: string) => boolean
 }
 
@@ -31,6 +32,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { active = false }
   }, [])
 
+  useEffect(() => {
+    if (!user) return
+    const dark = user.theme === 'dark' || (user.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    document.documentElement.classList.toggle('dark', dark)
+    document.documentElement.classList.toggle('light', !dark)
+  }, [user])
+
   const signIn = useCallback(async (payload: LoginRequest) => {
     const session = await api.auth.login(payload)
     setUser(session.user)
@@ -41,10 +49,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try { await api.auth.logout() } finally { setUser(null); setAccessToken(null) }
   }, [])
 
+  const refreshProfile = useCallback(async () => {
+    if (!accessToken) return
+    setUser(await api.auth.me(accessToken))
+  }, [accessToken])
+
   const value = useMemo(() => ({
-    user, accessToken, isLoading, signIn, signOut,
+    user, accessToken, isLoading, signIn, signOut, refreshProfile,
     hasPermission: (permission: string) => user?.permission_keys.includes(permission) ?? false,
-  }), [accessToken, isLoading, signIn, signOut, user])
+  }), [accessToken, isLoading, refreshProfile, signIn, signOut, user])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
@@ -59,6 +72,7 @@ const routePermissions: Record<string, string | undefined> = {
   '/workspace': 'ai.workspace.use', '/knowledge': 'knowledge.read',
   '/rnd/documents': 'ai.workspace.use',
   '/admin/usage': 'usage.read', '/admin/users': 'users.manage', '/admin/access': 'roles.manage',
+  '/settings': 'settings.manage',
 }
 
 export function RequireAuthenticatedApp({ children }: { children: React.ReactNode }) {

@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 from dataclasses import dataclass, field
 from typing import AsyncIterator
@@ -23,6 +24,13 @@ class ProviderEvent:
 class EmbeddingResult:
     vectors: list[list[float]]
     input_tokens: int
+
+
+@dataclass(slots=True)
+class ImageGenerationResult:
+    image_bytes: bytes
+    model: str
+    mime_type: str = "image/png"
 
 
 class ProviderError(RuntimeError):
@@ -66,14 +74,20 @@ class OpenAIProvider:
     def available(self) -> bool:
         return bool(self.settings.openai_api_key)
 
-    async def stream(self, system: str, prompt: str, *, use_web_search: bool = False) -> AsyncIterator[ProviderEvent]:
+    async def stream(self, system: str, prompt: str, *, use_web_search: bool = False, images: list[dict[str, str]] | None = None) -> AsyncIterator[ProviderEvent]:
         if not self.settings.openai_api_key:
             raise ProviderError(self.name, "not_configured", "OpenAI is not configured.")
         headers = {"Authorization": f"Bearer {self.settings.openai_api_key}", "Content-Type": "application/json"}
+        input_content: str | list[dict[str, str]] = prompt
+        if images:
+            input_content = [{"type": "input_text", "text": prompt}] + [
+                {"type": "input_image", "image_url": f"data:{image['mime_type']};base64,{image['data']}"}
+                for image in images
+            ]
         payload = {
             "model": self.model,
             "instructions": system,
-            "input": prompt,
+            "input": input_content if isinstance(input_content, str) else [{"role": "user", "content": input_content}],
             "max_output_tokens": self.settings.ai_max_output_tokens,
             "reasoning": {"effort": "low"},
             "stream": True,
@@ -140,7 +154,7 @@ class AnthropicProvider:
     def available(self) -> bool:
         return bool(self.settings.anthropic_api_key)
 
-    async def stream(self, system: str, prompt: str) -> AsyncIterator[ProviderEvent]:
+    async def stream(self, system: str, prompt: str, *, images: list[dict[str, str]] | None = None) -> AsyncIterator[ProviderEvent]:
         if not self.settings.anthropic_api_key:
             raise ProviderError(self.name, "not_configured", "Anthropic is not configured.")
         headers = {
@@ -148,11 +162,17 @@ class AnthropicProvider:
             "anthropic-version": "2023-06-01",
             "Content-Type": "application/json",
         }
+        message_content: str | list[dict] = prompt
+        if images:
+            message_content = [
+                {"type": "image", "source": {"type": "base64", "media_type": image["mime_type"], "data": image["data"]}}
+                for image in images
+            ] + [{"type": "text", "text": prompt}]
         payload = {
             "model": self.model,
             "max_tokens": self.settings.ai_max_output_tokens,
             "system": system,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": message_content}],
             "stream": True,
         }
         input_tokens = 0
@@ -207,6 +227,33 @@ class OpenAIEmbeddings:
             raise ProviderError("openai", "network_timeout", "OpenAI embeddings did not respond in time.", retryable=True) from error
 
 
+class OpenAIImageGenerator:
+    name = "openai"
+
+    def __init__(self, settings: Settings | None = None):
+        self.settings = settings or get_settings()
+        self.model = self.settings.openai_image_model
+
+    async def generate(self, prompt: str) -> ImageGenerationResult:
+        if not self.settings.openai_api_key:
+            raise ProviderError(self.name, "not_configured", "OpenAI image generation is not configured.")
+        headers = {"Authorization": f"Bearer {self.settings.openai_api_key}", "Content-Type": "application/json"}
+        payload = {"model": self.model, "prompt": prompt, "size": "1024x1024", "quality": "low", "n": 1}
+        try:
+            async with httpx.AsyncClient(timeout=_timeouts(self.settings)) as client:
+                response = await client.post("https://api.openai.com/v1/images/generations", headers=headers, json=payload)
+            if response.status_code >= 400:
+                raise ProviderError(self.name, f"http_{response.status_code}", "OpenAI image generation failed.", retryable=response.status_code in {408, 409, 429} or response.status_code >= 500)
+            encoded = str(((response.json().get("data") or [{}])[0]).get("b64_json") or "")
+            if not encoded:
+                raise ProviderError(self.name, "invalid_image_response", "OpenAI returned no image.")
+            return ImageGenerationResult(image_bytes=base64.b64decode(encoded), model=self.model)
+        except ProviderError:
+            raise
+        except (httpx.TimeoutException, httpx.NetworkError) as error:
+            raise ProviderError(self.name, "network_timeout", "OpenAI image generation did not respond in time.", retryable=True) from error
+
+
 class AIProviderRouter:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
@@ -234,7 +281,7 @@ class AIProviderRouter:
         fallback = openai if primary.name == "anthropic" else sonnet
         return [primary] + ([fallback] if fallback.available and (fallback.name, fallback.model) != (primary.name, primary.model) else [])
 
-    async def stream(self, system: str, prompt: str, question: str, *, use_web_search: bool = False) -> AsyncIterator[ProviderEvent]:
+    async def stream(self, system: str, prompt: str, question: str, *, use_web_search: bool = False, images: list[dict[str, str]] | None = None) -> AsyncIterator[ProviderEvent]:
         providers = self._providers(question, use_web_search=use_web_search)
         if not providers:
             raise ProviderError("router", "no_provider", "No AI provider is configured.")
@@ -245,9 +292,9 @@ class AIProviderRouter:
                 emitted_text = False
                 try:
                     if isinstance(provider, OpenAIProvider):
-                        event_stream = provider.stream(system, prompt, use_web_search=use_web_search)
+                        event_stream = provider.stream(system, prompt, use_web_search=use_web_search, images=images)
                     else:
-                        event_stream = provider.stream(system, prompt)
+                        event_stream = provider.stream(system, prompt, images=images)
                     async for event in event_stream:
                         if event.kind == "delta" and event.text:
                             emitted_text = True

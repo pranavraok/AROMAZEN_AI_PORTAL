@@ -116,6 +116,36 @@
   --sidebar-ring: oklch(0.65 0.15 60);
 }
 
+.light {
+  color-scheme: light;
+  --background: oklch(0.98 0.004 80);
+  --foreground: oklch(0.20 0.01 60);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.20 0.01 60);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.20 0.01 60);
+  --primary: oklch(0.55 0.16 55);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.94 0.01 75);
+  --secondary-foreground: oklch(0.25 0.01 60);
+  --muted: oklch(0.94 0.01 75);
+  --muted-foreground: oklch(0.48 0.02 60);
+  --accent: oklch(0.90 0.04 70);
+  --accent-foreground: oklch(0.24 0.02 55);
+  --destructive: oklch(0.55 0.22 27);
+  --border: oklch(0.87 0.01 70);
+  --input: oklch(0.90 0.01 70);
+  --ring: oklch(0.55 0.16 55);
+  --sidebar: oklch(0.96 0.01 75);
+  --sidebar-foreground: oklch(0.22 0.01 60);
+  --sidebar-primary: oklch(0.55 0.16 55);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.90 0.04 70);
+  --sidebar-accent-foreground: oklch(0.24 0.02 55);
+  --sidebar-border: oklch(0.87 0.01 70);
+  --sidebar-ring: oklch(0.55 0.16 55);
+}
+
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     color-scheme: dark;
@@ -159,5 +189,11 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .control {
+    @apply w-full rounded-lg border border-input bg-muted px-4 py-2 text-foreground outline-none transition focus:ring-2 focus:ring-primary/50;
   }
 }
