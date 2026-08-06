@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     ai_chunk_size: int = 1200
     ai_chunk_overlap: int = 200
     ai_max_chat_attachments: int = 8
+    zoho_smtp_host: str = "smtp.zoho.in"
+    zoho_smtp_port: int = 587
+    zoho_smtp_username: str | None = None
+    zoho_smtp_password: str | None = None
+    zoho_from_email: str | None = None
+    zoho_from_name: str = "AROMAZEN INDIA"
+    usd_to_inr_fallback_rate: float = 95.0
+    currency_rate_cache_seconds: int = 3600
+    usd_to_inr_fallback_rate: float = 87.0
+    currency_rate_cache_seconds: int = 3600
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

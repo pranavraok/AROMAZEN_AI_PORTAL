@@ -21,13 +21,13 @@ DEFAULT_PERMISSIONS = [
 ]
 DEFAULT_ROLES = [
     ("owner", "Super Admin", "Full platform control and highest-level administration"),
-    ("super_admin", "Admin", "Organization administration without Super Admin authority"),
+    ("super_admin", "Admin", "Full organization administration with protected Super Admin safeguards"),
     ("department_admin", "Department Admin", "Department administration"),
     ("employee", "Employee", "Standard employee access"),
 ]
 ROLE_PERMISSION_KEYS = {
     "owner": {key for key, _ in DEFAULT_PERMISSIONS},
-    "super_admin": {"users.manage", "roles.manage", "knowledge.read", "knowledge.write", "ai.workspace.use", "usage.read", "departments.manage", "audit.read", "settings.manage"},
+    "super_admin": {key for key, _ in DEFAULT_PERMISSIONS},
     "department_admin": {"users.manage", "knowledge.read", "knowledge.write", "ai.workspace.use", "audit.read"},
     "employee": {"knowledge.read", "ai.workspace.use"},
 }

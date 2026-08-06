@@ -34,13 +34,13 @@ export function LoginForm() {
     }
   }
 
-  return <form action={onSubmit} className="space-y-6 bg-card rounded-lg border border-border p-8">
-    <div><label htmlFor="email" className="block text-sm font-medium text-foreground mb-2">Email</label><input id="email" name="email" type="email" autoComplete="email" required placeholder="you@aromazen.com" className="w-full px-4 py-2 rounded-lg bg-muted border border-input text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" /></div>
-    <div><label htmlFor="password" className="block text-sm font-medium text-foreground mb-2">Password</label><input id="password" name="password" type="password" autoComplete="current-password" required placeholder="Password" className="w-full px-4 py-2 rounded-lg bg-muted border border-input text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" /></div>
-    <div><label htmlFor="phone_number" className="block text-sm font-medium text-foreground mb-2">Phone number <span className="text-muted-foreground">(only if this email is shared)</span></label><input id="phone_number" name="phone_number" type="tel" autoComplete="tel" placeholder="With country code, e.g. 919876543210" className="w-full px-4 py-2 rounded-lg bg-muted border border-input text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" /></div>
-    <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer"><input name="remember_me" type="checkbox" className="w-4 h-4 rounded border-input focus:ring-2 focus:ring-primary/50" />Remember me for 30 days</label>
+  return <form action={onSubmit} className="space-y-5">
+    <div><label htmlFor="email" className="mb-2 block text-xs font-medium text-foreground">Work email</label><input id="email" name="email" type="email" autoComplete="email" required placeholder="you@aromazen.com" className="h-12 w-full rounded-xl border border-input bg-muted/55 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/30 focus:bg-muted focus:outline-none" /></div>
+    <div><label htmlFor="password" className="mb-2 block text-xs font-medium text-foreground">Password</label><input id="password" name="password" type="password" autoComplete="current-password" required placeholder="Enter your password" className="h-12 w-full rounded-xl border border-input bg-muted/55 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/30 focus:bg-muted focus:outline-none" /></div>
+    <div><label htmlFor="phone_number" className="mb-2 block text-xs font-medium text-foreground">Phone number <span className="font-normal text-muted-foreground">— for shared emails only</span></label><input id="phone_number" name="phone_number" type="tel" autoComplete="tel" placeholder="Country code and phone number" className="h-12 w-full rounded-xl border border-input bg-muted/55 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/30 focus:bg-muted focus:outline-none" /></div>
+    <label className="flex cursor-pointer items-center gap-2.5 text-xs text-muted-foreground"><input name="remember_me" type="checkbox" className="h-4 w-4 rounded border-input focus:ring-2 focus:ring-primary/20" />Keep me signed in for 30 days</label>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    <Button type="submit" disabled={isSubmitting} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium py-2 rounded-lg">{isSubmitting ? 'Signing in...' : 'Sign In'}</Button>
-    <p className="text-center text-xs text-muted-foreground border-t border-border pt-4">Internal employee access only</p>
+    <Button type="submit" disabled={isSubmitting} className="h-12 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground hover:bg-primary/90">{isSubmitting ? 'Signing in…' : 'Continue to workspace'}</Button>
+    <p className="border-t border-border pt-5 text-center text-[11px] text-muted-foreground">Protected access for Aromazen employees</p>
   </form>
 }

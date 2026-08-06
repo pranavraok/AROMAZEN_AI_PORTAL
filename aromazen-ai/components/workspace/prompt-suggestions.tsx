@@ -10,15 +10,15 @@ const suggestionIcons: Record<string, React.ReactNode> = {
 }
 
 interface PromptSuggestionsProps {
-  suggestions: Array<{ icon: string; text: string; description?: string; href?: string; mode?: 'chat' | 'image' }>
-  onSelect?: (text: string, mode: 'chat' | 'image') => void
+  suggestions: Array<{ icon: string; text: string; description?: string; href?: string; mode?: 'chat' | 'image' | 'email' }>
+  onSelect?: (text: string, mode: 'chat' | 'image' | 'email') => void
 }
 
 export function PromptSuggestions({ suggestions, onSelect }: PromptSuggestionsProps) {
   return <div className="grid grid-cols-1 gap-3 md:grid-cols-2">{suggestions.map((suggestion, index) => {
-    const card = <button type="button" onClick={() => { if (!suggestion.href) onSelect?.(suggestion.text, suggestion.mode ?? 'chat') }} className="group flex h-full w-full items-start gap-3 rounded-2xl border border-border/80 bg-card/70 p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/45 hover:bg-card hover:shadow-lg">
-      <div className="mt-0.5 shrink-0 text-primary/60 transition-colors group-hover:text-primary">{suggestionIcons[suggestion.icon]}</div>
-      <div className="min-w-0 flex-1"><p className="text-sm font-medium text-foreground transition-colors group-hover:text-primary">{suggestion.text}</p>{suggestion.description && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{suggestion.description}</p>}</div>
+    const card = <button type="button" onClick={() => { if (!suggestion.href) onSelect?.(suggestion.text, suggestion.mode ?? 'chat') }} className="group flex h-full w-full items-start gap-3 rounded-2xl border border-border/80 bg-card/55 p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-white/15 hover:bg-card hover:shadow-[0_16px_35px_rgba(0,0,0,.2)]">
+      <div className="mt-0.5 shrink-0 rounded-lg bg-muted p-2 text-muted-foreground transition-colors group-hover:text-foreground">{suggestionIcons[suggestion.icon]}</div>
+      <div className="min-w-0 flex-1"><p className="text-sm font-medium leading-5 text-foreground">{suggestion.text}</p>{suggestion.description && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{suggestion.description}</p>}</div>
       <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
     </button>
     return suggestion.href ? <Link key={suggestion.text} href={suggestion.href}>{card}</Link> : <div key={`${suggestion.text}-${index}`}>{card}</div>

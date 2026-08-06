@@ -17,7 +17,15 @@ class OrganizationSettingsResponse(BaseModel):
     default_ai_provider: str
     session_timeout_minutes: int
     timezone: str
+    daily_ai_request_limit: int
+    monthly_ai_request_limit: int
+    monthly_ai_cost_limit_inr: float
+    currency: str
+    usd_to_inr_rate: float
+    exchange_rate_source: str
+    exchange_rate_updated_at: datetime
     providers: list[ProviderStatus]
+    zoho_email_connected: bool
     storage_bytes: int
     knowledge_documents: int
     generated_documents: int
@@ -32,3 +40,6 @@ class UpdateOrganizationSettingsRequest(BaseModel):
     default_ai_provider: str = Field(pattern="^(openai|anthropic)$")
     session_timeout_minutes: int = Field(ge=30, le=1440)
     timezone: str = Field(min_length=2, max_length=80)
+    daily_ai_request_limit: int = Field(ge=1, le=100000)
+    monthly_ai_request_limit: int = Field(ge=1, le=1000000)
+    monthly_ai_cost_limit_inr: float = Field(ge=1, le=100000000)

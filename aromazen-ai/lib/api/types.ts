@@ -71,6 +71,23 @@ export interface ChatMessage {
   citations: ChatCitation[]
   web_sources?: { title: string; url: string }[]
   attachments?: ChatAttachment[]
+  artifacts?: ChatArtifacts
+}
+
+export interface EmailDraft {
+  to: string[]
+  cc: string[]
+  bcc: string[]
+  subject: string
+  body: string
+  attachment_ids: string[]
+  status: 'draft' | 'sent'
+  sent_at?: string
+}
+
+export interface ChatArtifacts {
+  usage?: UsageSummary
+  email?: EmailDraft
 }
 
 export interface ChatAttachment {
@@ -98,14 +115,30 @@ export interface CreateChatMessageRequest {
   conversation_id?: string | null
   collection_ids: string[]
   attachment_ids?: string[]
-  mode?: 'chat' | 'image'
+  mode?: 'chat' | 'image' | 'email'
 }
 
+export interface SendEmailRequest extends Omit<EmailDraft, 'status' | 'sent_at'> { message_id: string }
+
 export interface UsageSummary {
+  currency: 'INR'
+  usd_to_inr_rate: number
+  exchange_rate_source: string
+  exchange_rate_updated_at: string
+  range: { date_from: string; date_to: string }
   totals: { cost: number; requests: number; input_tokens: number; output_tokens: number }
   providers: { provider: string; model: string; requests: number; input_tokens: number; output_tokens: number; cost: number }[]
   departments: { department: string; requests: number; cost: number }[]
   users: { name: string; department: string; provider: string; model: string; requests: number; cost: number }[]
+  timeseries: { date: string; requests: number; cost: number; tokens: number }[]
+}
+
+export interface UsageNotification {
+  id: string
+  title: string
+  message: string
+  severity: 'warning' | 'critical'
+  created_at: string
 }
 
 export interface DocumentTemplate { id: string; name: string; collection_name: string; document_type: 'coa' | 'sds' }
@@ -115,6 +148,10 @@ export interface GeneratedDocument { id: string; filename: string; status: 'draf
 export interface DocumentDraftUpdate { field_updates: Record<string, string>; row_updates: Record<string, string>[]; unassigned_notes: string; provider: string; model: string }
 
 export interface DashboardOverview {
+  currency: 'INR'
+  usd_to_inr_rate: number
+  exchange_rate_source: string
+  exchange_rate_updated_at: string
   role_key: 'owner' | 'super_admin' | 'department_admin' | 'employee'
   role_label: 'Super Admin' | 'Admin' | 'Department Admin' | 'Employee'
   scope: 'platform' | 'organization' | 'department' | 'personal'
@@ -208,7 +245,15 @@ export interface OrganizationSettings {
   default_ai_provider: 'openai' | 'anthropic'
   session_timeout_minutes: number
   timezone: string
+  daily_ai_request_limit: number
+  monthly_ai_request_limit: number
+  monthly_ai_cost_limit_inr: number
+  currency: 'INR'
+  usd_to_inr_rate: number
+  exchange_rate_source: string
+  exchange_rate_updated_at: string
   providers: { key: 'openai' | 'anthropic'; name: string; connected: boolean; models: string[] }[]
+  zoho_email_connected: boolean
   storage_bytes: number
   knowledge_documents: number
   generated_documents: number

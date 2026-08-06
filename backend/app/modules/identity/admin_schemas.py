@@ -24,7 +24,9 @@ class RoleResponse(BaseModel):
 class AdminUserResponse(BaseModel):
     id: str
     full_name: str
-    email: EmailStr
+    # Existing imported or QA records may predate strict email validation.
+    # Keep write schemas strict while ensuring one legacy row cannot break the admin list.
+    email: str
     phone_number: str | None
     status: str
     department: DepartmentResponse | None

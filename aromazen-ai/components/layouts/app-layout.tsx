@@ -17,14 +17,14 @@ export function AppLayout({
   showSidebar = true,
   showTopBar = true,
 }: AppLayoutProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
-    <RequireAuthenticatedApp><div className="flex h-screen bg-background">
+    <RequireAuthenticatedApp><div className="app-shell flex h-screen bg-background">
       {showSidebar && <Sidebar open={sidebarOpen} onToggle={setSidebarOpen} />}
       <div className="flex-1 flex flex-col overflow-hidden">
         {showTopBar && <TopBar sidebarOpen={sidebarOpen} onSidebarToggle={setSidebarOpen} />}
-        <main className="flex-1 overflow-auto">
+        <main className="app-main flex-1 overflow-auto">
           {children}
         </main>
       </div>

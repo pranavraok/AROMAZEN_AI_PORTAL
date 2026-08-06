@@ -5,6 +5,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
+from app.core.currency import usd_to_inr, usd_to_inr_rate
 from app.modules.dashboard.schemas import (
     DashboardActivity,
     DashboardDepartmentUsage,
@@ -86,6 +87,7 @@ async def dashboard_overview(
             func.count(AIUsageEvent.id).filter(and_(AIUsageEvent.created_at >= month_start, AIUsageEvent.operation == "chat")).label("requests_month"),
         ).where(*usage_filters)
     )).one()
+    exchange_rate = await usd_to_inr_rate()
     active_users = await session.scalar(select(func.count(User.id)).where(*user_filters, User.status == "active")) or 0
     accessible_collection_filter = _collection_scope(user, scope)
     indexed_documents = await session.scalar(
@@ -98,7 +100,7 @@ async def dashboard_overview(
     ) or 0
 
     metrics = [
-        DashboardMetric(key="ai_cost_today", label="AI Cost Today", value=float(usage.cost_today), format="currency"),
+        DashboardMetric(key="ai_cost_today", label="AI Cost Today", value=usd_to_inr(float(usage.cost_today), exchange_rate), format="currency"),
         DashboardMetric(key="ai_requests_month", label="AI Requests This Month", value=float(usage.requests_month)),
         DashboardMetric(key="documents_indexed", label="Indexed Documents", value=float(indexed_documents)),
         DashboardMetric(
@@ -122,7 +124,7 @@ async def dashboard_overview(
             .group_by(Department.name)
             .order_by(func.sum(AIUsageEvent.cost_usd).desc())
         )).all()
-        department_usage = [DashboardDepartmentUsage(department=row.department, requests=int(row.requests), cost=float(row.cost)) for row in rows]
+        department_usage = [DashboardDepartmentUsage(department=row.department, requests=int(row.requests), cost=usd_to_inr(float(row.cost), exchange_rate)) for row in rows]
 
     documents_query = (
         select(KnowledgeDocument, KnowledgeCollection.name, User.full_name)
@@ -156,6 +158,8 @@ async def dashboard_overview(
     ) for event, actor, department_name in activity_rows]
 
     return DashboardOverview(
+        currency="INR", usd_to_inr_rate=exchange_rate.rate, exchange_rate_source=exchange_rate.source,
+        exchange_rate_updated_at=exchange_rate.updated_at,
         role_key=role_key, role_label=role_label, scope=scope, scope_label=scope_label,
         capabilities=CAPABILITIES[role_key], metrics=metrics, department_usage=department_usage,
         recent_documents=recent_documents, recent_activity=recent_activity,

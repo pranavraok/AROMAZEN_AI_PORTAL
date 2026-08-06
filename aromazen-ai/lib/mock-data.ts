@@ -40,7 +40,7 @@ export const mockRoles = [
 ]
 
 export const mockUsageData = {
-  currentMonth: { cost: '$12,847.50', requests: 18523, inputTokens: 2847392, outputTokens: 1523847 },
+  currentMonth: { cost: '₹11,17,732.50', requests: 18523, inputTokens: 2847392, outputTokens: 1523847 },
   costByDepartment: [
     { department: 'R&D', cost: 4240, requests: 6234 },
     { department: 'Production', cost: 3580, requests: 5126 },
@@ -49,11 +49,11 @@ export const mockUsageData = {
     { department: 'Sourcing', cost: 827, requests: 1100 },
   ],
   employeeUsage: [
-    { name: 'Sarah Chen', department: 'R&D', model: 'GPT-4', requests: 342, cost: '$287.45' },
-    { name: 'Marcus Rodriguez', department: 'Production', model: 'GPT-4', requests: 298, cost: '$251.20' },
-    { name: 'Pranav Raok', department: 'AI Labs', model: 'GPT-4', requests: 267, cost: '$224.85' },
-    { name: 'Emma Watson', department: 'Marketing', model: 'GPT-3.5', requests: 189, cost: '$45.32' },
-    { name: 'David Kim', department: 'R&D', model: 'GPT-4', requests: 156, cost: '$131.40' },
+    { name: 'Sarah Chen', department: 'R&D', model: 'GPT-4', requests: 342, cost: '₹25,008.15' },
+    { name: 'Marcus Rodriguez', department: 'Production', model: 'GPT-4', requests: 298, cost: '₹21,854.40' },
+    { name: 'Pranav Raok', department: 'AI Labs', model: 'GPT-4', requests: 267, cost: '₹19,561.95' },
+    { name: 'Emma Watson', department: 'Marketing', model: 'GPT-3.5', requests: 189, cost: '₹3,942.84' },
+    { name: 'David Kim', department: 'R&D', model: 'GPT-4', requests: 156, cost: '₹11,431.80' },
   ],
 }
 

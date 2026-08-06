@@ -1,7 +1,7 @@
 'use client'
 
 import { Suspense, useEffect, useRef, useState } from 'react'
-import { MoreHorizontal } from 'lucide-react'
+import { AlertTriangle, LockKeyhole, Mail, X } from 'lucide-react'
 import { useSearchParams } from 'next/navigation'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { ChatMessage } from '@/components/workspace/chat-message'
@@ -10,20 +10,22 @@ import { PromptSuggestions } from '@/components/workspace/prompt-suggestions'
 import { useAuth } from '@/components/auth/auth-provider'
 import { useToast } from '@/components/ui/toast-provider'
 import { api } from '@/lib/api/services'
-import type { ChatAttachment, ChatCitation, ChatMessage as ChatMessageDto, CurrentUser, KnowledgeCollection } from '@/lib/api/types'
+import type { ChatAttachment, ChatCitation, ChatMessage as ChatMessageDto, CurrentUser, EmailDraft, KnowledgeCollection, UsageSummary } from '@/lib/api/types'
 import { ApiError } from '@/lib/api/client'
+import { BrandMark } from '@/components/brand-mark'
+import { Button } from '@/components/ui/button'
 
-type Suggestion = { icon: string; text: string; description?: string; href?: string; mode?: 'chat' | 'image' }
+type Suggestion = { icon: string; text: string; description?: string; href?: string; mode?: 'chat' | 'image' | 'email' }
 type WebSource = { title: string; url: string }
 type WorkspaceMessage = ChatMessageDto & { web_sources?: WebSource[]; attachments?: ChatAttachment[] }
-type StreamPayload = { conversation_id?: string; message_id?: string; message?: string; text?: string; citations?: ChatCitation[]; sources?: WebSource[]; code?: string; attachment?: ChatAttachment }
+type StreamPayload = { conversation_id?: string; message_id?: string; message?: string; text?: string; citations?: ChatCitation[]; sources?: WebSource[]; code?: string; attachment?: ChatAttachment; usage?: UsageSummary; email?: EmailDraft }
 
 function suggestionsFor(user: CurrentUser | null): Suggestion[] {
   if (!user) return []
   const permissions = new Set(user.permission_keys)
   const isPlatformAdmin = permissions.has('settings.manage') || user.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
   if (isPlatformAdmin) return [
-    { icon: 'BarChart3', text: 'Review AI usage and costs', description: 'See provider, model, user, and department usage.', href: '/admin/usage' },
+    { icon: 'BarChart3', text: 'Show overall API usage in a graph', description: 'See real provider, token, request, and cost activity.' },
     { icon: 'Users', text: 'Manage users and access', description: 'Invite employees and review role access.', href: '/admin/users' },
     { icon: 'FileOutput', text: 'R&D AI Draft Assistant', description: 'Create COA and SDS Word documents.', href: '/rnd/documents' },
     { icon: 'BookOpenCheck', text: 'Summarise the company knowledge I can access' },
@@ -32,7 +34,7 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
     { icon: 'Users', text: 'Manage my department team', description: 'Review employees in your permitted scope.', href: '/admin/users' },
     ...(user.department_name === 'R&D' ? [{ icon: 'FileOutput', text: 'R&D AI Draft Assistant', description: 'Create COA and SDS Word documents.', href: '/rnd/documents' }] : [{ icon: 'BookOpenCheck', text: `Summarise the latest ${user.department_name ?? 'department'} documents` }]),
     { icon: 'ListChecks', text: `Create a weekly action plan for ${user.department_name ?? 'my department'}` },
-    { icon: 'Mail', text: 'Draft a clear update for my department team' },
+    { icon: 'Mail', text: 'Draft a clear update for my department team', mode: 'email' },
   ]
   const department = user.department_name ?? ''
   if (department === 'R&D') return [
@@ -44,12 +46,12 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
   if (department === 'Production') return [
     { icon: 'ClipboardList', text: 'Find the production SOP for batch mixing' },
     { icon: 'ListChecks', text: 'Create a production quality checklist' },
-    { icon: 'Mail', text: 'Draft a professional shift handover note' },
+    { icon: 'Mail', text: 'Draft a professional shift handover note', mode: 'email' },
     { icon: 'BookOpenCheck', text: 'Summarise the production documents I can access' },
   ]
   if (department === 'Accounts & HR') return [
     { icon: 'BookOpenCheck', text: 'Explain the HR policies I can access' },
-    { icon: 'Mail', text: 'Draft a professional employee communication' },
+    { icon: 'Mail', text: 'Draft a professional employee communication', mode: 'email' },
     { icon: 'ListChecks', text: 'Create a monthly accounts closing checklist' },
     { icon: 'FileText', text: 'Summarise a policy or report I attach' },
   ]
@@ -62,7 +64,7 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
   if (department === 'Stores' || department === 'Sourcing') return [
     { icon: 'Boxes', text: 'Create an inventory review checklist' },
     { icon: 'Scale', text: 'Compare two suppliers or raw materials' },
-    { icon: 'Mail', text: 'Draft a professional vendor enquiry' },
+    { icon: 'Mail', text: 'Draft a professional vendor enquiry', mode: 'email' },
     { icon: 'BookOpenCheck', text: 'Summarise the SOPs I can access' },
   ]
   if (department === 'AI Lab' || department === 'Creation Lab') return [
@@ -73,7 +75,7 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
   ]
   return [
     { icon: 'BookOpenCheck', text: 'Summarise the documents I can access' },
-    { icon: 'Mail', text: 'Draft a professional email' },
+    { icon: 'Mail', text: 'Draft a professional email', mode: 'email' },
     { icon: 'ListChecks', text: 'Create a clear action plan' },
     { icon: 'Sparkles', text: 'Help me analyse an idea' },
   ]
@@ -113,8 +115,11 @@ function WorkspaceContent() {
   const [stage, setStage] = useState<string | null>(null)
   const [collections, setCollections] = useState<KnowledgeCollection[]>([])
   const [knowledgeScope, setKnowledgeScope] = useState('auto')
+  const [pendingEmail, setPendingEmail] = useState<{ messageId: string; draft: EmailDraft } | null>(null)
+  const [sendingEmail, setSendingEmail] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const suggestions = suggestionsFor(user)
+  const firstName = user?.full_name?.split(/\s+/)[0] ?? 'there'
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: isSending ? 'smooth' : 'auto', block: 'end' }) }, [isSending, messages, stage])
   useEffect(() => {
@@ -189,10 +194,22 @@ function WorkspaceContent() {
     catch (error) { notify('error', error instanceof ApiError ? error.message : `Unable to upload ${file.name}.`); return null }
   }
 
-  async function sendMessage(content: string, attachments: ChatAttachment[] = [], mode: 'chat' | 'image' = 'chat'): Promise<boolean> {
+  async function confirmEmailSend() {
+    if (!accessToken || !pendingEmail || sendingEmail) return
+    setSendingEmail(true)
+    try {
+      const result = await api.workspace.sendEmail(accessToken, { message_id: pendingEmail.messageId, ...pendingEmail.draft })
+      setMessages((current) => current.map((message) => message.id === pendingEmail.messageId ? { ...message, artifacts: { ...(message.artifacts ?? {}), email: { ...pendingEmail.draft, status: 'sent', sent_at: result.sent_at } } } : message))
+      setPendingEmail(null)
+      notify('success', 'Email sent successfully through Zoho Mail.')
+    } catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to send this email through Zoho Mail.') }
+    finally { setSendingEmail(false) }
+  }
+
+  async function sendMessage(content: string, attachments: ChatAttachment[] = [], mode: 'chat' | 'image' | 'email' = 'chat'): Promise<boolean> {
     if (!accessToken || isSending) return false
     setIsSending(true)
-    setStage(mode === 'image' ? 'Creating your image...' : attachments.length ? 'Reading attached files...' : 'Preparing answer...')
+    setStage(mode === 'image' ? 'Creating your image...' : mode === 'email' ? 'Preparing email draft...' : attachments.length ? 'Reading attached files...' : 'Preparing answer...')
     const userId = crypto.randomUUID()
     const assistantId = crypto.randomUUID()
     const createdAt = new Date().toISOString()
@@ -207,6 +224,8 @@ function WorkspaceContent() {
         if (event === 'status' && payload.message) setStage(payload.message)
         if (event === 'citations' && payload.citations) setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, citations: payload.citations ?? [] } : message))
         if (event === 'web_sources' && payload.sources) setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, web_sources: payload.sources ?? [] } : message))
+        if (event === 'usage_chart' && payload.usage) setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, artifacts: { ...(message.artifacts ?? {}), usage: payload.usage } } : message))
+        if (event === 'email_draft' && payload.email) setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, artifacts: { ...(message.artifacts ?? {}), email: payload.email } } : message))
         if (event === 'delta' && payload.text) { setStage(null); setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: message.content + payload.text } : message)) }
         if (event === 'generated_image' && payload.attachment) {
           const generated = payload.attachment
@@ -226,9 +245,9 @@ function WorkspaceContent() {
   }
 
   return <AppLayout><div className="flex h-full min-w-0 flex-col overflow-hidden bg-background">
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border/70 px-4 md:px-6"><div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">AZ</span><div><p className="text-sm font-medium text-foreground">AROMAZEN AI</p><p className="text-[10px] text-muted-foreground">Company assistant</p></div></div><MoreHorizontal className="h-4 w-4 text-muted-foreground" /></header>
-    <div className="flex-1 overflow-y-auto px-4 py-7 md:px-8">{isLoadingChat ? <div className="mx-auto max-w-3xl space-y-4 py-20"><div className="h-4 w-32 animate-pulse rounded bg-muted" /><div className="h-4 w-full animate-pulse rounded bg-muted/80" /><div className="h-4 w-4/5 animate-pulse rounded bg-muted/60" /></div> : messages.length === 0 ? <div className="mx-auto max-w-2xl space-y-8 pt-8 md:pt-14"><div className="space-y-3 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">AZ</div><h1 className="text-3xl font-semibold tracking-tight text-foreground">What can I help you with?</h1><p className="text-sm text-muted-foreground">Ask anything, attach files, create images, or search company knowledge permitted for your department.</p></div><PromptSuggestions suggestions={suggestions} onSelect={(text, mode) => void sendMessage(text, [], mode)} /></div> : <div className="mx-auto max-w-3xl space-y-8 pb-4">{messages.map((message, index) => <ChatMessage key={message.id} role={message.role} content={message.content} attachments={message.attachments} timestamp={new Date(message.created_at)} status={message.role === 'assistant' && index === messages.length - 1 ? stage : null} webSources={message.web_sources} sources={message.citations.map((citation) => ({ documentId: citation.document_id, collectionId: citation.collection_id, name: citation.document_name, collection: citation.collection_name, page: citation.page ?? undefined, chunk: citation.chunk_index, relevance: citation.relevance ?? 0 }))} onOpenSource={(source) => void openCitation(source)} onOpenAttachment={(attachment) => void openAttachment(attachment)} />)}<div ref={messagesEndRef} /></div>}</div>
+    <div className="flex-1 overflow-y-auto px-4 py-7 md:px-8">{isLoadingChat ? <div className="mx-auto max-w-3xl space-y-4 py-20"><div className="h-4 w-32 animate-pulse rounded bg-muted" /><div className="h-4 w-full animate-pulse rounded bg-muted/80" /><div className="h-4 w-4/5 animate-pulse rounded bg-muted/60" /></div> : messages.length === 0 ? <div className="mx-auto max-w-[760px] space-y-9 pt-8 md:pt-[9vh]"><div className="space-y-4 text-center"><BrandMark size="lg" className="mx-auto" /><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Aromazen AI</p><h1 className="text-3xl font-medium tracking-[-0.045em] text-foreground md:text-[38px]">How can I help, {firstName}?</h1><p className="mx-auto max-w-xl text-sm leading-6 text-muted-foreground">Ask a question, work with a file, create an image, send a Zoho email, or explore company knowledge available to your team.</p><p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70"><LockKeyhole className="h-3 w-3" />Your workspace follows Aromazen access controls</p></div><PromptSuggestions suggestions={suggestions} onSelect={(text, mode) => void sendMessage(text, [], mode)} /></div> : <div className="mx-auto max-w-3xl space-y-9 pb-4">{messages.map((message, index) => <ChatMessage key={message.id} role={message.role} content={message.content} attachments={message.attachments} artifacts={message.artifacts} emailBusy={sendingEmail && pendingEmail?.messageId === message.id} timestamp={new Date(message.created_at)} status={message.role === 'assistant' && index === messages.length - 1 ? stage : null} webSources={message.web_sources} sources={message.citations.map((citation) => ({ documentId: citation.document_id, collectionId: citation.collection_id, name: citation.document_name, collection: citation.collection_name, page: citation.page ?? undefined, chunk: citation.chunk_index, relevance: citation.relevance ?? 0 }))} onOpenSource={(source) => void openCitation(source)} onOpenAttachment={(attachment) => void openAttachment(attachment)} onSendEmail={(draft) => setPendingEmail({ messageId: message.id, draft })} />)}<div ref={messagesEndRef} /></div>}</div>
     <ChatComposer disabled={isSending} onSend={sendMessage} onUpload={uploadAttachment} collections={collections} knowledgeScope={knowledgeScope} onKnowledgeScopeChange={setKnowledgeScope} />
+    {pendingEmail && <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Confirm email"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start justify-between gap-4"><span className="grid h-10 w-10 place-items-center rounded-full bg-amber-500/10"><AlertTriangle className="h-5 w-5 text-amber-500" /></span><button type="button" onClick={() => setPendingEmail(null)} disabled={sendingEmail} className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Cancel sending"><X className="h-4 w-4" /></button></div><h2 className="mt-4 text-lg font-semibold">Send this email through Zoho?</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">This will send the email to <span className="font-medium text-foreground">{pendingEmail.draft.to.join(', ')}</span>. Please confirm the recipient and subject are correct.</p><div className="mt-3 rounded-xl bg-muted/50 px-3 py-2 text-sm"><span className="text-muted-foreground">Subject: </span>{pendingEmail.draft.subject}</div><div className="mt-5 flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setPendingEmail(null)} disabled={sendingEmail}>Cancel</Button><Button type="button" onClick={() => void confirmEmailSend()} disabled={sendingEmail}><Mail className="mr-2 h-4 w-4" />{sendingEmail ? 'Sending…' : 'Send email'}</Button></div></div></div>}
   </div></AppLayout>
 }
 

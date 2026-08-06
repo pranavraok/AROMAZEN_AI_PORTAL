@@ -42,6 +42,9 @@ class OrganizationSetting(Base):
     default_ai_provider: Mapped[str] = mapped_column(String(20), default="anthropic")
     session_timeout_minutes: Mapped[int] = mapped_column(default=480)
     timezone: Mapped[str] = mapped_column(String(80), default="Asia/Calcutta")
+    daily_ai_request_limit: Mapped[int] = mapped_column(default=100)
+    monthly_ai_request_limit: Mapped[int] = mapped_column(default=2000)
+    monthly_ai_cost_limit_usd: Mapped[float] = mapped_column(Numeric(12, 2), default=250)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
@@ -187,6 +190,7 @@ class AIMessage(Base):
     content: Mapped[str] = mapped_column(Text())
     citations_json: Mapped[list] = mapped_column(JSON, default=list)
     web_sources_json: Mapped[list] = mapped_column(JSON, default=list)
+    artifacts_json: Mapped[dict] = mapped_column(JSON, default=dict)
     provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
     model: Mapped[str | None] = mapped_column(String(160), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

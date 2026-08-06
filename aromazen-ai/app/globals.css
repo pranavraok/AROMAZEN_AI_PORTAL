@@ -197,3 +197,251 @@
     @apply w-full rounded-lg border border-input bg-muted px-4 py-2 text-foreground outline-none transition focus:ring-2 focus:ring-primary/50;
   }
 }
+
+/* Aromazen design system */
+:root,
+.dark {
+  color-scheme: dark;
+  --background: #0d0e0e;
+  --foreground: #f3f1eb;
+  --card: #161717;
+  --card-foreground: #f3f1eb;
+  --popover: #191a1a;
+  --popover-foreground: #f3f1eb;
+  --primary: #eeeae0;
+  --primary-foreground: #111212;
+  --secondary: #202121;
+  --secondary-foreground: #eeece5;
+  --muted: #1c1d1d;
+  --muted-foreground: #999b97;
+  --accent: #252626;
+  --accent-foreground: #f6f4ef;
+  --destructive: #ef6a64;
+  --border: #2a2b2b;
+  --input: #313232;
+  --ring: #d8d1c2;
+  --chart-1: #eeeae0;
+  --chart-2: #b8ad98;
+  --chart-3: #7e9184;
+  --chart-4: #777b80;
+  --chart-5: #514b45;
+  --radius: .7rem;
+  --sidebar: #101111;
+  --sidebar-foreground: #f2f0ea;
+  --sidebar-primary: #eeeae0;
+  --sidebar-primary-foreground: #111212;
+  --sidebar-accent: #202121;
+  --sidebar-accent-foreground: #f5f2eb;
+  --sidebar-border: #242525;
+  --sidebar-ring: #d8d1c2;
+}
+
+@layer base {
+  html { background: var(--background); }
+  body {
+    min-width: 320px;
+    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    letter-spacing: -0.006em;
+  }
+  ::selection { background: rgba(238, 234, 224, .22); color: #fff; }
+  * { scrollbar-width: thin; scrollbar-color: #383a39 transparent; }
+  button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+  button:not(:disabled), a, select { cursor: pointer; }
+}
+
+.app-main {
+  background:
+    radial-gradient(circle at 82% -15%, rgba(238,234,224,.045), transparent 30rem),
+    var(--background);
+}
+
+.app-main > .space-y-6 { max-width: 1540px; margin-inline: auto; padding: 30px; }
+.top-bar { box-shadow: 0 1px 0 rgba(255,255,255,.015); }
+
+.brand-mark {
+  position: relative;
+  display: inline-flex;
+  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 50%;
+  background: #101111;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.025), 0 8px 24px rgba(0,0,0,.18);
+}
+.brand-mark-image {
+  position: absolute;
+  left: -23%;
+  top: -53%;
+  width: auto !important;
+  height: 205% !important;
+  max-width: none !important;
+  filter: invert(1) contrast(1.1);
+}
+
+input, select, textarea { accent-color: #eeeae0; }
+input:not([type='checkbox']):not([type='radio']), select, textarea {
+  transition: border-color .2s ease, background-color .2s ease, box-shadow .2s ease;
+}
+input:not([type='checkbox']):not([type='radio']):focus, select:focus, textarea:focus {
+  box-shadow: 0 0 0 3px rgba(238,234,224,.08);
+}
+
+.rounded-lg.border.bg-card,
+.rounded-xl.border.bg-card,
+section.border.bg-card {
+  box-shadow: 0 14px 40px rgba(0,0,0,.12), inset 0 1px 0 rgba(255,255,255,.018);
+}
+
+table thead { text-transform: uppercase; letter-spacing: .08em; font-size: 10px; }
+table tbody tr { transition: background-color .18s ease; }
+table tbody tr:hover { background: rgba(255,255,255,.018); }
+
+@media (max-width: 767px) {
+  .app-main > .space-y-6 { padding: 20px 16px 28px; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .app-main > * { animation: aromazen-enter .35s ease-out both; }
+  @keyframes aromazen-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+}
+
+/* The client-approved bright workspace is used for every saved appearance mode. */
+html:root.dark,
+html:root.light {
+  color-scheme: light;
+  --background: #f8f7f3;
+  --foreground: #1d1e1b;
+  --card: #ffffff;
+  --card-foreground: #1d1e1b;
+  --popover: #ffffff;
+  --popover-foreground: #1d1e1b;
+  --primary: #b96316;
+  --primary-foreground: #ffffff;
+  --secondary: #eeece5;
+  --secondary-foreground: #292a26;
+  --muted: #f0eee8;
+  --muted-foreground: #6f716a;
+  --accent: #eae7de;
+  --accent-foreground: #20211e;
+  --destructive: #c7433f;
+  --border: #e2dfd6;
+  --input: #d8d4ca;
+  --ring: #b96316;
+  --chart-1: #b96316;
+  --chart-2: #2e5845;
+  --chart-3: #8b7459;
+  --chart-4: #5d6670;
+  --chart-5: #b79779;
+  --sidebar: #171916;
+  --sidebar-foreground: #f5f2e9;
+  --sidebar-primary: #f3ecdf;
+  --sidebar-primary-foreground: #22231f;
+  --sidebar-accent: #252822;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #2b2e28;
+  --sidebar-ring: #d48a43;
+}
+
+html:root.dark .app-main,
+html:root.light .app-main {
+  background:
+    radial-gradient(circle at 86% -10%, rgba(185,99,22,.08), transparent 34rem),
+    linear-gradient(180deg, #fbfaf7 0%, #f7f5f0 100%);
+}
+
+html:root.dark .top-bar,
+html:root.light .top-bar {
+  background: rgba(255,255,255,.82);
+  box-shadow: 0 1px 0 rgba(31,32,28,.055), 0 12px 34px rgba(52,45,34,.035);
+}
+
+html:root.dark .brand-mark,
+html:root.light .brand-mark {
+  border-color: rgba(255,255,255,.14);
+  background: #171916;
+}
+
+html:root.dark .rounded-lg.border.bg-card,
+html:root.dark .rounded-xl.border.bg-card,
+html:root.dark section.border.bg-card,
+html:root.light .rounded-lg.border.bg-card,
+html:root.light .rounded-xl.border.bg-card,
+html:root.light section.border.bg-card {
+  box-shadow: 0 14px 42px rgba(54,46,33,.055), inset 0 1px 0 rgba(255,255,255,.85);
+}
+
+html:root.dark table tbody tr:hover,
+html:root.light table tbody tr:hover { background: rgba(185,99,22,.035); }
+
+html:root.dark ::selection,
+html:root.light ::selection { background: rgba(185,99,22,.18); color: #1d1e1b; }
+
+/* Light theme: the navigation is light as well, with warmth reserved for accents. */
+html:root.light {
+  --sidebar: #ffffff;
+  --sidebar-foreground: #23241f;
+  --sidebar-primary: #f3e7d7;
+  --sidebar-primary-foreground: #7d3f0b;
+  --sidebar-accent: #f3f1eb;
+  --sidebar-accent-foreground: #20211d;
+  --sidebar-border: #e4e0d7;
+  --sidebar-ring: #b96316;
+}
+
+/* Dark theme: graphite and cool botanical green; no brown/orange accents. */
+html:root.dark {
+  color-scheme: dark;
+  --background: #101312;
+  --foreground: #eff4f1;
+  --card: #171b19;
+  --card-foreground: #eff4f1;
+  --popover: #1a1e1c;
+  --popover-foreground: #eff4f1;
+  --primary: #78b9a5;
+  --primary-foreground: #0c1713;
+  --secondary: #222825;
+  --secondary-foreground: #edf3f0;
+  --muted: #202522;
+  --muted-foreground: #99a49f;
+  --accent: #29312d;
+  --accent-foreground: #f4f7f5;
+  --destructive: #ef7470;
+  --border: #2c332f;
+  --input: #39413d;
+  --ring: #78b9a5;
+  --chart-1: #78b9a5;
+  --chart-2: #aac2b8;
+  --chart-3: #7f91a2;
+  --chart-4: #b1aaa0;
+  --chart-5: #64766e;
+  --sidebar: #0c0f0e;
+  --sidebar-foreground: #edf3ef;
+  --sidebar-primary: #233c34;
+  --sidebar-primary-foreground: #d8eee6;
+  --sidebar-accent: #1c211f;
+  --sidebar-accent-foreground: #f4f7f5;
+  --sidebar-border: #242a27;
+  --sidebar-ring: #78b9a5;
+}
+
+html:root.dark .app-main {
+  background:
+    radial-gradient(circle at 86% -10%, rgba(120,185,165,.08), transparent 34rem),
+    linear-gradient(180deg, #111513 0%, #0f1211 100%);
+}
+
+html:root.dark .top-bar {
+  background: rgba(16,19,18,.86);
+  box-shadow: 0 1px 0 rgba(255,255,255,.035), 0 12px 34px rgba(0,0,0,.12);
+}
+
+html:root.dark .rounded-lg.border.bg-card,
+html:root.dark .rounded-xl.border.bg-card,
+html:root.dark section.border.bg-card {
+  box-shadow: 0 16px 44px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.02);
+}
+
+html:root.dark table tbody tr:hover { background: rgba(120,185,165,.035); }
+html:root.dark ::selection { background: rgba(120,185,165,.22); color: #ffffff; }

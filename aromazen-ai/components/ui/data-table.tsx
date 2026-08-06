@@ -17,15 +17,15 @@ export function DataTable<T extends object>({
   compact = false,
 }: DataTableProps<T>) {
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border bg-muted/50">
+            <tr className="border-b border-border bg-muted/45">
               {columns.map((column) => (
                 <th
                   key={String(column.key)}
-                  className={`px-6 py-3 text-left font-medium text-muted-foreground ${
+                  className={`px-5 py-3.5 text-left font-semibold text-muted-foreground ${
                     compact ? 'py-2' : ''
                   } ${column.className || ''}`}
                 >
@@ -41,14 +41,14 @@ export function DataTable<T extends object>({
               return (
               <tr
                 key={rowId}
-                className={`border-b border-border transition-colors hover:bg-muted/30 ${
+                className={`border-b border-border/70 transition-colors hover:bg-muted/30 ${
                   index % 2 === 0 ? '' : ''
                 }`}
               >
                 {columns.map((column) => (
                   <td
                     key={`${rowId}-${String(column.key)}`}
-                    className={`px-6 py-3 text-foreground ${compact ? 'py-2' : ''} ${
+                    className={`px-5 py-3.5 text-foreground ${compact ? 'py-3' : ''} ${
                       column.className || ''
                     }`}
                   >

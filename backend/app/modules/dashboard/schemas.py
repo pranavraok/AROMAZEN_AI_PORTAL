@@ -35,6 +35,10 @@ class DashboardActivity(BaseModel):
 
 
 class DashboardOverview(BaseModel):
+    currency: str
+    usd_to_inr_rate: float
+    exchange_rate_source: str
+    exchange_rate_updated_at: datetime
     role_key: str
     role_label: str
     scope: str

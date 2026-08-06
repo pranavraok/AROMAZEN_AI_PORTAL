@@ -15,6 +15,9 @@ async def organization_settings(session: AsyncSession, organization_id) -> Organ
             default_ai_provider=defaults.ai_default_provider if defaults.ai_default_provider in {"openai", "anthropic"} else "anthropic",
             session_timeout_minutes=480,
             timezone="Asia/Calcutta",
+            daily_ai_request_limit=100,
+            monthly_ai_request_limit=2000,
+            monthly_ai_cost_limit_usd=250,
         )
         session.add(value)
         await session.flush()

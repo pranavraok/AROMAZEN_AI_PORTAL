@@ -4,8 +4,8 @@ import { AuthProvider } from '@/components/auth/auth-provider'
 import { ToastProvider } from '@/components/ui/toast-provider'
 
 export const metadata: Metadata = {
-  title: 'AROMAZEN AI - Enterprise AI Platform',
-  description: 'Premium internal AI workspace for fragrance and cosmetic manufacturing',
+  title: 'Aromazen AI | Intelligence for modern fragrance teams',
+  description: 'A secure AI workspace for Aromazen knowledge, operations, and creative work.',
   formatDetection: {
     telephone: false,
   },
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: 'dark',
-  themeColor: '#1c1c1c',
+  themeColor: '#f8f7f3',
   width: 'device-width',
   initialScale: 1,
 }
