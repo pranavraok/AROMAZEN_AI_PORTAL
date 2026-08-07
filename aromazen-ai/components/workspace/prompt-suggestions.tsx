@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { BarChart3, BookOpenCheck, Boxes, ChevronRight, CircleDollarSign, ClipboardList, FileOutput, FileText, FlaskConical, Image, ListChecks, Mail, Megaphone, Scale, Sparkles, Users } from 'lucide-react'
+import { BarChart3, BookOpenCheck, Boxes, CalendarCheck2, ChevronRight, CircleDollarSign, ClipboardList, FileOutput, FileText, FlaskConical, Image, ListChecks, Mail, Megaphone, Scale, Sparkles, Users } from 'lucide-react'
 
 const suggestionIcons: Record<string, React.ReactNode> = {
   FileText: <FileText className="h-5 w-5" />, ClipboardList: <ClipboardList className="h-5 w-5" />,
@@ -7,7 +7,7 @@ const suggestionIcons: Record<string, React.ReactNode> = {
   BarChart3: <BarChart3 className="h-5 w-5" />, Users: <Users className="h-5 w-5" />, Megaphone: <Megaphone className="h-5 w-5" />,
   FlaskConical: <FlaskConical className="h-5 w-5" />, Image: <Image className="h-5 w-5" />, Boxes: <Boxes className="h-5 w-5" />,
   Mail: <Mail className="h-5 w-5" />, ListChecks: <ListChecks className="h-5 w-5" />, BookOpenCheck: <BookOpenCheck className="h-5 w-5" />,
-  Payroll: <CircleDollarSign className="h-5 w-5" />,
+  Payroll: <CircleDollarSign className="h-5 w-5" />, Attendance: <CalendarCheck2 className="h-5 w-5" />,
 }
 
 interface PromptSuggestionsProps {

@@ -9,6 +9,7 @@ from app.modules.document_generator.routes import router as document_generator_r
 from app.modules.dashboard.routes import router as dashboard_router
 from app.modules.settings.routes import router as settings_router
 from app.modules.payroll.routes import router as payroll_router
+from app.modules.hr_letters.routes import router as hr_letters_router
 
 api_router = APIRouter()
 api_router.include_router(health_router, prefix="/health", tags=["health"])
@@ -20,3 +21,4 @@ api_router.include_router(document_generator_router, prefix="/document-generator
 api_router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(settings_router, prefix="/settings", tags=["settings"])
 api_router.include_router(payroll_router, prefix="/payroll", tags=["HR payroll"])
+api_router.include_router(hr_letters_router, prefix="/hr-letters", tags=["HR letters"])

@@ -36,11 +36,11 @@ class Settings(BaseSettings):
     anthropic_default_model: str = "claude-sonnet-4-6"
     anthropic_fast_model: str = "claude-haiku-4-5"
     ai_default_provider: str = "anthropic"
-    ai_request_timeout_seconds: float = 120.0
+    ai_request_timeout_seconds: float = 240.0
     ai_connect_timeout_seconds: float = 10.0
-    ai_max_output_tokens: int = 1400
+    ai_max_output_tokens: int = 6000
     ai_rate_limit_per_minute: int = 10
-    ai_retrieval_limit: int = 6
+    ai_retrieval_limit: int = 10
     ai_chunk_size: int = 1200
     ai_chunk_overlap: int = 200
     ai_max_chat_attachments: int = 8

@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, LockKeyhole, Mail, X } from 'lucide-react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { ChatMessage } from '@/components/workspace/chat-message'
 import { ChatComposer } from '@/components/workspace/chat-composer'
@@ -19,17 +19,25 @@ type Suggestion = { icon: string; text: string; description?: string; href?: str
 type WebSource = { title: string; url: string }
 type WorkspaceMessage = ChatMessageDto & { web_sources?: WebSource[]; attachments?: ChatAttachment[] }
 type StreamPayload = { conversation_id?: string; message_id?: string; message?: string; text?: string; citations?: ChatCitation[]; sources?: WebSource[]; code?: string; attachment?: ChatAttachment; usage?: UsageSummary; email?: EmailDraft }
+type PendingRequest = { content: string; conversationId: string | null; collectionIds: string[]; attachmentIds: string[]; mode: 'chat' | 'image' | 'email'; startedAt: number }
+type SendOptions = { resume?: boolean; conversationOverride?: string | null; collectionIdsOverride?: string[] }
 
 function suggestionsFor(user: CurrentUser | null): Suggestion[] {
   if (!user) return []
   const permissions = new Set(user.permission_keys)
   const isPlatformAdmin = permissions.has('settings.manage') || user.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
-  const isHrAdmin = permissions.has('users.manage') && (user.department_name === 'HR' || isPlatformAdmin)
-  if (isHrAdmin && user.department_name === 'HR') return [
-    { icon: 'Payroll', text: 'Send all salary slips', description: 'Upload the monthly Excel, review every PDF, and send through HR Zoho Mail.', href: '/hr/salary-slips' },
-    { icon: 'Users', text: 'Manage my department team', description: 'Review employees in your permitted scope.', href: '/admin/users' },
-    { icon: 'Mail', text: 'Draft a professional employee communication', mode: 'email' },
-    { icon: 'BookOpenCheck', text: 'Explain the HR policies I can access' },
+  const department = user.department_name ?? ''
+  if (department === 'R&D') return [
+    { icon: 'FileOutput', text: 'Smart COA/SDS Creation', description: 'Create a polished COA or SDS through a short guided workflow.', href: '/rnd/documents' },
+    { icon: 'FlaskConical', text: 'Formulation and Batch Sheet', description: 'Build a structured formula, quantities, process and batch record.', href: '/department-tools/rnd-formulation' },
+    { icon: 'Scale', text: 'Raw Material Evaluation Report', description: 'Evaluate a raw material against technical, quality and supplier requirements.', href: '/department-tools/rnd-raw-material' },
+    { icon: 'BookOpenCheck', text: "SOP's to be Followed", description: 'Find and open approved procedures from the R&D knowledge collection.', href: '/department-tools/rnd-sops' },
+  ]
+  if (department === 'HR') return [
+    { icon: 'Payroll', text: 'Smart Salary Slip Sender', description: 'Upload the monthly Excel, review every slip and send through HR Zoho Mail.', href: '/hr/salary-slips' },
+    { icon: 'FileText', text: 'Offer / Appointment / Appreciation / Increment Letters', description: 'Create, review, print and email approved HR letters.', href: '/department-tools/hr-letters' },
+    { icon: 'Attendance', text: 'Smart Attendance Management', description: 'Analyze fingerprint Excel data, working hours and late entries.', href: '/department-tools/hr-attendance' },
+    { icon: 'ClipboardList', text: 'Interview Parameter Checklist', description: 'Complete and print a consistent role-specific interview scorecard.', href: '/department-tools/hr-interview' },
   ]
   if (isPlatformAdmin) return [
     { icon: 'BarChart3', text: 'Show overall API usage in a graph', description: 'See real provider, token, request, and cost activity.' },
@@ -43,24 +51,11 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
     { icon: 'ListChecks', text: `Create a weekly action plan for ${user.department_name ?? 'my department'}` },
     { icon: 'Mail', text: 'Draft a clear update for my department team', mode: 'email' },
   ]
-  const department = user.department_name ?? ''
-  if (department === 'R&D') return [
-    { icon: 'FileOutput', text: 'R&D AI Draft Assistant', description: 'Create COA and SDS Word documents.', href: '/rnd/documents' },
-    { icon: 'FlaskConical', text: 'Compare two fragrance formulations' },
-    { icon: 'BookOpenCheck', text: 'Summarise the R&D documents I can access' },
-    { icon: 'ListChecks', text: 'Create a formulation trial checklist' },
-  ]
   if (department === 'Production') return [
     { icon: 'ClipboardList', text: 'Find the production SOP for batch mixing' },
     { icon: 'ListChecks', text: 'Create a production quality checklist' },
     { icon: 'Mail', text: 'Draft a professional shift handover note', mode: 'email' },
     { icon: 'BookOpenCheck', text: 'Summarise the production documents I can access' },
-  ]
-  if (department === 'HR') return [
-    { icon: 'BookOpenCheck', text: 'Explain the HR policies I can access' },
-    { icon: 'Mail', text: 'Draft a professional employee communication', mode: 'email' },
-    { icon: 'ListChecks', text: 'Create a monthly HR operations checklist' },
-    { icon: 'FileText', text: 'Summarise a policy or report I attach' },
   ]
   if (department === 'Accounts') return [
     { icon: 'ListChecks', text: 'Create a monthly accounts closing checklist' },
@@ -133,18 +128,37 @@ function WorkspaceContent() {
   const { accessToken, user } = useAuth()
   const { notify } = useToast()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [messages, setMessages] = useState<WorkspaceMessage[]>([])
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
   const [isLoadingChat, setIsLoadingChat] = useState(false)
-  const [stage, setStage] = useState<string | null>(null)
+  const [stageDetail, setStage] = useState<string | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [collections, setCollections] = useState<KnowledgeCollection[]>([])
   const [knowledgeScope, setKnowledgeScope] = useState('auto')
   const [pendingEmail, setPendingEmail] = useState<{ messageId: string; draft: EmailDraft } | null>(null)
   const [sendingEmail, setSendingEmail] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const activeAssistantIdRef = useRef<string | null>(null)
+  const activeAnswerRef = useRef('')
+  const activeConversationRef = useRef<string | null>(null)
+  const requestStartedAtRef = useRef(0)
+  const stoppedRef = useRef(false)
+  const recoveryAttemptedRef = useRef(false)
   const suggestions = suggestionsFor(user)
   const firstName = user?.full_name?.split(/\s+/)[0] ?? 'there'
+  const pendingKey = user ? `aromazen:pending-ai:${user.id}` : ''
+  const progressMessages = ['Understanding your request', 'Planning a thorough answer', 'Checking the most relevant information', 'Reading and organizing the details', 'Verifying completeness and accuracy', 'Still working carefully on this detailed request']
+  const progressIndex = Math.min(progressMessages.length - 1, Math.floor(elapsedSeconds / 10))
+  const stage = isSending ? `${elapsedSeconds < 8 && stageDetail ? stageDetail : progressMessages[progressIndex]} · ${elapsedSeconds}s` : null
+
+  useEffect(() => {
+    if (!isSending) { setElapsedSeconds(0); return }
+    const update = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - requestStartedAtRef.current) / 1000)))
+    update(); const timer = window.setInterval(update, 1000); return () => window.clearInterval(timer)
+  }, [isSending])
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: isSending ? 'smooth' : 'auto', block: 'end' }) }, [isSending, messages, stage])
   useEffect(() => {
@@ -161,15 +175,16 @@ function WorkspaceContent() {
     } catch { return attachment }
   }
 
-  async function loadConversation(conversationIdToLoad: string) {
-    if (!accessToken || isSending) return
+  async function loadConversation(conversationIdToLoad: string): Promise<WorkspaceMessage[] | null> {
+    if (!accessToken || isSending) return null
     setIsLoadingChat(true)
     try {
       const storedMessages = await api.workspace.messages(accessToken, conversationIdToLoad)
       const hydrated = await Promise.all(storedMessages.map(async (message) => ({ ...message, attachments: await Promise.all((message.attachments ?? []).map(withImagePreview)) })))
       setMessages(hydrated)
       setConversationId(conversationIdToLoad)
-    } catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to open this chat.') }
+      return hydrated
+    } catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to open this chat.'); return null }
     finally { setIsLoadingChat(false) }
   }
 
@@ -231,47 +246,115 @@ function WorkspaceContent() {
     finally { setSendingEmail(false) }
   }
 
-  async function sendMessage(content: string, attachments: ChatAttachment[] = [], mode: 'chat' | 'image' | 'email' = 'chat'): Promise<boolean> {
+  async function sendMessage(content: string, attachments: ChatAttachment[] = [], mode: 'chat' | 'image' | 'email' = 'chat', options: SendOptions = {}): Promise<boolean> {
     if (!accessToken || isSending) return false
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    stoppedRef.current = false
+    activeAnswerRef.current = ''
+    requestStartedAtRef.current = Date.now()
     setIsSending(true)
     setStage(mode === 'image' ? 'Creating your image...' : mode === 'email' ? 'Preparing email draft...' : attachments.length ? 'Reading attached files...' : 'Preparing answer...')
     const userId = crypto.randomUUID()
     const assistantId = crypto.randomUUID()
+    activeAssistantIdRef.current = assistantId
     const createdAt = new Date().toISOString()
-    setMessages((current) => [...current, { id: userId, role: 'user', content, created_at: createdAt, citations: [], attachments }, { id: assistantId, role: 'assistant', content: '', created_at: createdAt, citations: [], attachments: [] }])
+    setMessages((current) => [...current, ...(options.resume ? [] : [{ id: userId, role: 'user' as const, content, created_at: createdAt, citations: [], attachments }]), { id: assistantId, role: 'assistant', content: '', created_at: createdAt, citations: [], attachments: [] }])
     let accepted = false
     try {
-      const collectionIds = knowledgeScope === 'all' ? collections.map((collection) => collection.id) : knowledgeScope === 'auto' ? [] : [knowledgeScope]
-      const response = await api.workspace.streamMessage(accessToken, { content, conversation_id: conversationId, collection_ids: collectionIds, attachment_ids: attachments.map((attachment) => attachment.id), mode })
+      const collectionIds = options.collectionIdsOverride ?? (knowledgeScope === 'all' ? collections.map((collection) => collection.id) : knowledgeScope === 'auto' ? [] : [knowledgeScope])
+      const requestConversationId = options.conversationOverride ?? conversationId
+      activeConversationRef.current = requestConversationId
+      const pendingRequest: PendingRequest = { content, conversationId: requestConversationId, collectionIds, attachmentIds: attachments.map((attachment) => attachment.id), mode, startedAt: Date.now() }
+      if (pendingKey) localStorage.setItem(pendingKey, JSON.stringify(pendingRequest))
+      const response = await api.workspace.streamMessage(accessToken, { content, conversation_id: requestConversationId, collection_ids: collectionIds, attachment_ids: pendingRequest.attachmentIds, mode }, controller.signal)
       accepted = true
       await readEventStream(response, (event, payload) => {
-        if (event === 'start' && payload.conversation_id) { setConversationId(payload.conversation_id); window.dispatchEvent(new Event('aromazen:conversations-updated')) }
+        if (event === 'start' && payload.conversation_id) {
+          setConversationId(payload.conversation_id)
+          activeConversationRef.current = payload.conversation_id
+          if (pendingKey) localStorage.setItem(pendingKey, JSON.stringify({ ...pendingRequest, conversationId: payload.conversation_id }))
+          router.replace(`/workspace?conversation=${payload.conversation_id}`, { scroll: false })
+          window.dispatchEvent(new Event('aromazen:conversations-updated'))
+        }
         if (event === 'status' && payload.message) setStage(payload.message)
         if (event === 'citations' && payload.citations) setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, citations: payload.citations ?? [] } : message))
         if (event === 'web_sources' && payload.sources) setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, web_sources: payload.sources ?? [] } : message))
         if (event === 'usage_chart' && payload.usage) setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, artifacts: { ...(message.artifacts ?? {}), usage: payload.usage } } : message))
         if (event === 'email_draft' && payload.email) setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, artifacts: { ...(message.artifacts ?? {}), email: payload.email } } : message))
-        if (event === 'delta' && payload.text) { setStage(null); setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: message.content + payload.text } : message)) }
+        if (event === 'delta' && payload.text) { activeAnswerRef.current += payload.text; setStage('Writing the answer...'); setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: message.content + payload.text } : message)) }
         if (event === 'generated_image' && payload.attachment) {
           const generated = payload.attachment
           setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, attachments: [...(message.attachments ?? []), generated] } : message))
           void withImagePreview(generated).then((image) => setMessages((current) => current.map((message) => ({ ...message, attachments: (message.attachments ?? []).map((attachment) => attachment.id === image.id ? image : attachment) }))))
         }
-        if (event === 'done' && payload.message_id) { setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, id: payload.message_id ?? message.id } : message)); window.dispatchEvent(new Event('aromazen:conversations-updated')) }
+        if (event === 'done' && payload.message_id) { if (pendingKey) localStorage.removeItem(pendingKey); setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, id: payload.message_id ?? message.id } : message)); window.dispatchEvent(new Event('aromazen:conversations-updated')) }
         if (event === 'error') throw new ApiError(payload.message ?? 'The answer could not be completed.', 502, payload)
       })
       return true
     } catch (error) {
+      if (controller.signal.aborted || stoppedRef.current) return accepted
       notify('error', error instanceof ApiError ? error.message : error instanceof Error ? error.message : 'Unable to send this message. Please try again.')
+      if (pendingKey) localStorage.removeItem(pendingKey)
       if (!accepted) setMessages((current) => current.filter((message) => message.id !== userId && message.id !== assistantId))
       else setMessages((current) => current.map((message) => message.id === assistantId && !message.content ? { ...message, content: 'I could not complete that request. Please try again.' } : message))
       return accepted
-    } finally { setStage(null); setIsSending(false) }
+    } finally {
+      if (abortControllerRef.current === controller) abortControllerRef.current = null
+      setStage(null)
+      setIsSending(false)
+    }
   }
+
+  async function stopGenerating() {
+    if (!isSending) return
+    stoppedRef.current = true
+    abortControllerRef.current?.abort()
+    setStage('Stopping response...')
+    const assistantId = activeAssistantIdRef.current
+    const activeConversation = activeConversationRef.current
+    const partial = activeAnswerRef.current.trim()
+    if (pendingKey) localStorage.removeItem(pendingKey)
+    try {
+      if (accessToken && activeConversation) {
+        const saved = await api.workspace.saveStoppedResponse(accessToken, activeConversation, partial)
+        setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, id: saved.id, content: saved.content } : message))
+        window.dispatchEvent(new Event('aromazen:conversations-updated'))
+      } else if (assistantId) {
+        setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: partial || '_Response stopped by user._' } : message))
+      }
+    } catch {
+      if (assistantId) setMessages((current) => current.map((message) => message.id === assistantId ? { ...message, content: partial || '_Response stopped by user._' } : message))
+    } finally {
+      setStage(null)
+      setIsSending(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!accessToken || !pendingKey || recoveryAttemptedRef.current) return
+    recoveryAttemptedRef.current = true
+    const raw = localStorage.getItem(pendingKey)
+    if (!raw) return
+    let pending: PendingRequest
+    try { pending = JSON.parse(raw) as PendingRequest } catch { localStorage.removeItem(pendingKey); return }
+    if (!pending.conversationId || Date.now() - pending.startedAt > 30 * 60 * 1000) { localStorage.removeItem(pendingKey); return }
+    void (async () => {
+      const restored = await loadConversation(pending.conversationId as string)
+      if (!restored?.length) return
+      const last = restored[restored.length - 1]
+      if (last.role === 'assistant') { localStorage.removeItem(pendingKey); return }
+      const lastUser = [...restored].reverse().find((message) => message.role === 'user')
+      if (!lastUser || lastUser.content !== pending.content) { localStorage.removeItem(pendingKey); return }
+      await sendMessage(pending.content, lastUser.attachments ?? [], pending.mode, { resume: true, conversationOverride: pending.conversationId, collectionIdsOverride: pending.collectionIds })
+    })()
+    // This runs once per signed-in workspace to recover an interrupted request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken, pendingKey])
 
   return <AppLayout><div className="flex h-full min-w-0 flex-col overflow-hidden bg-background">
     <div className="flex-1 overflow-y-auto px-4 py-7 md:px-8">{isLoadingChat ? <div className="mx-auto max-w-3xl space-y-4 py-20"><div className="h-4 w-32 animate-pulse rounded bg-muted" /><div className="h-4 w-full animate-pulse rounded bg-muted/80" /><div className="h-4 w-4/5 animate-pulse rounded bg-muted/60" /></div> : messages.length === 0 ? <div className="mx-auto max-w-[760px] space-y-9 pt-8 md:pt-[9vh]"><div className="space-y-4 text-center"><BrandMark size="lg" className="mx-auto" /><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Aromazen AI</p><h1 className="text-3xl font-medium tracking-[-0.045em] text-foreground md:text-[38px]">How can I help, {firstName}?</h1><p className="mx-auto max-w-xl text-sm leading-6 text-muted-foreground">Ask a question, work with a file, create an image, send a Zoho email, or explore company knowledge available to your team.</p><p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70"><LockKeyhole className="h-3 w-3" />Your workspace follows Aromazen access controls</p></div><PromptSuggestions suggestions={suggestions} onSelect={(text, mode) => void sendMessage(text, [], mode)} /></div> : <div className="mx-auto max-w-3xl space-y-9 pb-4">{messages.map((message, index) => <ChatMessage key={message.id} role={message.role} content={message.content} attachments={message.attachments} artifacts={message.artifacts} emailBusy={sendingEmail && pendingEmail?.messageId === message.id} timestamp={new Date(message.created_at)} status={message.role === 'assistant' && index === messages.length - 1 ? stage : null} webSources={message.web_sources} sources={message.citations.map((citation) => ({ documentId: citation.document_id, collectionId: citation.collection_id, name: citation.document_name, collection: citation.collection_name, page: citation.page ?? undefined, chunk: citation.chunk_index, relevance: citation.relevance ?? 0 }))} onOpenSource={(source) => void openCitation(source)} onOpenAttachment={(attachment) => void openAttachment(attachment)} onSendEmail={(draft) => setPendingEmail({ messageId: message.id, draft })} />)}<div ref={messagesEndRef} /></div>}</div>
-    <ChatComposer disabled={isSending} onSend={sendMessage} onUpload={uploadAttachment} collections={collections} knowledgeScope={knowledgeScope} onKnowledgeScopeChange={setKnowledgeScope} />
+    <ChatComposer busy={isSending} onStop={() => void stopGenerating()} onSend={sendMessage} onUpload={uploadAttachment} collections={collections} knowledgeScope={knowledgeScope} onKnowledgeScopeChange={setKnowledgeScope} />
     {pendingEmail && <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Confirm email"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start justify-between gap-4"><span className="grid h-10 w-10 place-items-center rounded-full bg-amber-500/10"><AlertTriangle className="h-5 w-5 text-amber-500" /></span><button type="button" onClick={() => setPendingEmail(null)} disabled={sendingEmail} className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Cancel sending"><X className="h-4 w-4" /></button></div><h2 className="mt-4 text-lg font-semibold">Send this email through Zoho?</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">This will send the email to <span className="font-medium text-foreground">{pendingEmail.draft.to.join(', ')}</span>. Please confirm the recipient and subject are correct.</p><div className="mt-3 rounded-xl bg-muted/50 px-3 py-2 text-sm"><span className="text-muted-foreground">Subject: </span>{pendingEmail.draft.subject}</div><div className="mt-5 flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setPendingEmail(null)} disabled={sendingEmail}>Cancel</Button><Button type="button" onClick={() => void confirmEmailSend()} disabled={sendingEmail}><Mail className="mr-2 h-4 w-4" />{sendingEmail ? 'Sending…' : 'Send email'}</Button></div></div></div>}
   </div></AppLayout>
 }

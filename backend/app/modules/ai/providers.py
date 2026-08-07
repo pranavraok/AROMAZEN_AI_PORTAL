@@ -89,12 +89,12 @@ class OpenAIProvider:
             "instructions": system,
             "input": input_content if isinstance(input_content, str) else [{"role": "user", "content": input_content}],
             "max_output_tokens": self.settings.ai_max_output_tokens,
-            "reasoning": {"effort": "low"},
+            "reasoning": {"effort": "medium"},
             "stream": True,
             "store": False,
         }
         if use_web_search:
-            payload["tools"] = [{"type": "web_search", "search_context_size": "low"}]
+            payload["tools"] = [{"type": "web_search", "search_context_size": "medium"}]
         web_sources: list[dict[str, str]] = []
         seen_source_urls: set[str] = set()
 
@@ -260,22 +260,20 @@ class AIProviderRouter:
 
     def _providers(self, question: str, *, use_web_search: bool = False):
         lowered = question.lower()
-        complex_markers = ("analyse", "analyze", "compare", "strategy", "calculate", "deep", "detailed", "risk", "forecast", "formulation")
-        simple = len(question) <= 180 and not any(marker in lowered for marker in complex_markers)
+        complex_markers = ("[internal_exhaustive]", "analyse", "analyze", "compare", "strategy", "calculate", "deep", "detailed", "complete", "all employees", "list of", "risk", "forecast", "formulation")
         complex_request = len(question) > 600 or any(marker in lowered for marker in complex_markers)
         openai = OpenAIProvider(self.settings)
         sonnet = AnthropicProvider(self.settings, self.settings.anthropic_default_model)
-        haiku = AnthropicProvider(self.settings, self.settings.anthropic_fast_model)
         if use_web_search:
             return [openai] if openai.available else []
         if complex_request and openai.available:
             primary = openai
         elif self.settings.ai_default_provider.lower() == "anthropic" and sonnet.available:
-            primary = haiku if simple else sonnet
+            primary = sonnet
         elif openai.available:
             primary = openai
         elif sonnet.available:
-            primary = haiku if simple else sonnet
+            primary = sonnet
         else:
             return []
         fallback = openai if primary.name == "anthropic" else sonnet

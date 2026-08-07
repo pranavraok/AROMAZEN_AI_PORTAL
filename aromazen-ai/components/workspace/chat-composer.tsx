@@ -1,6 +1,6 @@
 'use client'
 
-import { FileText, Image as ImageIcon, Library, Loader2, Mail, Paperclip, Send, X, Zap } from 'lucide-react'
+import { FileText, Image as ImageIcon, Library, Loader2, Mail, Paperclip, Send, Square, X, Zap } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { VoiceInputButton } from '@/components/voice-input-button'
@@ -8,6 +8,8 @@ import type { ChatAttachment, KnowledgeCollection } from '@/lib/api/types'
 
 interface ChatComposerProps {
   disabled?: boolean
+  busy?: boolean
+  onStop?: () => void
   onSend: (message: string, attachments: ChatAttachment[], mode: 'chat' | 'image' | 'email') => Promise<boolean>
   onUpload: (file: File) => Promise<ChatAttachment | null>
   collections?: KnowledgeCollection[]
@@ -15,7 +17,7 @@ interface ChatComposerProps {
   onKnowledgeScopeChange?: (value: string) => void
 }
 
-export function ChatComposer({ disabled = false, onSend, onUpload, collections = [], knowledgeScope = 'auto', onKnowledgeScopeChange }: ChatComposerProps) {
+export function ChatComposer({ disabled = false, busy = false, onStop, onSend, onUpload, collections = [], knowledgeScope = 'auto', onKnowledgeScopeChange }: ChatComposerProps) {
   const [message, setMessage] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(false)
@@ -24,7 +26,7 @@ export function ChatComposer({ disabled = false, onSend, onUpload, collections =
 
   async function handleSend() {
     const value = message.trim()
-    if (!value || disabled || uploading) return
+    if (!value || disabled || busy || uploading) return
     const sent = await onSend(value, attachments, mode)
     if (sent) {
       setMessage('')
@@ -69,14 +71,14 @@ export function ChatComposer({ disabled = false, onSend, onUpload, collections =
           </div>
           <div className="flex items-center gap-1">
             <VoiceInputButton disabled={disabled || uploading} label="Speak your question" onTranscript={(text) => setMessage((current) => current.trim() ? `${current.trim()} ${text}` : text)} />
-            <Button type="button" size="icon" onClick={() => void handleSend()} disabled={disabled || uploading || !message.trim()} className="h-9 w-9 rounded-full bg-foreground text-background hover:bg-foreground/85"><Send className="h-4 w-4" /></Button>
+            {busy ? <Button type="button" size="icon" onClick={onStop} className="h-9 w-9 rounded-full bg-foreground text-background hover:bg-foreground/85" aria-label="Stop generating"><Square className="h-3.5 w-3.5 fill-current" /></Button> : <Button type="button" size="icon" onClick={() => void handleSend()} disabled={disabled || uploading || !message.trim()} className="h-9 w-9 rounded-full bg-foreground text-background hover:bg-foreground/85"><Send className="h-4 w-4" /></Button>}
           </div>
         </div>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1"><Zap className="h-3 w-3 text-primary" />Permission-aware</span>
         <label className="inline-flex items-center gap-1"><Library className="h-3 w-3" /><select aria-label="Knowledge source" value={knowledgeScope} onChange={(event) => onKnowledgeScopeChange?.(event.target.value)} disabled={disabled} className="max-w-44 bg-transparent text-[11px] text-muted-foreground outline-none"><option value="auto">Automatic knowledge</option><option value="all">All I can access</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select></label>
-        <span>AI can make mistakes. Check important information.</span>
+        <span>{busy ? 'You can type your next message while this answer is being prepared.' : 'AI can make mistakes. Check important information.'}</span>
       </div>
     </div>
   </div>

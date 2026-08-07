@@ -28,6 +28,8 @@ import type {
   SendEmailRequest,
   PayrollBatch,
   PayrollTemplate,
+  AttendanceAnalysis,
+  AttendanceShiftRule,
 } from './types'
 
 export const api = {
@@ -52,14 +54,15 @@ export const api = {
     uploadDocument: (accessToken: string, collectionId: string, file: File) => apiRequest<{ id: string; name: string; status: string; version: number }>(`/knowledge/collections/${collectionId}/documents`, { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form })(), headers: { Authorization: `Bearer ${accessToken}` } }),
   },
   workspace: {
-    streamMessage: (accessToken: string, payload: CreateChatMessageRequest) =>
-      apiStreamRequest('/workspace/messages/stream', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    streamMessage: (accessToken: string, payload: CreateChatMessageRequest, signal?: AbortSignal) =>
+      apiStreamRequest('/workspace/messages/stream', { method: 'POST', body: payload, signal, headers: { Authorization: `Bearer ${accessToken}` } }),
     usageSummary: (accessToken: string, range?: { dateFrom: string; dateTo: string }) => apiRequest<UsageSummary>(`/workspace/usage/summary${range ? `?date_from=${encodeURIComponent(range.dateFrom)}&date_to=${encodeURIComponent(range.dateTo)}` : ''}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
     notifications: (accessToken: string) => apiRequest<{ notifications: UsageNotification[]; unread_count: number }>('/workspace/notifications', { headers: { Authorization: `Bearer ${accessToken}` } }),
     conversations: (accessToken: string) => apiRequest<ChatConversation[]>('/workspace/conversations', { headers: { Authorization: `Bearer ${accessToken}` } }),
     messages: (accessToken: string, conversationId: string) => apiRequest<ChatMessage[]>(`/workspace/conversations/${conversationId}/messages`, { headers: { Authorization: `Bearer ${accessToken}` } }),
     renameConversation: (accessToken: string, conversationId: string, title: string) => apiRequest<ChatConversation>(`/workspace/conversations/${conversationId}`, { method: 'PATCH', body: { title }, headers: { Authorization: `Bearer ${accessToken}` } }),
     deleteConversation: (accessToken: string, conversationId: string) => apiRequest<void>(`/workspace/conversations/${conversationId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }),
+    saveStoppedResponse: (accessToken: string, conversationId: string, content: string) => apiRequest<{ id: string; content: string }>(`/workspace/conversations/${conversationId}/stopped-response`, { method: 'POST', body: { content }, headers: { Authorization: `Bearer ${accessToken}` } }),
     sendEmail: (accessToken: string, payload: SendEmailRequest) => apiRequest<{ status: 'sent'; sent_at: string }>('/workspace/email/send', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
     uploadAttachment: (accessToken: string, file: File) => apiRequest<ChatAttachment>('/workspace/attachments', { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form })(), headers: { Authorization: `Bearer ${accessToken}` } }),
     attachmentContentUrl: (attachmentId: string) => `/api/v1/workspace/attachments/${attachmentId}/content`,
@@ -98,6 +101,10 @@ export const api = {
     send: (accessToken: string, batchId: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}/send`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
     retryFailed: (accessToken: string, batchId: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}/retry-failed`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
     pdf: (accessToken: string, batchId: string, recipientId: string) => apiFileRequest(`/payroll/batches/${batchId}/recipients/${recipientId}/pdf`, accessToken),
+    analyzeAttendance: (accessToken: string, file: File, shifts: AttendanceShiftRule[], shiftRoster?: File | null) => {
+      const form = new FormData(); form.append('excel_file', file); form.append('shift_rules', JSON.stringify(shifts)); if (shiftRoster) form.append('shift_roster_file', shiftRoster)
+      return apiRequest<AttendanceAnalysis>('/payroll/attendance/analyze', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
   },
   admin: {
     users: (accessToken: string) => apiRequest<AdminUser[]>('/admin/users', { headers: { Authorization: `Bearer ${accessToken}` } }),

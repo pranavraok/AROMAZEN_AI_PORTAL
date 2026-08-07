@@ -6,6 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends libreoffice-writer fonts-noto-core && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml ./
 RUN mkdir -p app && touch app/__init__.py && pip install --upgrade pip && pip install . && rm -rf app
 

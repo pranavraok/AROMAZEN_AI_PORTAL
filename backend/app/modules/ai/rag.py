@@ -145,7 +145,7 @@ async def index_document(session: AsyncSession, document: KnowledgeDocument, use
     return len(units)
 
 
-async def ensure_permitted_documents_indexed(session: AsyncSession, user: User, collection_ids: list[UUID]) -> int:
+async def ensure_permitted_documents_indexed(session: AsyncSession, user: User, collection_ids: list[UUID], max_documents: int = 20) -> int:
     settings = get_settings()
     index_model = _index_model_name(settings.openai_embedding_model)
     query = select(KnowledgeDocument).join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id).where(
@@ -162,7 +162,7 @@ async def ensure_permitted_documents_indexed(session: AsyncSession, user: User, 
         query = query.where(access)
     if collection_ids:
         query = query.where(KnowledgeDocument.collection_id.in_(collection_ids))
-    documents = list(await session.scalars(query.order_by(KnowledgeDocument.created_at).limit(20)))
+    documents = list(await session.scalars(query.order_by(KnowledgeDocument.created_at).limit(max_documents)))
     total = 0
     for document in documents:
         total += await index_document(session, document, user)
@@ -171,7 +171,7 @@ async def ensure_permitted_documents_indexed(session: AsyncSession, user: User, 
     return total
 
 
-async def retrieve_chunks(session: AsyncSession, user: User, question: str, collection_ids: list[UUID]) -> tuple[list[dict], int]:
+async def retrieve_chunks(session: AsyncSession, user: User, question: str, collection_ids: list[UUID], limit: int | None = None) -> tuple[list[dict], int]:
     settings = get_settings()
     index_model = _index_model_name(settings.openai_embedding_model)
     started = time.perf_counter()
@@ -192,7 +192,7 @@ async def retrieve_chunks(session: AsyncSession, user: User, question: str, coll
         query = query.where(access)
     if collection_ids:
         query = query.where(KnowledgeChunk.collection_id.in_(collection_ids))
-    rows = (await session.execute(query.order_by(distance).limit(settings.ai_retrieval_limit))).all()
+    rows = (await session.execute(query.order_by(distance).limit(limit or settings.ai_retrieval_limit))).all()
     latency_ms = int((time.perf_counter() - started) * 1000)
     results = []
     for chunk, document, collection, raw_distance in rows:
@@ -226,3 +226,66 @@ async def retrieve_chunks(session: AsyncSession, user: User, question: str, coll
     await session.commit()
     logger.info("ai.retrieval", user_id=str(user.id), result_count=len(results), latency_ms=latency_ms)
     return results, latency_ms
+
+
+async def expand_relevant_documents(
+    session: AsyncSession,
+    user: User,
+    seed_chunks: list[dict],
+    collection_ids: list[UUID],
+    *,
+    max_documents: int = 8,
+    max_characters: int = 180_000,
+) -> list[dict]:
+    """Read complete relevant documents for exhaustive/list-style questions.
+
+    Semantic retrieval identifies the likely documents; this second pass restores
+    every indexed chunk in document order so names or rows outside the top few
+    matches are not silently omitted.
+    """
+    if not seed_chunks:
+        return []
+    ranked_document_ids: list[UUID] = []
+    for chunk in seed_chunks:
+        document_id = UUID(chunk["document_id"])
+        if document_id not in ranked_document_ids:
+            ranked_document_ids.append(document_id)
+        if len(ranked_document_ids) >= max_documents:
+            break
+    query = select(KnowledgeChunk, KnowledgeDocument, KnowledgeCollection).join(
+        KnowledgeDocument, KnowledgeDocument.id == KnowledgeChunk.document_id,
+    ).join(
+        KnowledgeCollection, KnowledgeCollection.id == KnowledgeChunk.collection_id,
+    ).where(
+        KnowledgeChunk.organization_id == user.organization_id,
+        KnowledgeChunk.document_id.in_(ranked_document_ids),
+        KnowledgeDocument.status == "ready",
+        KnowledgeCollection.status == "active",
+    )
+    access = await _access_filter(session, user)
+    if access is not None:
+        query = query.where(access)
+    if collection_ids:
+        query = query.where(KnowledgeChunk.collection_id.in_(collection_ids))
+    rows = (await session.execute(query.order_by(KnowledgeChunk.document_id, KnowledgeChunk.chunk_index))).all()
+    grouped: dict[UUID, dict] = {}
+    for chunk, document, collection in rows:
+        item = grouped.setdefault(document.id, {
+            "chunk_id": str(chunk.id), "chunk_index": 0, "page": None,
+            "content_parts": [], "document_id": str(document.id),
+            "document_name": document.original_filename, "collection_id": str(collection.id),
+            "collection_name": collection.name, "relevance": 1.0,
+        })
+        item["content_parts"].append(chunk.content)
+    expanded: list[dict] = []
+    remaining = max_characters
+    for document_id in ranked_document_ids:
+        item = grouped.get(document_id)
+        if not item or remaining <= 0:
+            continue
+        content = "\n\n".join(item.pop("content_parts"))
+        item["content"] = content[:remaining]
+        item["truncated"] = len(content) > remaining
+        remaining -= len(item["content"])
+        expanded.append(item)
+    return expanded

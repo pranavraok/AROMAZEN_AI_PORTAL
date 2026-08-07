@@ -1,9 +1,12 @@
+import csv
 import io
+import json
 import re
 import smtplib
 import uuid
+from calendar import monthrange
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
@@ -14,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
+from openpyxl import load_workbook
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal, get_db_session
@@ -425,3 +429,401 @@ async def send_batch(batch_id: uuid.UUID, background_tasks: BackgroundTasks, use
 async def retry_failed(batch_id: uuid.UUID, background_tasks: BackgroundTasks, user: User = Depends(require_permissions("users.manage")), session: AsyncSession = Depends(get_db_session)) -> dict:
     await _ensure_hr_access(user, session)
     return await _queue_delivery(batch_id, True, background_tasks, user, session)
+
+
+def _attendance_key(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def _attendance_clock(value: object) -> time | None:
+    if isinstance(value, datetime):
+        return value.time().replace(second=0, microsecond=0)
+    if isinstance(value, time):
+        return value.replace(second=0, microsecond=0)
+    text = str(value or "").strip()
+    for pattern in ("%H:%M:%S", "%H:%M", "%I:%M:%S %p", "%I:%M %p"):
+        try:
+            return datetime.strptime(text, pattern).time()
+        except ValueError:
+            pass
+    return None
+
+
+def _attendance_date(value: object) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value or "").strip()
+    for pattern in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%d %b %Y", "%d %B %Y"):
+        try:
+            return datetime.strptime(text, pattern).date()
+        except ValueError:
+            pass
+    return None
+
+
+ATTENDANCE_STATUS_LABELS = {
+    "P": "Present",
+    "LT": "Late",
+    "EL": "Early leave",
+    "A": "Absent",
+    "WO": "Weekly off",
+    "HD": "Half day",
+}
+DEFAULT_ATTENDANCE_SHIFTS = [
+    {"name": "Shift 1", "start": "06:00", "end": "14:00", "grace_minutes": 0},
+    {"name": "General", "start": "09:00", "end": "17:30", "grace_minutes": 0},
+    {"name": "Shift 2", "start": "14:00", "end": "22:00", "grace_minutes": 0},
+    {"name": "Shift 3", "start": "22:00", "end": "06:00", "grace_minutes": 0},
+]
+
+
+def _attendance_hours(value: object) -> float:
+    if isinstance(value, timedelta):
+        return round(value.total_seconds() / 3600, 2)
+    if isinstance(value, datetime):
+        value = value.time()
+    if isinstance(value, time):
+        return round(value.hour + value.minute / 60 + value.second / 3600, 2)
+    if isinstance(value, (int, float)) and 0 <= float(value) < 2:
+        return round(float(value) * 24, 2)
+    parsed = _attendance_clock(value)
+    return round(parsed.hour + parsed.minute / 60, 2) if parsed else 0.0
+
+
+def _parse_matrix_attendance(workbook) -> list[dict]:
+    records: list[dict] = []
+    employee_pattern = re.compile(
+        r"Employee Name\s*:\s*(.*?)\s*,\s*Employee ID\s*:\s*(.*?)\s*,\s*Gender\s*:\s*(.*?)\s*,\s*Department\s*:\s*(.*?)\s*,\s*Position\s*:\s*(.*)",
+        re.IGNORECASE,
+    )
+    for sheet in workbook.worksheets:
+        rows = list(sheet.iter_rows(values_only=True))
+        heading = " ".join(str(cell or "") for row in rows[:6] for cell in row)
+        period_match = re.search(r"From\s+([A-Za-z]+)\s+\d{1,2}\s+(\d{4})", heading, re.IGNORECASE)
+        if period_match:
+            try:
+                month_number = datetime.strptime(period_match.group(1), "%B").month
+            except ValueError:
+                month_number = datetime.strptime(period_match.group(1)[:3], "%b").month
+            year_number = int(period_match.group(2))
+        else:
+            sheet_date = re.search(r"(20\d{2})(\d{2})(\d{2})", sheet.title)
+            if not sheet_date:
+                continue
+            year_number, month_number = int(sheet_date.group(1)), int(sheet_date.group(2))
+        month_days = monthrange(year_number, month_number)[1]
+        for row_index, row in enumerate(rows):
+            metadata = employee_pattern.search(str(row[0] or "")) if row else None
+            if not metadata or row_index + 4 >= len(rows):
+                continue
+            employee_name, employee_code, _gender, department, position = (part.strip() for part in metadata.groups())
+            header, status_values, in_values, out_values, total_values = rows[row_index + 1:row_index + 6]
+            if _attendance_key(status_values[1] if len(status_values) > 1 else "") != "status":
+                continue
+            for column in range(2, len(header)):
+                day_match = re.match(r"\s*(\d{1,2})", str(header[column] or ""))
+                if not day_match:
+                    continue
+                day_number = int(day_match.group(1))
+                if day_number < 1 or day_number > month_days:
+                    continue
+                status_code = str(status_values[column] or "").strip().upper() if column < len(status_values) else ""
+                first_in = _attendance_clock(in_values[column] if column < len(in_values) else None)
+                last_out = _attendance_clock(out_values[column] if column < len(out_values) else None)
+                worked_hours = _attendance_hours(total_values[column] if column < len(total_values) else None)
+                if not any((status_code, first_in, last_out, worked_hours)):
+                    continue
+                records.append({
+                    "employee_code": employee_code,
+                    "employee_name": employee_name,
+                    "department": department or "Unassigned",
+                    "position": position,
+                    "date": date(year_number, month_number, day_number),
+                    "first_in": first_in,
+                    "last_out": last_out,
+                    "worked_hours": worked_hours,
+                    "status_code": status_code,
+                })
+    return records
+
+
+def _parse_tabular_attendance(workbook) -> list[dict]:
+    aliases = {
+        "code": {"employeeid", "employeecode", "empid", "empcode", "userid", "user id", "id"},
+        "name": {"employeename", "empname", "name", "employee"},
+        "department": {"department", "dept"},
+        "date": {"date", "attendancedate", "punchdate", "transactiondate"},
+        "in": {"intime", "checkin", "firstin", "timein", "in"},
+        "out": {"outtime", "checkout", "lastout", "timeout", "out"},
+        "punch": {"punchtime", "time", "transactiontime", "datetime", "punchdatetime"},
+    }
+    groups: dict[tuple[str, date], dict] = {}
+    all_aliases = set().union(*aliases.values())
+    for sheet in workbook.worksheets:
+        rows = list(sheet.iter_rows(values_only=True))
+        header_index = next((index for index, row in enumerate(rows[:20]) if sum(_attendance_key(cell) in all_aliases for cell in row) >= 2), None)
+        if header_index is None:
+            continue
+        header = [_attendance_key(value) for value in rows[header_index]]
+        columns = {kind: next((index for index, value in enumerate(header) if value in {_attendance_key(item) for item in names}), None) for kind, names in aliases.items()}
+        if columns["date"] is None and columns["punch"] is None:
+            continue
+        for values in rows[header_index + 1:]:
+            def cell(kind: str):
+                index = columns[kind]
+                return values[index] if index is not None and index < len(values) else None
+            punch_value = cell("punch")
+            work_date = _attendance_date(cell("date")) or _attendance_date(punch_value)
+            if not work_date:
+                continue
+            code = str(cell("code") or "").strip()
+            name = str(cell("name") or code or "Unknown employee").strip()
+            identity = code or _attendance_key(name)
+            group = groups.setdefault((identity, work_date), {"employee_code": code, "employee_name": name, "department": str(cell("department") or "Unassigned").strip(), "date": work_date, "punches": [], "in": None, "out": None})
+            explicit_in, explicit_out = _attendance_clock(cell("in")), _attendance_clock(cell("out"))
+            punch = _attendance_clock(punch_value)
+            if explicit_in:
+                group["in"] = explicit_in
+            if explicit_out:
+                group["out"] = explicit_out
+            if punch:
+                group["punches"].append(punch)
+    records = []
+    for group in groups.values():
+        punches = sorted(group["punches"])
+        first_in = group["in"] or (punches[0] if punches else None)
+        last_out = group["out"] or (punches[-1] if len(punches) > 1 else None)
+        records.append({**group, "first_in": first_in, "last_out": last_out, "worked_hours": 0.0, "status_code": "P"})
+    return records
+
+
+def _time_minutes(value: time) -> int:
+    return value.hour * 60 + value.minute
+
+
+def _shift_duration(start: time, end: time) -> float:
+    minutes = (_time_minutes(end) - _time_minutes(start)) % (24 * 60)
+    return round(minutes / 60, 2)
+
+
+def _nearest_shift(clock: time, shifts: list[dict]) -> dict:
+    clock_minutes = _time_minutes(clock)
+    return min(shifts, key=lambda shift: min(abs(clock_minutes - shift["start_minutes"]), 1440 - abs(clock_minutes - shift["start_minutes"])))
+
+
+def _parse_shift_roster(content: bytes, filename: str) -> list[dict]:
+    extension = Path(filename).suffix.lower()
+    rows: list[tuple] = []
+    if extension == ".csv":
+        text = content.decode("utf-8-sig", errors="replace")
+        rows = [tuple(row) for row in csv.reader(io.StringIO(text))]
+    elif extension in {".xlsx", ".xlsm"}:
+        roster_workbook = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
+        try:
+            for sheet in roster_workbook.worksheets:
+                rows.extend(tuple(row) for row in sheet.iter_rows(values_only=True))
+        finally:
+            roster_workbook.close()
+    else:
+        raise HTTPException(status_code=422, detail="Upload the shift roster as .xlsx or .csv.")
+    aliases = {
+        "code": {"employeeid", "employeecode", "empid", "empcode"},
+        "name": {"employeename", "employee", "name"},
+        "from": {"fromdate", "fromdateyyyymmdd", "startdate", "effectivefrom"},
+        "to": {"todate", "todateyyyymmdd", "enddate", "effectiveto"},
+        "shift": {"shiftname", "shift"},
+    }
+    header_index = next((index for index, row in enumerate(rows[:20]) if sum(_attendance_key(cell) in set().union(*aliases.values()) for cell in row) >= 3), None)
+    if header_index is None:
+        raise HTTPException(status_code=422, detail="The shift roster needs Employee ID/Name, From Date, To Date and Shift Name columns.")
+    header = [_attendance_key(value) for value in rows[header_index]]
+    columns = {kind: next((index for index, value in enumerate(header) if value in {_attendance_key(item) for item in names}), None) for kind, names in aliases.items()}
+    if columns["shift"] is None or columns["from"] is None or (columns["code"] is None and columns["name"] is None):
+        raise HTTPException(status_code=422, detail="The shift roster needs Employee ID or Employee Name, From Date and Shift Name.")
+    assignments = []
+    for row in rows[header_index + 1:]:
+        def cell(kind: str):
+            index = columns[kind]
+            return row[index] if index is not None and index < len(row) else None
+        code = str(cell("code") or "").strip()
+        name = str(cell("name") or "").strip()
+        start_date = _attendance_date(cell("from"))
+        end_date = _attendance_date(cell("to")) or start_date
+        shift_name = str(cell("shift") or "").strip()
+        if not shift_name or not start_date or (not code and not name):
+            continue
+        assignments.append({"employee_code": code, "employee_name_key": _attendance_key(name), "from_date": start_date, "to_date": end_date or start_date, "shift_name": shift_name})
+    if not assignments:
+        raise HTTPException(status_code=422, detail="No valid shift assignments were found in the roster.")
+    return assignments
+
+
+def _roster_shift(record: dict, assignments: list[dict], valid_shift_names: set[str]) -> str | None:
+    record_code = str(record.get("employee_code") or "").strip()
+    record_name = _attendance_key(record.get("employee_name"))
+    work_date = record["date"]
+    for assignment in assignments:
+        identity_matches = (record_code and assignment["employee_code"] == record_code) or (record_name and assignment["employee_name_key"] == record_name)
+        if identity_matches and assignment["from_date"] <= work_date <= assignment["to_date"] and assignment["shift_name"] in valid_shift_names:
+            return assignment["shift_name"]
+    return None
+
+def _attendance_analysis(records: list[dict], shifts: list[dict], filename: str, assignments: list[dict] | None = None) -> dict:
+    if not records:
+        raise HTTPException(status_code=422, detail="No attendance rows were recognized in this workbook.")
+    assignments = assignments or []
+    shifts_by_name = {shift["name"]: shift for shift in shifts}
+    valid_shift_names = set(shifts_by_name)
+    employee_shift_counts: dict[str, Counter] = {}
+    for record in records:
+        key = record["employee_code"] or record["employee_name"]
+        roster_shift = _roster_shift(record, assignments, valid_shift_names)
+        if roster_shift:
+            record["shift_name"] = roster_shift
+            record["assignment_source"] = "Roster"
+        elif record.get("first_in"):
+            shift = _nearest_shift(record["first_in"], shifts)
+            record["shift_name"] = shift["name"]
+            record["assignment_source"] = "Automatic"
+        if record.get("shift_name"):
+            employee_shift_counts.setdefault(key, Counter())[record["shift_name"]] += 1
+    primary_shifts = {key: counts.most_common(1)[0][0] for key, counts in employee_shift_counts.items() if counts}
+    employees: dict[str, dict] = {}
+    shift_summary: dict[str, dict] = {}
+    department_summary: dict[str, dict] = {}
+    normalized_records = []
+    status_totals = Counter()
+    for record in sorted(records, key=lambda item: (item["date"], item["employee_name"])):
+        key = record["employee_code"] or record["employee_name"]
+        shift_name = record.get("shift_name") or primary_shifts.get(key) or "Unassigned"
+        shift = shifts_by_name.get(shift_name)
+        first_in, last_out = record.get("first_in"), record.get("last_out")
+        worked_hours = float(record.get("worked_hours") or 0)
+        if not worked_hours and first_in and last_out:
+            start_dt = datetime.combine(record["date"], first_in)
+            end_dt = datetime.combine(record["date"], last_out)
+            if end_dt < start_dt:
+                end_dt += timedelta(days=1)
+            worked_hours = round((end_dt - start_dt).total_seconds() / 3600, 2)
+        status_code = str(record.get("status_code") or "").upper()
+        computed_late = False
+        if shift and first_in:
+            computed_late = _time_minutes(first_in) > shift["start_minutes"] + shift["grace_minutes"]
+        is_late = computed_late if shift and first_in else status_code == "LT"
+        is_early = status_code == "EL"
+        if status_code == "LT" and not is_late:
+            status_code = "P"
+        elif status_code in {"", "P"} and is_late:
+            status_code = "LT"
+        status_label = ATTENDANCE_STATUS_LABELS.get(status_code, status_code.title() if status_code else "Present")
+        scheduled_hours = shift["duration_hours"] if shift else 0
+        overtime_hours = round(max(0.0, worked_hours - scheduled_hours), 2) if scheduled_hours else 0.0
+        scheduled = status_code != "WO"
+        present_value = 0.5 if status_code == "HD" else (1.0 if status_code in {"P", "LT", "EL"} else 0.0)
+        status_totals[status_label] += 1
+        item = employees.setdefault(key, {"employee_code": record["employee_code"], "employee_name": record["employee_name"], "department": record.get("department") or "Unassigned", "primary_shift": primary_shifts.get(key, "Unassigned"), "scheduled_days": 0, "present_days": 0.0, "absent_days": 0, "weekly_off_days": 0, "late_days": 0, "early_leave_days": 0, "half_days": 0, "total_hours": 0.0, "overtime_hours": 0.0, "days_with_hours": 0})
+        item["scheduled_days"] += int(scheduled)
+        item["present_days"] += present_value
+        item["absent_days"] += int(status_code == "A")
+        item["weekly_off_days"] += int(status_code == "WO")
+        item["late_days"] += int(is_late)
+        item["early_leave_days"] += int(is_early)
+        item["half_days"] += int(status_code == "HD")
+        item["total_hours"] = round(item["total_hours"] + worked_hours, 2)
+        item["overtime_hours"] = round(item["overtime_hours"] + overtime_hours, 2)
+        item["days_with_hours"] += int(worked_hours > 0)
+        for summary, summary_key in ((shift_summary, shift_name), (department_summary, item["department"])):
+            group = summary.setdefault(summary_key, {"name": summary_key, "employee_ids": set(), "scheduled_days": 0, "present_days": 0.0, "absent_days": 0, "late_days": 0, "early_leave_days": 0, "total_hours": 0.0, "overtime_hours": 0.0})
+            group["employee_ids"].add(key)
+            group["scheduled_days"] += int(scheduled)
+            group["present_days"] += present_value
+            group["absent_days"] += int(status_code == "A")
+            group["late_days"] += int(is_late)
+            group["early_leave_days"] += int(is_early)
+            group["total_hours"] = round(group["total_hours"] + worked_hours, 2)
+            group["overtime_hours"] = round(group["overtime_hours"] + overtime_hours, 2)
+        normalized_records.append({"employee_code": record["employee_code"], "employee_name": record["employee_name"], "department": record.get("department") or "Unassigned", "date": record["date"].isoformat(), "shift_name": shift_name, "first_in": first_in.strftime("%H:%M") if first_in else "", "last_out": last_out.strftime("%H:%M") if last_out else "", "worked_hours": worked_hours, "overtime_hours": overtime_hours, "status_code": status_code, "status": status_label, "assignment_source": record.get("assignment_source") or ("Primary shift" if shift_name != "Unassigned" else "Unassigned")})
+    employee_items = []
+    for item in employees.values():
+        days_with_hours = item.pop("days_with_hours")
+        item["average_hours"] = round(item["total_hours"] / days_with_hours, 2) if days_with_hours else 0
+        item["attendance_rate"] = round(item["present_days"] / item["scheduled_days"] * 100, 1) if item["scheduled_days"] else 0
+        employee_items.append(item)
+    employee_items.sort(key=lambda item: (item["department"], item["employee_name"]))
+    def finish_groups(groups: dict[str, dict]) -> list[dict]:
+        finished = []
+        for group in groups.values():
+            group["employee_count"] = len(group.pop("employee_ids"))
+            group["attendance_rate"] = round(group["present_days"] / group["scheduled_days"] * 100, 1) if group["scheduled_days"] else 0
+            group["average_hours"] = round(group["total_hours"] / group["present_days"], 2) if group["present_days"] else 0
+            finished.append(group)
+        return sorted(finished, key=lambda item: item["name"])
+    dates = [record["date"] for record in records]
+    return {
+        "filename": filename,
+        "period": {"from": min(dates).isoformat(), "to": max(dates).isoformat()},
+        "employee_count": len(employee_items),
+        "record_count": len(normalized_records),
+        "roster_assigned_records": sum(1 for record in normalized_records if record["assignment_source"] == "Roster"),
+        "automatic_assigned_records": sum(1 for record in normalized_records if record["assignment_source"] == "Automatic"),
+        "scheduled_days": sum(item["scheduled_days"] for item in employee_items),
+        "present_days": round(sum(item["present_days"] for item in employee_items), 1),
+        "absent_days": sum(item["absent_days"] for item in employee_items),
+        "weekly_off_days": sum(item["weekly_off_days"] for item in employee_items),
+        "late_days": sum(item["late_days"] for item in employee_items),
+        "early_leave_days": sum(item["early_leave_days"] for item in employee_items),
+        "half_days": sum(item["half_days"] for item in employee_items),
+        "total_hours": round(sum(item["total_hours"] for item in employee_items), 2),
+        "overtime_hours": round(sum(item["overtime_hours"] for item in employee_items), 2),
+        "status_counts": dict(status_totals),
+        "shift_rules": [{"name": shift["name"], "start": shift["start"], "end": shift["end"], "grace_minutes": shift["grace_minutes"]} for shift in shifts],
+        "shifts": finish_groups(shift_summary),
+        "departments": finish_groups(department_summary),
+        "employees": employee_items,
+        "records": normalized_records,
+    }
+
+
+@router.post("/attendance/analyze")
+async def analyze_attendance(
+    excel_file: UploadFile = File(...),
+    shift_start: str = Form("09:00"),
+    shift_rules: str = Form(""),
+    shift_roster_file: UploadFile | None = File(None),
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _ensure_hr_access(user, session)
+    if Path(excel_file.filename or "").suffix.lower() not in {".xlsx", ".xlsm"}:
+        raise HTTPException(status_code=422, detail="Upload a fingerprint attendance .xlsx file.")
+    content = await excel_file.read()
+    try:
+        workbook = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
+    except Exception as error:
+        raise HTTPException(status_code=422, detail="The attendance workbook could not be opened.") from error
+    try:
+        parsed_shifts = json.loads(shift_rules) if shift_rules.strip() else DEFAULT_ATTENDANCE_SHIFTS
+        if not isinstance(parsed_shifts, list) or not parsed_shifts:
+            raise ValueError("invalid_shift_rules")
+        shifts = []
+        for index, item in enumerate(parsed_shifts):
+            start = _attendance_clock(item.get("start"))
+            end = _attendance_clock(item.get("end"))
+            if not start or not end:
+                raise ValueError("invalid_shift_time")
+            shifts.append({"name": str(item.get("name") or f"Shift {index + 1}").strip(), "start": start.strftime("%H:%M"), "end": end.strftime("%H:%M"), "start_minutes": _time_minutes(start), "end_minutes": _time_minutes(end), "grace_minutes": max(0, int(item.get("grace_minutes") or 0)), "duration_hours": _shift_duration(start, end)})
+    except (ValueError, TypeError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=422, detail="Review the shift names, start/end times and grace minutes.") from error
+    assignments: list[dict] = []
+    if shift_roster_file and shift_roster_file.filename:
+        assignments = _parse_shift_roster(await shift_roster_file.read(), shift_roster_file.filename)
+        unknown_shifts = sorted({item["shift_name"] for item in assignments} - {shift["name"] for shift in shifts})
+        if unknown_shifts:
+            raise HTTPException(status_code=422, detail=f"These roster shift names do not match the configured shifts: {', '.join(unknown_shifts)}")
+    records = _parse_matrix_attendance(workbook)
+    if not records:
+        records = _parse_tabular_attendance(workbook)
+    workbook.close()
+    return _attendance_analysis(records, shifts, excel_file.filename or "attendance.xlsx", assignments)

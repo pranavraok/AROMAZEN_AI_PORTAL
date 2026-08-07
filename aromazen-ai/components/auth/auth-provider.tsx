@@ -71,6 +71,7 @@ export function useAuth() {
 const routePermissions: Record<string, string | undefined> = {
   '/workspace': 'ai.workspace.use', '/knowledge': 'knowledge.read',
   '/rnd/documents': 'ai.workspace.use',
+  '/department-tools': 'ai.workspace.use',
   '/admin/usage': 'usage.read', '/admin/users': 'users.manage', '/admin/access': 'roles.manage',
   '/settings': 'settings.manage',
 }

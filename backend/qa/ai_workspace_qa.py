@@ -43,7 +43,13 @@ class FakeEmbeddings:
 
 
 class FakeRouter:
-    async def stream(self, system: str, prompt: str, question: str):
+    last_prompt = ""
+
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    async def stream(self, system: str, prompt: str, question: str, **_kwargs):
+        FakeRouter.last_prompt = prompt
         yield ProviderEvent("meta", "qa", "mock-stream")
         for text in ("Safe ", "mock ", "answer."):
             await asyncio.sleep(0.015)
@@ -56,7 +62,7 @@ class Always429:
     model = "rate-limited"
     calls = 0
 
-    async def stream(self, system: str, prompt: str):
+    async def stream(self, system: str, prompt: str, **_kwargs):
         self.calls += 1
         if False:
             yield ProviderEvent("delta", self.name, self.model)
@@ -67,7 +73,7 @@ class FallbackSuccess:
     name = "qa-fallback"
     model = "fallback"
 
-    async def stream(self, system: str, prompt: str):
+    async def stream(self, system: str, prompt: str, **_kwargs):
         yield ProviderEvent("meta", self.name, self.model)
         yield ProviderEvent("delta", self.name, self.model, text="fallback-ok")
         yield ProviderEvent("usage", self.name, self.model, input_tokens=1, output_tokens=1)
@@ -77,7 +83,7 @@ class AlwaysTimeout(Always429):
     name = "qa-timeout"
     model = "timed-out"
 
-    async def stream(self, system: str, prompt: str):
+    async def stream(self, system: str, prompt: str, **_kwargs):
         self.calls += 1
         if False:
             yield ProviderEvent("delta", self.name, self.model)
@@ -195,6 +201,30 @@ async def main() -> None:
             print(f"CONCURRENCY_P95_MS={p95:.1f}")
             print(f"CONCURRENCY_FAILURES={failures}")
 
+            exhaustive = await client.post(
+                "/api/v1/workspace/messages/stream",
+                headers={"Authorization": f"Bearer {owner_token}"},
+                json={"content": "Give me the complete list of all employees with every detail", "collection_ids": [str(collection_id)]},
+            )
+            exhaustive_events = [json.loads(line[5:].strip()) for line in exhaustive.text.splitlines() if line.startswith("data:")]
+            exhaustive_conversation = next((item.get("conversation_id") for item in exhaustive_events if item.get("conversation_id")), None)
+            if exhaustive_conversation:
+                conversation_ids.append(uuid.UUID(exhaustive_conversation))
+            exhaustive_citations = next((item.get("citations") for item in exhaustive_events if "citations" in item), [])
+            print(f"EXHAUSTIVE_FULL_DOCUMENT_OK={exhaustive.status_code == 200 and len(exhaustive_citations) == 1 and 'Synthetic safe chunk 199' in FakeRouter.last_prompt}")
+
+            general = await client.post(
+                "/api/v1/workspace/messages/stream",
+                headers={"Authorization": f"Bearer {owner_token}"},
+                json={"content": "Explain photosynthesis simply", "collection_ids": []},
+            )
+            general_events = [json.loads(line[5:].strip()) for line in general.text.splitlines() if line.startswith("data:")]
+            general_conversation = next((item.get("conversation_id") for item in general_events if item.get("conversation_id")), None)
+            if general_conversation:
+                conversation_ids.append(uuid.UUID(general_conversation))
+            general_citations = next((item.get("citations") for item in general_events if "citations" in item), None)
+            print(f"GENERAL_BYPASS_OK={general.status_code == 200 and general_citations == [] and 'No relevant' not in FakeRouter.last_prompt}")
+
             expired_payload = {
                 "sub": str(test_user.id), "org": str(test_user.organization_id), "roles": ["Owner"],
                 "iat": datetime.now(timezone.utc) - timedelta(minutes=20),
@@ -250,12 +280,12 @@ async def main() -> None:
         failing = Always429()
         fallback = FallbackSuccess()
         router = AIProviderRouter(settings)
-        router._providers = lambda question: [failing, fallback]
+        router._providers = lambda question, **_kwargs: [failing, fallback]
         events = [event async for event in router.stream("system", "prompt", "question")]
         print(f"SIMULATED_429_RETRIES={failing.calls}")
         print(f"SIMULATED_FALLBACK_OK={any(event.kind == 'delta' and event.text == 'fallback-ok' for event in events)}")
         timed_out = AlwaysTimeout()
-        router._providers = lambda question: [timed_out, fallback]
+        router._providers = lambda question, **_kwargs: [timed_out, fallback]
         timeout_events = [event async for event in router.stream("system", "prompt", "question")]
         print(f"SIMULATED_TIMEOUT_RETRIES={timed_out.calls}")
         print(f"SIMULATED_TIMEOUT_FALLBACK_OK={any(event.kind == 'delta' and event.text == 'fallback-ok' for event in timeout_events)}")

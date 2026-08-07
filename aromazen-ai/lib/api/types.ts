@@ -167,6 +167,34 @@ export interface PayrollTemplate {
   source: string
 }
 
+export interface AttendanceShiftRule { name: string; start: string; end: string; grace_minutes: number }
+export interface AttendanceGroupSummary { name: string; employee_count: number; scheduled_days: number; present_days: number; absent_days: number; late_days: number; early_leave_days: number; total_hours: number; overtime_hours: number; attendance_rate: number; average_hours: number }
+export interface AttendanceEmployeeSummary { employee_code: string; employee_name: string; department: string; primary_shift: string; scheduled_days: number; present_days: number; absent_days: number; weekly_off_days: number; late_days: number; early_leave_days: number; half_days: number; total_hours: number; overtime_hours: number; average_hours: number; attendance_rate: number }
+export interface AttendanceRecord { employee_code: string; employee_name: string; department: string; date: string; shift_name: string; first_in: string; last_out: string; worked_hours: number; overtime_hours: number; status_code: string; status: string; assignment_source: string }
+export interface AttendanceAnalysis {
+  filename: string
+  period: { from: string; to: string }
+  employee_count: number
+  record_count: number
+  roster_assigned_records: number
+  automatic_assigned_records: number
+  scheduled_days: number
+  present_days: number
+  absent_days: number
+  weekly_off_days: number
+  late_days: number
+  early_leave_days: number
+  half_days: number
+  total_hours: number
+  overtime_hours: number
+  status_counts: Record<string, number>
+  shift_rules: AttendanceShiftRule[]
+  shifts: AttendanceGroupSummary[]
+  departments: AttendanceGroupSummary[]
+  employees: AttendanceEmployeeSummary[]
+  records: AttendanceRecord[]
+}
+
 export interface UsageSummary {
   currency: 'INR'
   usd_to_inr_rate: number
