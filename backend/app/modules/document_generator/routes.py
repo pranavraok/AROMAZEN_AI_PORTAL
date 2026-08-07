@@ -402,9 +402,10 @@ async def generate(
     if excel_file:
         if Path(excel_file.filename or "").suffix.lower() != ".xlsx":
             raise HTTPException(status_code=422, detail="Please upload an XLSX Excel file.")
-        content = await excel_file.read(10 * 1024 * 1024 + 1)
-        if len(content) > 10 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="The Excel file exceeds the 10 MB limit.")
+        max_excel_bytes = get_settings().max_excel_upload_size_mb * 1024 * 1024
+        content = await excel_file.read(max_excel_bytes + 1)
+        if len(content) > max_excel_bytes:
+            raise HTTPException(status_code=413, detail=f"The Excel file exceeds the {get_settings().max_excel_upload_size_mb} MB limit.")
         temporary_excel = storage / f"{uuid.uuid4()}.xlsx"
         temporary_excel.write_bytes(content)
         try:

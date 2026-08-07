@@ -30,6 +30,7 @@ class OrganizationSettingsResponse(BaseModel):
     knowledge_documents: int
     generated_documents: int
     max_upload_size_mb: int
+    max_excel_upload_size_mb: int
     updated_at: datetime | None
 
 

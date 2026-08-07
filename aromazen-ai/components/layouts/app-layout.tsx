@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { Sidebar } from './sidebar'
 import { TopBar } from './top-bar'
-import { UserMenu } from './user-menu'
 import { RequireAuthenticatedApp } from '@/components/auth/auth-provider'
 
 interface AppLayoutProps {

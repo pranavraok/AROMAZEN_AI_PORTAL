@@ -36,7 +36,7 @@ async def response_for(session: AsyncSession, user: User) -> OrganizationSetting
         ],
         zoho_email_connected=bool(config.zoho_smtp_username and config.zoho_smtp_password and (config.zoho_from_email or config.zoho_smtp_username)),
         storage_bytes=int(storage_bytes), knowledge_documents=int(knowledge_documents), generated_documents=int(generated_documents),
-        max_upload_size_mb=config.max_upload_size_mb, updated_at=value.updated_at,
+        max_upload_size_mb=config.max_upload_size_mb, max_excel_upload_size_mb=config.max_excel_upload_size_mb, updated_at=value.updated_at,
     )
 
 

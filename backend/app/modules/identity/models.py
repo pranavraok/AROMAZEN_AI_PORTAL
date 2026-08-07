@@ -171,6 +171,60 @@ class DocumentGeneration(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class PayrollBatch(Base):
+    __tablename__ = "payroll_batches"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    template_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("payroll_templates.id", ondelete="SET NULL"), nullable=True)
+    payroll_month: Mapped[str] = mapped_column(String(7), index=True)
+    original_filename: Mapped[str] = mapped_column(String(500))
+    stored_filename: Mapped[str] = mapped_column(String(500), unique=True)
+    email_subject: Mapped[str] = mapped_column(String(240), default="AROMAZEN Salary Slip - {month}")
+    email_body: Mapped[str] = mapped_column(Text(), default="")
+    duplicate_email_count: Mapped[int] = mapped_column(default=0)
+    status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    total_count: Mapped[int] = mapped_column(default=0)
+    sent_count: Mapped[int] = mapped_column(default=0)
+    failed_count: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    sending_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PayrollRecipient(Base):
+    __tablename__ = "payroll_recipients"
+    __table_args__ = (UniqueConstraint("batch_id", "row_number", name="uq_payroll_recipient_batch_row"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    batch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("payroll_batches.id", ondelete="CASCADE"), index=True)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    row_number: Mapped[int] = mapped_column()
+    employee_name: Mapped[str] = mapped_column(String(160))
+    employee_code: Mapped[str] = mapped_column(String(80))
+    personal_email: Mapped[str] = mapped_column(String(320), index=True)
+    birth_year: Mapped[int] = mapped_column()
+    details_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    pdf_stored_filename: Mapped[str] = mapped_column(String(500), unique=True)
+    pdf_original_filename: Mapped[str] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    error_message: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class PayrollTemplate(Base):
+    __tablename__ = "payroll_templates"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    name: Mapped[str] = mapped_column(String(160))
+    original_filename: Mapped[str] = mapped_column(String(500))
+    stored_filename: Mapped[str] = mapped_column(String(500), unique=True)
+    is_active: Mapped[bool] = mapped_column(default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class AIConversation(Base):
     __tablename__ = "ai_conversations"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

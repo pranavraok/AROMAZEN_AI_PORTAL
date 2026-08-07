@@ -26,6 +26,8 @@ import type {
   ChatConversation,
   ChatMessage,
   SendEmailRequest,
+  PayrollBatch,
+  PayrollTemplate,
 } from './types'
 
 export const api = {
@@ -76,6 +78,26 @@ export const api = {
       return apiRequest<GeneratedDocument>('/document-generator/generate', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
     download: (accessToken: string, generationId: string) => apiFileRequest(`/document-generator/generations/${generationId}/download`, accessToken),
+  },
+  payroll: {
+    template: (accessToken: string) => apiFileRequest('/payroll/template', accessToken),
+    templates: (accessToken: string) => apiRequest<PayrollTemplate[]>('/payroll/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    uploadTemplate: (accessToken: string, name: string, file: File) => {
+      const form = new FormData(); form.append('template_name', name); form.append('template_file', file)
+      return apiRequest<PayrollTemplate>('/payroll/templates', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    activateTemplate: (accessToken: string, templateId: string) => apiRequest<PayrollTemplate>(`/payroll/templates/${templateId}/activate`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    templateContent: (accessToken: string, templateId: string) => apiFileRequest(`/payroll/templates/${templateId}/content`, accessToken),
+    batches: (accessToken: string) => apiRequest<PayrollBatch[]>('/payroll/batches', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    batch: (accessToken: string, batchId: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    updateEmail: (accessToken: string, batchId: string, subject: string, body: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}/email`, { method: 'PATCH', body: { subject, body }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    upload: (accessToken: string, payrollMonth: string, file: File) => {
+      const form = new FormData(); form.append('payroll_month', payrollMonth); form.append('excel_file', file)
+      return apiRequest<PayrollBatch>('/payroll/batches', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    send: (accessToken: string, batchId: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}/send`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    retryFailed: (accessToken: string, batchId: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}/retry-failed`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    pdf: (accessToken: string, batchId: string, recipientId: string) => apiFileRequest(`/payroll/batches/${batchId}/recipients/${recipientId}/pdf`, accessToken),
   },
   admin: {
     users: (accessToken: string) => apiRequest<AdminUser[]>('/admin/users', { headers: { Authorization: `Bearer ${accessToken}` } }),

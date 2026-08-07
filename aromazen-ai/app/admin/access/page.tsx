@@ -1,98 +1,66 @@
+'use client'
+
+import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { CheckCircle2, LockKeyhole } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
+import { useAuth } from '@/components/auth/auth-provider'
+import { useToast } from '@/components/ui/toast-provider'
 import { PageHeader } from '@/components/ui/page-header'
-import { Button } from '@/components/ui/button'
-import { mockRoles, mockCollections } from '@/lib/mock-data'
-import { CheckCircle2, Circle } from 'lucide-react'
+import { buttonVariants } from '@/components/ui/button'
+import { api } from '@/lib/api/services'
+import { ApiError } from '@/lib/api/client'
+import type { AdminKnowledgeCollection, AdminRole } from '@/lib/api/types'
+
+const permissionNames: Record<string, string> = {
+  'platform.manage': 'Platform',
+  'users.manage': 'Users',
+  'roles.manage': 'Roles',
+  'knowledge.read': 'Read knowledge',
+  'knowledge.write': 'Manage knowledge',
+  'ai.workspace.use': 'AI assistance',
+  'usage.read': 'Analytics',
+  'departments.manage': 'Departments',
+  'audit.read': 'Audit log',
+  'settings.manage': 'Settings',
+}
 
 export default function AdminAccessPage() {
-  const permissions = [
-    'View Documents',
-    'Upload Documents',
-    'Manage Collections',
-    'View Analytics',
-    'Manage Users',
-    'Manage Settings',
-  ]
+  const { accessToken } = useAuth()
+  const { notify } = useToast()
+  const [roles, setRoles] = useState<AdminRole[]>([])
+  const [collections, setCollections] = useState<AdminKnowledgeCollection[]>([])
+  const [loading, setLoading] = useState(true)
 
-  return (
-    <AppLayout>
-      <div className="space-y-6 p-6">
-        <PageHeader
-          title="Access & Permissions"
-          description="Configure roles and access levels"
-        />
+  useEffect(() => {
+    if (!accessToken) return
+    let active = true
+    Promise.all([api.admin.roles(accessToken), api.admin.knowledgeCollections(accessToken)])
+      .then(([nextRoles, nextCollections]) => {
+        if (!active) return
+        setRoles(nextRoles)
+        setCollections(nextCollections.filter((collection) => collection.status === 'active'))
+      })
+      .catch((reason) => notify('error', reason instanceof ApiError ? reason.message : 'Unable to load live access data.'))
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [accessToken, notify])
 
-        {/* Roles Matrix */}
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="px-6 py-3 text-left font-medium text-muted-foreground">Role</th>
-                  {permissions.map((perm) => (
-                    <th key={perm} className="px-4 py-3 text-center font-medium text-muted-foreground text-xs whitespace-nowrap">
-                      {perm}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {mockRoles.map((role, idx) => (
-                  <tr key={role.id} className={`border-b border-border ${idx % 2 === 0 ? '' : ''}`}>
-                    <td className="px-6 py-3">
-                      <div>
-                        <p className="font-medium text-foreground">{role.name}</p>
-                        <p className="text-xs text-muted-foreground">{role.description}</p>
-                      </div>
-                    </td>
-                    {permissions.map((perm, pidx) => (
-                      <td key={perm} className="px-4 py-3 text-center">
-                        {/* Simple permission matrix - customize as needed */}
-                        {(role.id === 'owner' || (role.id === 'super-admin' && pidx < 5) || (role.id === 'dept-admin' && pidx < 3) || (role.id === 'employee' && pidx < 2)) ? (
-                          <CheckCircle2 className="w-5 h-5 text-emerald-500 mx-auto" />
-                        ) : (
-                          <Circle className="w-5 h-5 text-muted-foreground mx-auto" />
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+  const permissions = useMemo(() => Array.from(new Set(roles.flatMap((role) => role.permission_keys))).sort(), [roles])
 
-        {/* Collection Access */}
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-foreground">Collection Access</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {mockCollections.map((collection) => (
-              <div key={collection.id} className="rounded-lg border border-border bg-card p-4">
-                <h3 className="font-semibold text-foreground mb-3">{collection.name}</h3>
-                <div className="space-y-2">
-                  {mockRoles.map((role) => (
-                    <label key={role.id} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        defaultChecked={role.id === 'owner' || role.id === 'super-admin'}
-                        className="w-4 h-4 rounded border-input focus:ring-2 focus:ring-primary/50"
-                      />
-                      <span className="text-sm text-foreground">{role.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+  return <AppLayout><div className="space-y-6 p-6">
+    <PageHeader title="Access & Permissions" description="Live role permissions and department-scoped Knowledge Base access" actions={<Link href="/admin/knowledge" className={buttonVariants()}>Manage knowledge access</Link>} />
 
-        {/* Save Button */}
-        <div className="flex justify-end">
-          <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">
-            Save Changes
-          </Button>
-        </div>
-      </div>
-    </AppLayout>
-  )
+    <section className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="border-b border-border px-6 py-4"><h2 className="font-semibold">Role permission matrix</h2><p className="mt-1 text-xs text-muted-foreground">Reflects the permissions currently enforced by the API.</p></div>
+      <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border bg-muted/50"><th className="px-6 py-3 text-left font-medium text-muted-foreground">Role</th>{permissions.map((permission) => <th key={permission} className="whitespace-nowrap px-4 py-3 text-center text-xs font-medium text-muted-foreground">{permissionNames[permission] ?? permission}</th>)}</tr></thead><tbody>
+        {roles.map((role) => <tr key={role.id} className="border-b border-border last:border-0"><td className="px-6 py-3"><p className="font-medium">{role.name}</p><p className="text-xs text-muted-foreground">{role.description}</p></td>{permissions.map((permission) => <td key={permission} className="px-4 py-3 text-center">{role.permission_keys.includes(permission) ? <CheckCircle2 className="mx-auto h-5 w-5 text-emerald-500" /> : <span className="text-muted-foreground">—</span>}</td>)}</tr>)}
+        {!loading && roles.length === 0 && <tr><td colSpan={permissions.length + 1} className="px-6 py-10 text-center text-muted-foreground">No roles are available in your administrative scope.</td></tr>}
+      </tbody></table></div>
+    </section>
+
+    <section className="space-y-4"><div><h2 className="text-lg font-semibold">Knowledge Base groups</h2><p className="text-sm text-muted-foreground">Each group is available only to its mapped departments and platform administrators.</p></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {collections.map((collection) => <article key={collection.id} className="rounded-lg border border-border bg-card p-5"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{collection.name}</h3><p className="mt-1 text-xs text-muted-foreground">{collection.document_count} {collection.document_count === 1 ? 'document' : 'documents'}</p></div><LockKeyhole className="h-4 w-4 text-primary" /></div><p className="mt-3 min-h-10 text-sm text-muted-foreground">{collection.description}</p><div className="mt-4 flex flex-wrap gap-2">{collection.department_names.map((department) => <span key={department} className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{department}</span>)}</div></article>)}
+    </div></section>
+  </div></AppLayout>
 }

@@ -1,3 +1,4 @@
+from itertools import chain, islice
 from pathlib import Path
 
 from docx import Document as WordDocument
@@ -14,6 +15,47 @@ def _clean(parts: list[str]) -> str:
     return "\n".join(part.strip() for part in parts if part and part.strip())
 
 
+def _cell_text(value) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def _spreadsheet_text(workbook) -> str:
+    """Represent sheets as labeled records so semantic search understands each value."""
+    parts: list[str] = []
+    for sheet in workbook.worksheets:
+        parts.append(f"Worksheet: {sheet.title}")
+        rows = sheet.iter_rows(values_only=True)
+        buffered_rows = list(islice(rows, 25))
+        header_index = None
+        if buffered_rows:
+            scores = [
+                sum(isinstance(value, str) and bool(value.strip()) for value in row)
+                for row in buffered_rows
+            ]
+            best_index = max(range(len(scores)), key=scores.__getitem__)
+            if scores[best_index] >= 2:
+                header_index = best_index
+        headers = (
+            [_cell_text(value) for value in buffered_rows[header_index]]
+            if header_index is not None
+            else []
+        )
+        for row_index, row in enumerate(chain(buffered_rows, rows)):
+            values = [_cell_text(value) for value in row]
+            if not any(values):
+                continue
+            if header_index is None or row_index <= header_index:
+                parts.append(" | ".join(value for value in values if value))
+                continue
+            labeled_values = [
+                f"{headers[index] or f'Column {index + 1}'}: {value}"
+                for index, value in enumerate(values)
+                if value
+            ]
+            parts.append(f"Record {row_index + 1}: " + " | ".join(labeled_values))
+    return _clean(parts)
+
+
 def extract_text(file_path: Path, extension: str) -> str:
     """Extract readable text locally. No external AI service is used."""
     try:
@@ -24,14 +66,7 @@ def extract_text(file_path: Path, extension: str) -> str:
             return _clean([paragraph.text for paragraph in document.paragraphs] + [" | ".join(cell.text for cell in row.cells) for table in document.tables for row in table.rows])
         if extension == ".xlsx":
             workbook = load_workbook(str(file_path), read_only=True, data_only=True)
-            parts: list[str] = []
-            for sheet in workbook.worksheets:
-                parts.append(f"Worksheet: {sheet.title}")
-                for row in sheet.iter_rows(values_only=True):
-                    values = [str(value) for value in row if value is not None and str(value).strip()]
-                    if values:
-                        parts.append(" | ".join(values))
-            return _clean(parts)
+            return _spreadsheet_text(workbook)
         if extension == ".pptx":
             presentation = Presentation(str(file_path))
             parts = []

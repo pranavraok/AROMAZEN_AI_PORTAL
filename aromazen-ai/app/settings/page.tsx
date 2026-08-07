@@ -75,7 +75,7 @@ export default function SettingsPage() {
     </div>
 
     <Section icon={<Database />} title="Live storage and content" description="Calculated from the current organization database; no sample quota or usage values.">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Stat label="Knowledge storage" value={bytes(settings.storage_bytes)} /><Stat label="Knowledge documents" value={settings.knowledge_documents.toLocaleString()} /><Stat label="Generated documents" value={settings.generated_documents.toLocaleString()} /><Stat label="Maximum upload" value={`${settings.max_upload_size_mb} MB per file`} /></div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Stat label="Knowledge storage" value={bytes(settings.storage_bytes)} /><Stat label="Knowledge documents" value={settings.knowledge_documents.toLocaleString()} /><Stat label="Generated documents" value={settings.generated_documents.toLocaleString()} /><Stat label="Knowledge upload" value={`${settings.max_upload_size_mb} MB per file`} /><Stat label="R&D Excel upload" value={`${settings.max_excel_upload_size_mb} MB per file`} /></div>
       <Link href="/admin/knowledge"><Button type="button" variant="outline">Manage knowledge storage <ExternalLink className="ml-2 h-4 w-4" /></Button></Link>
     </Section>
     <p className="text-right text-xs text-muted-foreground">{settings.updated_at ? `Last saved ${new Date(settings.updated_at).toLocaleString()}` : 'Using deployment defaults until first save'}</p>

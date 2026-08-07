@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    // Keep the web proxy above the API's 50 MB document limit so multipart
+    // uploads are forwarded in full instead of being truncated at 10 MB.
+    proxyClientMaxBodySize: '60mb',
+  },
   images: {
     unoptimized: true,
   },

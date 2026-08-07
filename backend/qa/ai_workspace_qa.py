@@ -144,7 +144,7 @@ async def main() -> None:
                     chunk_index=chunk_index,
                     page_number=(chunk_index // 4) + 1,
                     content=f"Synthetic safe chunk {chunk_index}. Fictional simultaneous-search test content only.",
-                    embedding_model=settings.openai_embedding_model,
+                    embedding_model=rag._index_model_name(settings.openai_embedding_model),
                     embedding=[0.01] * 1536,
                 ))
             await session.commit()

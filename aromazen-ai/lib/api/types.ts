@@ -120,6 +120,53 @@ export interface CreateChatMessageRequest {
 
 export interface SendEmailRequest extends Omit<EmailDraft, 'status' | 'sent_at'> { message_id: string }
 
+export interface PayrollRecipient {
+  id: string
+  row_number: number
+  employee_name: string
+  employee_code: string
+  personal_email: string
+  unit: string
+  unit_address: string
+  password_hint: string
+  status: 'pending' | 'sending' | 'sent' | 'failed'
+  attempt_count: number
+  error_message: string | null
+  sent_at: string | null
+  gross: string
+  deductions: string
+  net_wages: string
+  template_name: string
+}
+
+export interface PayrollBatch {
+  id: string
+  payroll_month: string
+  original_filename: string
+  status: 'draft' | 'sending' | 'completed' | 'partial' | 'failed'
+  total_count: number
+  sent_count: number
+  failed_count: number
+  pending_count: number
+  created_at: string
+  completed_at: string | null
+  template_name: string
+  email_subject: string
+  email_body: string
+  duplicate_email_count: number
+  recipients?: PayrollRecipient[]
+}
+
+export interface PayrollTemplate {
+  id: string
+  name: string
+  original_filename: string
+  is_active: boolean
+  created_at: string
+  unit_number: number | null
+  source: string
+}
+
 export interface UsageSummary {
   currency: 'INR'
   usd_to_inr_rate: number
@@ -258,5 +305,6 @@ export interface OrganizationSettings {
   knowledge_documents: number
   generated_documents: number
   max_upload_size_mb: number
+  max_excel_upload_size_mb: number
   updated_at: string | null
 }

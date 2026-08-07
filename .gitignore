@@ -3,3 +3,8 @@ backend/.env
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# QA, logs and temp files
+.codex-qa/
+tmp/
+*.log

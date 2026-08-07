@@ -24,6 +24,13 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
   if (!user) return []
   const permissions = new Set(user.permission_keys)
   const isPlatformAdmin = permissions.has('settings.manage') || user.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
+  const isHrAdmin = permissions.has('users.manage') && (user.department_name === 'HR' || isPlatformAdmin)
+  if (isHrAdmin && user.department_name === 'HR') return [
+    { icon: 'Payroll', text: 'Send all salary slips', description: 'Upload the monthly Excel, review every PDF, and send through HR Zoho Mail.', href: '/hr/salary-slips' },
+    { icon: 'Users', text: 'Manage my department team', description: 'Review employees in your permitted scope.', href: '/admin/users' },
+    { icon: 'Mail', text: 'Draft a professional employee communication', mode: 'email' },
+    { icon: 'BookOpenCheck', text: 'Explain the HR policies I can access' },
+  ]
   if (isPlatformAdmin) return [
     { icon: 'BarChart3', text: 'Show overall API usage in a graph', description: 'See real provider, token, request, and cost activity.' },
     { icon: 'Users', text: 'Manage users and access', description: 'Invite employees and review role access.', href: '/admin/users' },
@@ -49,25 +56,43 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
     { icon: 'Mail', text: 'Draft a professional shift handover note', mode: 'email' },
     { icon: 'BookOpenCheck', text: 'Summarise the production documents I can access' },
   ]
-  if (department === 'Accounts & HR') return [
+  if (department === 'HR') return [
     { icon: 'BookOpenCheck', text: 'Explain the HR policies I can access' },
     { icon: 'Mail', text: 'Draft a professional employee communication', mode: 'email' },
-    { icon: 'ListChecks', text: 'Create a monthly accounts closing checklist' },
+    { icon: 'ListChecks', text: 'Create a monthly HR operations checklist' },
     { icon: 'FileText', text: 'Summarise a policy or report I attach' },
   ]
-  if (department === 'Marketing' || department === 'Graphics') return [
+  if (department === 'Accounts') return [
+    { icon: 'ListChecks', text: 'Create a monthly accounts closing checklist' },
+    { icon: 'FileText', text: 'Summarise a financial report I attach' },
+    { icon: 'Mail', text: 'Draft a professional accounts communication', mode: 'email' },
+    { icon: 'BookOpenCheck', text: 'Summarise the accounts documents I can access' },
+  ]
+  if (department === 'Marketing') return [
     { icon: 'Megaphone', text: 'Create a fragrance campaign brief' },
     { icon: 'Image', text: 'Create a premium fragrance product image', mode: 'image' },
     { icon: 'Sparkles', text: 'Create a product brochure outline' },
     { icon: 'BookOpenCheck', text: 'Summarise the marketing assets I can access' },
   ]
-  if (department === 'Stores' || department === 'Sourcing') return [
+  if (department === 'Graphics') return [
+    { icon: 'Image', text: 'Create a premium fragrance product image', mode: 'image' },
+    { icon: 'Sparkles', text: 'Develop a visual identity concept' },
+    { icon: 'FileText', text: 'Create a production-ready design brief' },
+    { icon: 'BookOpenCheck', text: 'Summarise the AI Labs and Graphics resources I can access' },
+  ]
+  if (department === 'Inventory' || department === 'Sourcing') return [
     { icon: 'Boxes', text: 'Create an inventory review checklist' },
     { icon: 'Scale', text: 'Compare two suppliers or raw materials' },
     { icon: 'Mail', text: 'Draft a professional vendor enquiry', mode: 'email' },
     { icon: 'BookOpenCheck', text: 'Summarise the SOPs I can access' },
   ]
-  if (department === 'AI Lab' || department === 'Creation Lab') return [
+  if (department === 'AI Labs') return [
+    { icon: 'FlaskConical', text: 'Create a structured AI research brief' },
+    { icon: 'Scale', text: 'Compare two automation approaches' },
+    { icon: 'ListChecks', text: 'Create an AI experiment plan and checklist' },
+    { icon: 'BookOpenCheck', text: 'Summarise the AI Labs and Graphics resources I can access' },
+  ]
+  if (department === 'Creation Labs') return [
     { icon: 'FlaskConical', text: 'Create a structured research brief' },
     { icon: 'Scale', text: 'Compare two fragrance concepts' },
     { icon: 'ListChecks', text: 'Create an experiment plan and checklist' },

@@ -20,8 +20,15 @@ from app.modules.identity.models import (
     collection_departments,
 )
 from app.modules.identity.service import role_keys_for_user
+from app.modules.knowledge.extraction import ExtractionError, extract_text
 
 logger = structlog.get_logger(__name__)
+KNOWLEDGE_INDEX_VERSION = "v2"
+MIN_RETRIEVAL_RELEVANCE = 0.35
+
+
+def _index_model_name(embedding_model: str) -> str:
+    return f"{embedding_model}:{KNOWLEDGE_INDEX_VERSION}"
 
 
 @dataclass(slots=True)
@@ -55,9 +62,10 @@ def _split_text(text: str, page_number: int | None) -> list[TextUnit]:
 
 def document_units(document: KnowledgeDocument) -> list[TextUnit]:
     settings = get_settings()
+    document_path = Path(settings.upload_storage_path) / document.stored_filename
     if document.original_filename.lower().endswith(".pdf"):
         try:
-            reader = PdfReader(Path(settings.upload_storage_path) / document.stored_filename)
+            reader = PdfReader(document_path)
             units: list[TextUnit] = []
             for page_number, page in enumerate(reader.pages, start=1):
                 units.extend(_split_text(page.extract_text() or "", page_number))
@@ -65,6 +73,15 @@ def document_units(document: KnowledgeDocument) -> list[TextUnit]:
                 return units
         except Exception as error:
             logger.warning("ai.pdf_chunk_fallback", document_id=str(document.id), error_type=type(error).__name__)
+    if document.original_filename.lower().endswith(".xlsx"):
+        try:
+            return _split_text(extract_text(document_path, ".xlsx"), None)
+        except ExtractionError as error:
+            logger.warning(
+                "ai.xlsx_chunk_fallback",
+                document_id=str(document.id),
+                error_type=type(error).__name__,
+            )
     return _split_text(document.extracted_text or "", None)
 
 
@@ -92,6 +109,7 @@ async def index_document(session: AsyncSession, document: KnowledgeDocument, use
     vectors: list[list[float]] = []
     input_tokens = 0
     embeddings = OpenAIEmbeddings(settings)
+    index_model = _index_model_name(settings.openai_embedding_model)
     for offset in range(0, len(units), 64):
         result = await embeddings.create([unit.content for unit in units[offset:offset + 64]])
         vectors.extend(result.vectors)
@@ -105,7 +123,7 @@ async def index_document(session: AsyncSession, document: KnowledgeDocument, use
             chunk_index=index,
             page_number=unit.page_number,
             content=unit.content,
-            embedding_model=settings.openai_embedding_model,
+            embedding_model=index_model,
             embedding=vector,
         ))
     latency_ms = int((time.perf_counter() - started) * 1000)
@@ -129,13 +147,14 @@ async def index_document(session: AsyncSession, document: KnowledgeDocument, use
 
 async def ensure_permitted_documents_indexed(session: AsyncSession, user: User, collection_ids: list[UUID]) -> int:
     settings = get_settings()
+    index_model = _index_model_name(settings.openai_embedding_model)
     query = select(KnowledgeDocument).join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id).where(
         KnowledgeDocument.organization_id == user.organization_id,
         KnowledgeDocument.status == "ready",
         KnowledgeCollection.status == "active",
         ~exists(select(KnowledgeChunk.id).where(
             KnowledgeChunk.document_id == KnowledgeDocument.id,
-            KnowledgeChunk.embedding_model == settings.openai_embedding_model,
+            KnowledgeChunk.embedding_model == index_model,
         )),
     )
     access = await _access_filter(session, user)
@@ -154,6 +173,7 @@ async def ensure_permitted_documents_indexed(session: AsyncSession, user: User, 
 
 async def retrieve_chunks(session: AsyncSession, user: User, question: str, collection_ids: list[UUID]) -> tuple[list[dict], int]:
     settings = get_settings()
+    index_model = _index_model_name(settings.openai_embedding_model)
     started = time.perf_counter()
     embedded = await OpenAIEmbeddings(settings).create([question])
     distance = KnowledgeChunk.embedding.cosine_distance(embedded.vectors[0]).label("distance")
@@ -163,7 +183,7 @@ async def retrieve_chunks(session: AsyncSession, user: User, question: str, coll
         KnowledgeCollection, KnowledgeCollection.id == KnowledgeChunk.collection_id,
     ).where(
         KnowledgeChunk.organization_id == user.organization_id,
-        KnowledgeChunk.embedding_model == settings.openai_embedding_model,
+        KnowledgeChunk.embedding_model == index_model,
         KnowledgeDocument.status == "ready",
         KnowledgeCollection.status == "active",
     )
@@ -176,6 +196,9 @@ async def retrieve_chunks(session: AsyncSession, user: User, question: str, coll
     latency_ms = int((time.perf_counter() - started) * 1000)
     results = []
     for chunk, document, collection, raw_distance in rows:
+        relevance = max(0.0, min(1.0, 1.0 - float(raw_distance)))
+        if relevance < MIN_RETRIEVAL_RELEVANCE:
+            continue
         results.append({
             "chunk_id": str(chunk.id),
             "chunk_index": chunk.chunk_index,
@@ -185,7 +208,7 @@ async def retrieve_chunks(session: AsyncSession, user: User, question: str, coll
             "document_name": document.original_filename,
             "collection_id": str(collection.id),
             "collection_name": collection.name,
-            "relevance": round(max(0.0, min(1.0, 1.0 - float(raw_distance))), 4),
+            "relevance": round(relevance, 4),
         })
     session.add(AIUsageEvent(
         organization_id=user.organization_id,

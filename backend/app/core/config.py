@@ -25,7 +25,8 @@ class Settings(BaseSettings):
     bootstrap_owner_password: str | None = None
     bootstrap_owner_name: str = "AROMAZEN Super Admin"
     upload_storage_path: str = "/data/uploads"
-    max_upload_size_mb: int = 25
+    max_upload_size_mb: int = 50
+    max_excel_upload_size_mb: int = 25
     openai_api_key: str | None = None
     openai_chat_model: str = "gpt-5.5"
     openai_embedding_model: str = "text-embedding-3-small"
@@ -45,6 +46,7 @@ class Settings(BaseSettings):
     ai_max_chat_attachments: int = 8
     zoho_smtp_host: str = "smtp.zoho.in"
     zoho_smtp_port: int = 587
+    zoho_smtp_security: str = "starttls"
     zoho_smtp_username: str | None = None
     zoho_smtp_password: str | None = None
     zoho_from_email: str | None = None
