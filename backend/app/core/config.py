@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -53,10 +54,31 @@ class Settings(BaseSettings):
     zoho_from_name: str = "AROMAZEN INDIA"
     usd_to_inr_fallback_rate: float = 95.0
     currency_rate_cache_seconds: int = 3600
-    usd_to_inr_fallback_rate: float = 87.0
-    currency_rate_cache_seconds: int = 3600
+    login_rate_limit_per_minute: int = 10
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> "Settings":
+        if self.app_env.lower() != "production":
+            return self
+
+        errors: list[str] = []
+        if self.debug:
+            errors.append("DEBUG must be false")
+        if not self.cookie_secure:
+            errors.append("COOKIE_SECURE must be true")
+        if len(self.jwt_secret_key) < 48:
+            errors.append("JWT_SECRET_KEY must contain at least 48 characters")
+        if self.bootstrap_owner_password and len(self.bootstrap_owner_password) < 12:
+            errors.append("BOOTSTRAP_OWNER_PASSWORD must contain at least 12 characters")
+        if not self.redis_url.startswith(("redis://:", "rediss://:")):
+            errors.append("REDIS_URL must include a password")
+        if self.max_upload_size_mb > 120 or self.max_excel_upload_size_mb > 120:
+            errors.append("production upload limits must not exceed 120 MB")
+        if errors:
+            raise ValueError("Unsafe production configuration: " + "; ".join(errors))
+        return self
 
     @property
     def resolved_database_url(self) -> str:

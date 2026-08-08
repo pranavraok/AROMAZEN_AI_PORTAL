@@ -18,13 +18,13 @@ from app.core.config import get_settings
 from app.db.session import get_db_session
 from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_cost
 from app.modules.document_generator.engine import coa_parameter_rows, field_schema, generate_docx, normalise, read_excel
-from app.modules.identity.authorization import require_permissions
+from app.modules.identity.authorization import require_department, require_permissions
 from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, DocumentGeneration, KnowledgeCollection, KnowledgeDocument, User
 from app.modules.settings.service import provider_runtime_settings
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.routes import can_access_collection
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_department("r-d"))])
 
 
 class DraftNotesRequest(BaseModel):

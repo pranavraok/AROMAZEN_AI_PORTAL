@@ -21,12 +21,12 @@ from openpyxl import load_workbook
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal, get_db_session
-from app.modules.identity.authorization import require_permissions
+from app.modules.identity.authorization import require_department, require_permissions
 from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User
 from app.modules.identity.service import role_keys_for_user
 from app.modules.payroll.engine import create_excel_template, generate_salary_pdf, password_for, read_salary_excel, validate_template_pdf
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_department("hr"))])
 
 DEFAULT_EMAIL_SUBJECT = "AROMAZEN Salary Slip - {month}"
 DEFAULT_EMAIL_BODY = """Dear {employee_name},

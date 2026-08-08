@@ -1,7 +1,10 @@
 .env
 backend/.env
+.env.production
+.env.production.local
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 
 # QA, logs and temp files

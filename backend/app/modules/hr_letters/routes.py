@@ -26,12 +26,12 @@ from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Space
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.modules.identity.authorization import require_permissions
+from app.modules.identity.authorization import require_department, require_permissions
 from app.db.session import get_db_session
 from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, User
 from app.modules.identity.service import role_keys_for_user
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_department("hr"))])
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "assets" / "hr_letters"
 TEMPLATE_FILES = {
     "offer": "offer-template.pdf",

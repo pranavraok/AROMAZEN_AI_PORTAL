@@ -1,0 +1,12 @@
+[Unit]
+Description=AROMAZEN portal encrypted database and file backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=aromazen
+WorkingDirectory=/opt/aromazen-portal
+ExecStart=/opt/aromazen-portal/scripts/deployment/backup.sh
+PrivateTmp=true
+NoNewPrivileges=true

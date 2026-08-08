@@ -59,7 +59,7 @@ class UpdateUserRequest(BaseModel):
 
 class AcceptInvitationRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=160)
-    password: str = Field(min_length=4, max_length=1024)
+    password: str = Field(min_length=12, max_length=1024)
 
 
 class AuditEventResponse(BaseModel):

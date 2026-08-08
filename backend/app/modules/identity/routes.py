@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -50,7 +51,18 @@ def set_refresh_cookie(response: Response, token: str) -> None:
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(payload: LoginRequest, response: Response, session: AsyncSession = Depends(get_db_session)) -> AuthResponse:
+async def login(payload: LoginRequest, request: Request, response: Response, session: AsyncSession = Depends(get_db_session)) -> AuthResponse:
+    settings = get_settings()
+    identifier = hashlib.sha256(payload.email.lower().encode("utf-8")).hexdigest()
+    rate_key = f"auth:login:{identifier}"
+    attempts = await request.app.state.redis.incr(rate_key)
+    if attempts == 1:
+        await request.app.state.redis.expire(rate_key, 60)
+    if attempts > settings.login_rate_limit_per_minute:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please wait one minute and try again.",
+        )
     user_query = select(User).where(User.email == payload.email.lower())
     user_query = user_query.where(User.phone_number == payload.phone_number.strip() if payload.phone_number else User.phone_number.is_(None))
     user = await session.scalar(user_query)

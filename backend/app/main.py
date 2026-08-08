@@ -26,5 +26,13 @@ async def lifespan(app: FastAPI):
     await redis.aclose()
 
 
-app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+production = settings.app_env.lower() == "production"
+app = FastAPI(
+    title=settings.app_name,
+    debug=settings.debug,
+    lifespan=lifespan,
+    docs_url=None if production else "/docs",
+    redoc_url=None if production else "/redoc",
+    openapi_url=None if production else "/openapi.json",
+)
 app.include_router(api_router, prefix=settings.api_v1_prefix)

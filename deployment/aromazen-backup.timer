@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the AROMAZEN portal backup every night
+
+[Timer]
+OnCalendar=*-*-* 02:15:00
+Persistent=true
+RandomizedDelaySec=10m
+Unit=aromazen-backup.service
+
+[Install]
+WantedBy=timers.target
