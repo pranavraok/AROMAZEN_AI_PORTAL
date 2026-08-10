@@ -16,6 +16,7 @@ interface PromptSuggestionsProps {
 }
 
 export function PromptSuggestions({ suggestions, onSelect }: PromptSuggestionsProps) {
+  if (suggestions.length === 0) return null
   return <div className="grid grid-cols-1 gap-3 md:grid-cols-2">{suggestions.map((suggestion, index) => {
     const card = <button type="button" onClick={() => { if (!suggestion.href) onSelect?.(suggestion.text, suggestion.mode ?? 'chat') }} className="group flex h-full w-full items-start gap-3 rounded-2xl border border-border/80 bg-card/55 p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-white/15 hover:bg-card hover:shadow-[0_16px_35px_rgba(0,0,0,.2)]">
       <div className="mt-0.5 shrink-0 rounded-lg bg-muted p-2 text-muted-foreground transition-colors group-hover:text-foreground">{suggestionIcons[suggestion.icon]}</div>

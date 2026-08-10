@@ -1,4 +1,4 @@
-{$SITE_ADDRESS:ai.aromazen.com} {
+{$SITE_ADDRESS:ai.aromazenind.com} {
     encode zstd gzip
 
     header {

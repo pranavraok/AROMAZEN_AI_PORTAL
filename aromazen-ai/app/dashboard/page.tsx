@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowRight, RefreshCw } from 'lucide-react'
+import { ArrowRight, BellRing, Boxes, CalendarCheck2, FileText, RefreshCw, WalletCards } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { Button } from '@/components/ui/button'
 import { DataTable } from '@/components/ui/data-table'
@@ -17,6 +17,7 @@ function money(value: number) { return new Intl.NumberFormat('en-IN', { style: '
 function dateTime(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
 function actionLabel(value: string) { return value.split('.').pop()?.replaceAll('_', ' ') ?? value }
 function documentStatus(value: string): 'Indexed' | 'Processing' | 'Failed' { return value === 'ready' ? 'Indexed' : value === 'failed' ? 'Failed' : 'Processing' }
+const hrIcons = { attendance: CalendarCheck2, leaves: CalendarCheck2, letters: FileText, payroll: WalletCards, knowledge: BellRing, assets: Boxes }
 
 export default function DashboardPage() {
   const { accessToken, user } = useAuth()
@@ -45,6 +46,10 @@ export default function DashboardPage() {
       <Button variant="outline" onClick={() => void load()} disabled={refreshing}><RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />Refresh</Button>
     </div>
     {error && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>}
+    {overview?.hr_action_center && <section className="overflow-hidden rounded-2xl border border-primary/20 bg-card shadow-sm">
+      <div className="flex flex-col gap-4 border-b border-border bg-primary/[0.04] px-5 py-5 md:flex-row md:items-center md:justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-primary">HR Admin only</p><h2 className="mt-1 text-lg font-semibold">HR Action Center</h2><p className="mt-1 text-sm text-muted-foreground">The important work and exceptions that need HR attention.</p></div><div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4"><div className="rounded-xl bg-background px-3 py-2"><p className="font-semibold text-amber-500">{overview.hr_action_center.due_reminders}</p><p className="text-[10px] text-muted-foreground">Due reminders</p></div><div className="rounded-xl bg-background px-3 py-2"><p className="font-semibold text-destructive">{overview.hr_action_center.overdue_documents}</p><p className="text-[10px] text-muted-foreground">Overdue</p></div><div className="rounded-xl bg-background px-3 py-2"><p className="font-semibold">{overview.hr_action_center.rule_documents}</p><p className="text-[10px] text-muted-foreground">HR rules</p></div><div className="rounded-xl bg-background px-3 py-2"><p className="font-semibold">{overview.hr_action_center.open_payroll_batches}</p><p className="text-[10px] text-muted-foreground">Payroll actions</p></div></div></div>
+      <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">{overview.hr_action_center.items.map((item) => { const Icon = hrIcons[item.key as keyof typeof hrIcons] ?? FileText; const body = <><div className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl ${item.tone === 'disabled' ? 'bg-muted text-muted-foreground' : item.tone === 'danger' ? 'bg-destructive/10 text-destructive' : item.tone === 'warning' ? 'bg-amber-500/10 text-amber-500' : 'bg-primary/10 text-primary'}`}><Icon className="h-5 w-5" /></div><div className="flex items-start justify-between gap-2"><h3 className="text-sm font-semibold">{item.title}</h3>{item.count !== null && item.count > 0 && <span className="rounded-full bg-destructive px-2 py-0.5 text-[10px] font-bold text-white">{item.count}</span>}</div><p className="mt-1 text-xs leading-5 text-muted-foreground">{item.description}</p>{item.tone === 'disabled' && <span className="mt-3 inline-flex rounded-full bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">Space reserved</span>}</>; return item.tone === 'disabled' ? <div id="asset-management" key={item.key} className="rounded-xl border border-dashed border-border bg-muted/20 p-4 opacity-80">{body}</div> : <Link key={item.key} href={item.href} className="rounded-xl border border-border p-4 transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/30">{body}</Link> })}</div>
+    </section>}
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">{overview?.metrics.map((metric) => <MetricCard key={metric.key} label={metric.label} value={metric.format === 'currency' ? money(metric.value) : metric.value.toLocaleString()} />) ?? Array.from({ length: 4 }, (_, index) => <MetricCard key={index} label="Loading…" value="—" />)}</div>
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3"><div className="space-y-6 lg:col-span-2">
       {overview && ['platform', 'organization'].includes(overview.scope) && <section className="overflow-hidden rounded-lg border border-border bg-card"><div className="border-b border-border px-6 py-4"><h2 className="font-semibold">Department Usage This Month</h2><p className="text-xs text-muted-foreground">Visible only to Super Admin and Admin</p></div><DataTable columns={[{ header: 'Department', key: 'department' as const }, { header: 'AI Requests', key: 'requests' as const }, { header: 'Estimated Cost', key: 'cost' as const }]} data={departmentRows} compact /></section>}

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import and_, func, or_, select
@@ -12,6 +12,8 @@ from app.modules.dashboard.schemas import (
     DashboardDocument,
     DashboardMetric,
     DashboardOverview,
+    HRActionCenter,
+    HRActionItem,
 )
 from app.modules.identity.models import (
     AIUsageEvent,
@@ -19,11 +21,14 @@ from app.modules.identity.models import (
     Department,
     KnowledgeCollection,
     KnowledgeDocument,
+    PayrollBatch,
     User,
     collection_departments,
 )
 from app.modules.identity.routes import get_current_user
 from app.modules.identity.service import role_keys_for_user
+from app.modules.assets.models import ITAsset
+from app.modules.assets.routes import maintenance_status
 
 router = APIRouter()
 
@@ -157,11 +162,52 @@ async def dashboard_overview(
         department=department_name or "Organization", created_at=event.created_at,
     ) for event, actor, department_name in activity_rows]
 
+    hr_action_center = None
+    is_hr_admin = role_key in {"owner", "super_admin"} or bool(
+        department and department.slug == "hr" and role_key == "department_admin"
+    )
+    if is_hr_admin:
+        now = datetime.now(timezone.utc)
+        reminder_documents = list(await session.scalars(select(KnowledgeDocument).where(
+            KnowledgeDocument.organization_id == user.organization_id,
+            KnowledgeDocument.status == "ready",
+            KnowledgeDocument.expiry_date.is_not(None),
+        )))
+        due_reminders = sum(1 for item in reminder_documents if item.expiry_date <= now + timedelta(days=item.reminder_days_before))
+        overdue_documents = sum(1 for item in reminder_documents if item.expiry_date < now)
+        rule_documents = await session.scalar(select(func.count(KnowledgeDocument.id)).where(
+            KnowledgeDocument.organization_id == user.organization_id,
+            KnowledgeDocument.status == "ready",
+            KnowledgeDocument.document_category.in_(["attendance_rule", "leave_rule", "hr_policy"]),
+        )) or 0
+        open_payroll_batches = await session.scalar(select(func.count(PayrollBatch.id)).where(
+            PayrollBatch.organization_id == user.organization_id,
+            PayrollBatch.status.in_(["draft", "partial", "failed"]),
+        )) or 0
+        asset_items = list(await session.scalars(select(ITAsset).where(ITAsset.organization_id == user.organization_id)))
+        asset_attention = sum(maintenance_status(item)[0] in {"due", "overdue"} or item.status in {"Repair needed", "Recovery required", "Scrap proposed", "Approved for scrap"} for item in asset_items)
+        asset_overdue = sum(maintenance_status(item)[0] == "overdue" for item in asset_items)
+        hr_action_center = HRActionCenter(
+            due_reminders=due_reminders,
+            overdue_documents=overdue_documents,
+            rule_documents=rule_documents,
+            open_payroll_batches=open_payroll_batches,
+            items=[
+                HRActionItem(key="attendance", title="Review attendance", description="Analyze the month and work only on exceptions.", href="/department-tools/hr-attendance", tone="primary"),
+                HRActionItem(key="leaves", title="Employee leave calculator", description="Merge attendance into the final salary Excel.", href="/hr/leave-calculator", tone="primary"),
+                HRActionItem(key="letters", title="Create an HR letter", description="Prepare an approved employee letter.", href="/department-tools/hr-letters"),
+                HRActionItem(key="payroll", title="Salary slip batches", description="Review drafts and failed deliveries.", href="/hr/salary-slips", count=open_payroll_batches, tone="warning" if open_payroll_batches else "default"),
+                HRActionItem(key="knowledge", title="Rules and reminders", description="Open HR documents, licences and renewal dates.", href="/knowledge/hr", count=due_reminders, tone="danger" if overdue_documents else "warning" if due_reminders else "default"),
+                HRActionItem(key="assets", title="Asset Management", description="Add devices, schedule maintenance and manage scrap decisions.", href="/hr/assets", count=asset_attention, tone="danger" if asset_overdue else "warning" if asset_attention else "default"),
+            ],
+        )
+
     return DashboardOverview(
         currency="INR", usd_to_inr_rate=exchange_rate.rate, exchange_rate_source=exchange_rate.source,
         exchange_rate_updated_at=exchange_rate.updated_at,
         role_key=role_key, role_label=role_label, scope=scope, scope_label=scope_label,
         capabilities=CAPABILITIES[role_key], metrics=metrics, department_usage=department_usage,
         recent_documents=recent_documents, recent_activity=recent_activity,
+        hr_action_center=hr_action_center,
         refreshed_at=datetime.now(timezone.utc),
     )

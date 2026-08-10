@@ -39,7 +39,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (!response.ok) {
     const message = typeof payload === 'object' && payload !== null && 'detail' in payload
       ? String(payload.detail)
-      : 'The request could not be completed.'
+      : response.status >= 500
+        ? 'The API service is unavailable. Start the backend and try again.'
+        : 'The request could not be completed.'
     throw new ApiError(message, response.status, payload)
   }
 
@@ -68,8 +70,9 @@ export async function apiStreamRequest(path: string, options: RequestOptions = {
   return response
 }
 
-export async function apiFileRequest(path: string, accessToken: string): Promise<{ blob: Blob; filename: string }> {
-  const response = await fetch(`${API_BASE_URL}${path}`, { credentials: 'include', headers: { Authorization: `Bearer ${accessToken}` } })
+export async function apiFileRequest(path: string, accessToken: string, options: RequestOptions = {}): Promise<{ blob: Blob; filename: string }> {
+  const { body, headers, ...init } = options
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, body: toRequestBody(body), credentials: 'include', headers: { Authorization: `Bearer ${accessToken}`, ...headers } })
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => undefined)
     const message = typeof payload === 'object' && payload !== null && 'detail' in payload ? String(payload.detail) : 'The file could not be downloaded.'

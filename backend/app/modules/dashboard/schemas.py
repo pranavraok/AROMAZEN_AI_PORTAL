@@ -34,6 +34,23 @@ class DashboardActivity(BaseModel):
     created_at: datetime
 
 
+class HRActionItem(BaseModel):
+    key: str
+    title: str
+    description: str
+    href: str
+    tone: str = "default"
+    count: int | None = None
+
+
+class HRActionCenter(BaseModel):
+    due_reminders: int
+    overdue_documents: int
+    rule_documents: int
+    open_payroll_batches: int
+    items: list[HRActionItem]
+
+
 class DashboardOverview(BaseModel):
     currency: str
     usd_to_inr_rate: float
@@ -48,4 +65,5 @@ class DashboardOverview(BaseModel):
     department_usage: list[DashboardDepartmentUsage]
     recent_documents: list[DashboardDocument]
     recent_activity: list[DashboardActivity]
+    hr_action_center: HRActionCenter | None = None
     refreshed_at: datetime

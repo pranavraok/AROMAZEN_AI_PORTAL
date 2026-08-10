@@ -68,6 +68,9 @@ HEADER_ALIASES = {
 
 
 def create_excel_template() -> bytes:
+    approved_template = Path(__file__).resolve().parents[2] / "assets" / "payroll" / "AROMAZEN_Salary_Upload_Template.xlsx"
+    if approved_template.is_file():
+        return approved_template.read_bytes()
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Salary Data"
@@ -89,8 +92,8 @@ def create_excel_template() -> bytes:
         "Use one row per employee. Employee name, personal email, date of birth, employee code, unit, days and present days are mandatory.",
         "Enter Unit 1, 2 or 3. The approved unit address and PDF template are selected automatically.",
         "PDF password: first 4 letters of employee name in uppercase + four-digit birth year.",
-        "Recurring earnings are calculated from Present Days / Days. Overtime and Variable Pay are added as entered.",
-        "Net Salary is recalculated from earned components less uploaded deductions.",
+        "Only Days, Present Days, LOP and OT Hours are filled by the Employee Leave Calculator.",
+        "All salary amounts, totals, deductions, Net Salary and Net Salary in Words are used exactly as uploaded.",
     ]
     for text in instructions:
         note.append([text])
@@ -149,11 +152,18 @@ def _birth_year(value: object) -> int:
     return year
 
 
-def _unit_number(value: object) -> str:
+def _unit_number(value: object, address: object = None) -> str:
     match = re.search(r"(?:unit\s*)?([123])(?:\.0)?$", _text(value), re.IGNORECASE)
-    if not match:
-        raise ValueError("Unit must be 1, 2 or 3.")
-    return match.group(1)
+    if match:
+        return match.group(1)
+    location = _normalise_header(f"{_text(value)} {_text(address)}")
+    if any(marker in location for marker in ("shivamogga", "kallur", "plotno42", "plot42")):
+        return "2"
+    if "166a" in location:
+        return "3"
+    if any(marker in location for marker in ("105106", "b105106", "mangalore", "baikampady")):
+        return "1"
+    raise ValueError("Unit must identify Unit 1, Unit 2 or Unit 3; a recognized unit name/address is also accepted.")
 
 
 def _rounded(value: Decimal) -> Decimal:
@@ -231,8 +241,8 @@ def read_salary_excel(content: bytes) -> list[dict]:
             except EmailNotValidError as error:
                 raise ValueError("Personal Email is invalid.") from error
             birth_year = _birth_year(values.get("date_of_birth"))
-            unit = _unit_number(values.get("unit"))
-            details.update(personal_email=email, date_of_birth=str(birth_year), unit=unit, unit_address=UNIT_ADDRESSES[unit])
+            unit = _unit_number(values.get("unit"), values.get("unit_address"))
+            details.update(personal_email=email, date_of_birth=str(birth_year), unit=unit, unit_address=_text(values.get("unit_address")) or UNIT_ADDRESSES[unit])
             for key in MONEY_FIELDS:
                 details[key] = f"{_money(values.get(key)):.2f}"
             days = _money(values.get("days"))
@@ -241,32 +251,16 @@ def read_salary_excel(content: bytes) -> list[dict]:
                 raise ValueError("Days must be greater than zero.")
             if present_days < 0 or present_days > days:
                 raise ValueError("Present Days must be between zero and Days.")
-            payable_factor = present_days / days
             details["days"] = _number_text(days)
             details["present_days"] = _number_text(present_days)
             lop = _money(values.get("lop")) if _text(values.get("lop")) else days - present_days
             details["lop"] = _number_text(lop)
-            provided_total_gross = _money(values.get("total_gross"))
-            recurring_amounts = {key: _money(values.get(key)) for key in ("basic_gross", "hra_gross", "special_allowance_gross")}
-            if not any(recurring_amounts.values()) and provided_total_gross:
-                recurring_amounts["special_allowance_gross"] = provided_total_gross
-            for gross_key, earned_key in (("basic_gross", "basic_earnings"), ("hra_gross", "hra_earnings"), ("special_allowance_gross", "special_allowance_earnings")):
-                gross_amount = recurring_amounts[gross_key]
-                details[gross_key] = f"{gross_amount:.2f}"
-                details[earned_key] = f"{_rounded(gross_amount * payable_factor):.2f}"
-            overtime = _money(values.get("overtime_earnings")) or _money(values.get("overtime_gross"))
-            variable_pay = _money(values.get("variable_pay_earnings")) or _money(values.get("variable_pay_gross"))
-            details.update(overtime_gross=f"{overtime:.2f}", overtime_earnings=f"{overtime:.2f}", variable_pay_gross=f"{variable_pay:.2f}", variable_pay_earnings=f"{variable_pay:.2f}")
-            calculated_gross = sum((_money(details.get(key)) for key in GROSS_FIELDS), Decimal("0"))
-            total_gross = provided_total_gross or calculated_gross
-            total_earnings = sum((_money(details.get(key)) for key in EARNING_FIELDS), Decimal("0"))
-            deductions = _money(values.get("deduction_total")) or sum((_money(values.get(key)) for key in DEDUCTION_FIELDS), Decimal("0"))
-            uploaded_net = _money(values.get("net_wages")) if _text(values.get("net_wages")) else None
-            net = _rounded(total_earnings - deductions)
-            if net < 0:
+            details["ot_hours"] = _number_text(_money(values.get("ot_hours")))
+            uploaded_net = _money(values.get("net_wages"))
+            if uploaded_net < 0:
                 raise ValueError("Net Salary cannot be negative.")
-            details.update(total_gross=f"{_rounded(total_gross):.2f}", gross=f"{_rounded(total_gross):.2f}", total_earnings=f"{_rounded(total_earnings):.2f}", deduction_total=f"{_rounded(deductions):.2f}", net_wages=f"{net:.2f}", calculation_factor=f"{payable_factor:.8f}", uploaded_net_wages=f"{uploaded_net:.2f}" if uploaded_net is not None else "")
-            details["net_wages_words"] = _indian_words(int(net))
+            details.update(gross=details["total_gross"], calculation_factor="", uploaded_net_wages=details["net_wages"])
+            details["net_wages_words"] = _text(values.get("net_wages_words"))
             if values.get("date_of_joining") not in (None, ""):
                 details["date_of_joining"] = _date(values.get("date_of_joining"), "Date of Joining").strftime("%d-%m-%Y")
             parsed.append({"row_number": row_number, "employee_name": details["employee_name"], "employee_code": details["employee_code"], "personal_email": email, "birth_year": birth_year, "details": details})

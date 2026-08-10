@@ -27,11 +27,13 @@ from app.modules.ai.providers import AIProviderRouter, OpenAIImageGenerator, Pro
 from app.modules.ai.rag import ensure_permitted_documents_indexed, expand_relevant_documents, retrieve_chunks
 from app.modules.ai.schemas import ConversationUpdateRequest, EmailSendRequest, StreamChatRequest
 from app.modules.identity.authorization import require_permissions
-from app.modules.identity.models import AIChatAttachment, AIConversation, AIMessage, AIUsageEvent, AuditEvent, KnowledgeCollection, User
+from app.modules.identity.models import AIChatAttachment, AIConversation, AIMessage, AIUsageEvent, AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, User
 from app.modules.identity.service import permission_keys_for_user, role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.knowledge.routes import can_access_collection
 from app.modules.settings.service import organization_settings, provider_runtime_settings
+from app.modules.assets.models import ITAsset
+from app.modules.assets.routes import maintenance_status
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -277,7 +279,63 @@ async def usage_notifications(
     settings = await organization_settings(session, user.organization_id)
     roles = await role_keys_for_user(session, user.id)
     is_admin = bool(roles.intersection({"owner", "super_admin", "department_admin"}))
+    department = await session.get(Department, user.department_id) if user.department_id else None
+    is_hr_admin = bool(roles.intersection({"owner", "super_admin"})) or bool(
+        department and department.slug == "hr" and "department_admin" in roles
+    )
     alerts: list[dict] = []
+
+    if is_hr_admin:
+        reminder_documents = list(await session.scalars(
+            select(KnowledgeDocument)
+            .where(
+                KnowledgeDocument.organization_id == user.organization_id,
+                KnowledgeDocument.expiry_date.is_not(None),
+                KnowledgeDocument.status == "ready",
+            )
+            .order_by(KnowledgeDocument.expiry_date)
+        ))
+        today = datetime.now(timezone.utc).date()
+        for document in reminder_documents:
+            due_date = document.expiry_date.date()
+            days_remaining = (due_date - today).days
+            if days_remaining > document.reminder_days_before:
+                continue
+            overdue = days_remaining < 0
+            due_text = f"overdue by {abs(days_remaining)} day{'s' if abs(days_remaining) != 1 else ''}" if overdue else "due today" if days_remaining == 0 else f"due in {days_remaining} days"
+            owner = f" Owner: {document.reminder_owner}." if document.reminder_owner else ""
+            alerts.append({
+                "id": f"document-{document.id}",
+                "title": f"{(document.document_category or 'Document').replace('_', ' ').title()} {due_text}",
+                "message": f"{document.original_filename} expires on {due_date.strftime('%d %b %Y')}.{owner}",
+                "severity": "critical" if overdue or days_remaining <= 7 else "warning",
+                "kind": "document_reminder",
+                "href": "/knowledge",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+        assets = list(await session.scalars(
+            select(ITAsset)
+            .where(ITAsset.organization_id == user.organization_id, ITAsset.next_maintenance_date.is_not(None))
+            .order_by(ITAsset.next_maintenance_date)
+        ))
+        for asset in assets:
+            state, days_remaining = maintenance_status(asset, today)
+            if state not in {"due", "overdue"} or days_remaining is None:
+                continue
+            overdue = state == "overdue"
+            due_text = f"overdue by {abs(days_remaining)} day{'s' if abs(days_remaining) != 1 else ''}" if overdue else "due today" if days_remaining == 0 else f"due in {days_remaining} days"
+            identity = asset.label_no or asset.serial_imei or asset.source_sn or "Unlabelled asset"
+            owner = f" Owner: {asset.maintenance_owner}." if asset.maintenance_owner else ""
+            alerts.append({
+                "id": f"asset-maintenance-{asset.id}",
+                "title": f"Asset maintenance {due_text}",
+                "message": f"{asset.category or 'Device'} · {identity} · {asset.employee or 'Unassigned'} is scheduled for {asset.next_maintenance_date.strftime('%d %b %Y')}.{owner}",
+                "severity": "critical" if overdue or days_remaining <= 7 else "warning",
+                "kind": "asset_maintenance",
+                "href": "/hr/assets?attention=1",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
 
     own = (await session.execute(text("""
         select count(*) filter (where operation='chat' and created_at >= date_trunc('day', now())) as daily,

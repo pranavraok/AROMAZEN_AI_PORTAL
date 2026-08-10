@@ -2,8 +2,9 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,27 @@ from app.modules.knowledge.extraction import ExtractionError, extract_text
 
 router = APIRouter()
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".pptx"}
+
+
+class DocumentReminderUpdate(BaseModel):
+    document_category: str | None = Field(default=None, max_length=80)
+    expiry_date: datetime | None = None
+    reminder_days_before: int = Field(default=30, ge=0, le=365)
+    reminder_owner: str | None = Field(default=None, max_length=160)
+
+
+def _document_response(item: KnowledgeDocument) -> dict:
+    return {
+        "id": str(item.id), "name": item.original_filename, "status": item.status,
+        "version": item.version, "size_bytes": item.size_bytes,
+        "extracted_characters": item.extracted_characters,
+        "document_category": item.document_category,
+        "expiry_date": item.expiry_date.isoformat() if item.expiry_date else None,
+        "reminder_days_before": item.reminder_days_before,
+        "reminder_owner": item.reminder_owner,
+        "created_at": item.created_at.isoformat(),
+        "processed_at": item.processed_at.isoformat() if item.processed_at else None,
+    }
 
 
 async def can_access_collection(session: AsyncSession, user: User, collection: KnowledgeCollection) -> bool:
@@ -53,7 +75,29 @@ async def list_documents(collection_id: str, user: User = Depends(require_permis
     if not await can_access_collection(session, user, collection):
         raise HTTPException(status_code=403, detail="You do not have access to this collection.")
     documents = await session.scalars(select(KnowledgeDocument).where(KnowledgeDocument.collection_id == collection.id).order_by(KnowledgeDocument.created_at.desc()))
-    return [{"id": str(item.id), "name": item.original_filename, "status": item.status, "version": item.version, "size_bytes": item.size_bytes, "extracted_characters": item.extracted_characters, "created_at": item.created_at.isoformat(), "processed_at": item.processed_at.isoformat() if item.processed_at else None} for item in documents]
+    return [_document_response(item) for item in documents]
+
+
+@router.patch("/collections/{collection_id}/documents/{document_id}/reminder")
+async def update_document_reminder(
+    collection_id: str,
+    document_id: str,
+    payload: DocumentReminderUpdate,
+    user: User = Depends(require_permissions("knowledge.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    collection = await session.get(KnowledgeCollection, collection_id)
+    document = await session.get(KnowledgeDocument, document_id)
+    if not collection or not document or document.collection_id != collection.id or collection.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if not await can_access_collection(session, user, collection):
+        raise HTTPException(status_code=403, detail="You cannot update this document.")
+    document.document_category = payload.document_category.strip() if payload.document_category else None
+    document.expiry_date = payload.expiry_date
+    document.reminder_days_before = payload.reminder_days_before
+    document.reminder_owner = payload.reminder_owner.strip() if payload.reminder_owner else None
+    await session.commit()
+    return _document_response(document)
 
 
 @router.get("/collections/{collection_id}/documents/{document_id}/content")
@@ -94,7 +138,16 @@ async def process_existing_document(collection_id: str, document_id: str, user: 
 
 
 @router.post("/collections/{collection_id}/documents", status_code=status.HTTP_201_CREATED)
-async def upload_document(collection_id: str, file: UploadFile = File(...), user: User = Depends(require_permissions("knowledge.write")), session: AsyncSession = Depends(get_db_session)) -> dict:
+async def upload_document(
+    collection_id: str,
+    file: UploadFile = File(...),
+    document_category: str = Form(""),
+    expiry_date: str = Form(""),
+    reminder_days_before: int = Form(30),
+    reminder_owner: str = Form(""),
+    user: User = Depends(require_permissions("knowledge.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
     collection = await session.get(KnowledgeCollection, collection_id)
     if not collection or collection.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Collection not found.")
@@ -121,7 +174,22 @@ async def upload_document(collection_id: str, file: UploadFile = File(...), user
         destination.unlink(missing_ok=True)
         raise
     previous_version = await session.scalar(select(func.max(KnowledgeDocument.version)).where(KnowledgeDocument.collection_id == collection.id, KnowledgeDocument.original_filename == original_filename))
-    document = KnowledgeDocument(organization_id=user.organization_id, collection_id=collection.id, uploaded_by_user_id=user.id, original_filename=original_filename, stored_filename=stored_filename, mime_type=file.content_type, size_bytes=size_bytes, version=(previous_version or 0) + 1, status="processing")
+    try:
+        parsed_expiry = datetime.fromisoformat(expiry_date).replace(tzinfo=timezone.utc) if expiry_date else None
+    except ValueError as error:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail="Expiry date must use YYYY-MM-DD.") from error
+    if reminder_days_before < 0 or reminder_days_before > 365:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail="Reminder notice must be between 0 and 365 days.")
+    document = KnowledgeDocument(
+        organization_id=user.organization_id, collection_id=collection.id,
+        uploaded_by_user_id=user.id, original_filename=original_filename,
+        stored_filename=stored_filename, mime_type=file.content_type,
+        size_bytes=size_bytes, version=(previous_version or 0) + 1, status="processing",
+        document_category=document_category.strip() or None, expiry_date=parsed_expiry,
+        reminder_days_before=reminder_days_before, reminder_owner=reminder_owner.strip() or None,
+    )
     session.add(document)
     await session.commit()
     try:
@@ -134,4 +202,4 @@ async def upload_document(collection_id: str, file: UploadFile = File(...), user
         document.status = "failed"
         await session.commit()
         raise HTTPException(status_code=422, detail="The file was saved but could not be read. Please use a valid, unprotected document.")
-    return {"id": str(document.id), "name": document.original_filename, "status": document.status, "version": document.version, "size_bytes": document.size_bytes, "extracted_characters": document.extracted_characters}
+    return _document_response(document)

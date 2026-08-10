@@ -33,12 +33,7 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
     { icon: 'Scale', text: 'Raw Material Evaluation Report', description: 'Evaluate a raw material against technical, quality and supplier requirements.', href: '/department-tools/rnd-raw-material' },
     { icon: 'BookOpenCheck', text: "SOP's to be Followed", description: 'Find and open approved procedures from the R&D knowledge collection.', href: '/department-tools/rnd-sops' },
   ]
-  if (department === 'HR') return [
-    { icon: 'Payroll', text: 'Smart Salary Slip Sender', description: 'Upload the monthly Excel, review every slip and send through HR Zoho Mail.', href: '/hr/salary-slips' },
-    { icon: 'FileText', text: 'Offer / Appointment / Appreciation / Increment Letters', description: 'Create, review, print and email approved HR letters.', href: '/department-tools/hr-letters' },
-    { icon: 'Attendance', text: 'Smart Attendance Management', description: 'Analyze fingerprint Excel data, working hours and late entries.', href: '/department-tools/hr-attendance' },
-    { icon: 'ClipboardList', text: 'Interview Parameter Checklist', description: 'Complete and print a consistent role-specific interview scorecard.', href: '/department-tools/hr-interview' },
-  ]
+  if (department === 'HR') return []
   if (isPlatformAdmin) return [
     { icon: 'BarChart3', text: 'Show overall API usage in a graph', description: 'See real provider, token, request, and cost activity.' },
     { icon: 'Users', text: 'Manage users and access', description: 'Invite employees and review role access.', href: '/admin/users' },

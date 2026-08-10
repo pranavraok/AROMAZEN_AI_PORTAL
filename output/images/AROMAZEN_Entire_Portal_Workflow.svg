@@ -1,0 +1,254 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2600" height="2100" viewBox="0 0 2600 2100">
+  <defs>
+    <filter id="shadow2" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#172033" flood-opacity="0.11"/>
+    </filter>
+    <marker id="arrow2" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#52627a"/>
+    </marker>
+    <style>
+      .t { font: 700 52px Arial, sans-serif; fill: #172033; }
+      .st { font: 400 25px Arial, sans-serif; fill: #65748a; }
+      .lane { font: 700 23px Arial, sans-serif; letter-spacing: 2px; fill: #52627a; }
+      .h { font: 700 27px Arial, sans-serif; fill: #172033; }
+      .b { font: 400 20px Arial, sans-serif; fill: #52627a; }
+      .bb { font: 700 18px Arial, sans-serif; fill: #2457c5; }
+      .sm { font: 400 18px Arial, sans-serif; fill: #65748a; }
+      .whiteh { font: 700 25px Arial, sans-serif; fill: #ffffff; }
+      .whiteb { font: 400 18px Arial, sans-serif; fill: #edf4ff; }
+      .arrow { stroke: #52627a; stroke-width: 4; fill: none; marker-end: url(#arrow2); }
+      .thin { stroke: #8390a4; stroke-width: 3; fill: none; marker-end: url(#arrow2); }
+      .dash { stroke: #2457c5; stroke-width: 3; stroke-dasharray: 10 8; fill: none; marker-end: url(#arrow2); }
+    </style>
+  </defs>
+
+  <rect width="2600" height="2100" fill="#f7f9fc"/>
+  <text x="1300" y="70" text-anchor="middle" class="t">AROMAZEN AI - COMPLETE PORTAL WORKFLOW</text>
+  <text x="1300" y="112" text-anchor="middle" class="st">From GitHub deployment to secure employee output, storage and backup</text>
+
+  <!-- 1 Infrastructure -->
+  <text x="90" y="190" class="lane">1  DEPLOYMENT AND INFRASTRUCTURE</text>
+
+  <rect x="90" y="220" width="390" height="120" rx="18" fill="#ffffff" stroke="#b9c8e8" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="285" y="265" text-anchor="middle" class="h">Developer</text>
+  <text x="285" y="299" text-anchor="middle" class="b">Tests and approves release</text>
+  <text x="285" y="327" text-anchor="middle" class="bb">SSH KEY</text>
+  <path d="M480 280 H570" class="arrow"/>
+
+  <rect x="585" y="220" width="390" height="120" rx="18" fill="#ffffff" stroke="#b9c8e8" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="780" y="265" text-anchor="middle" class="h">Private GitHub</text>
+  <text x="780" y="299" text-anchor="middle" class="b">Approved release and rollback tag</text>
+  <text x="780" y="327" text-anchor="middle" class="bb">DEPLOY KEY</text>
+  <path d="M975 280 H1065" class="arrow"/>
+
+  <rect x="1080" y="200" width="760" height="160" rx="18" fill="#f0fbf5" stroke="#88c9a5" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="1460" y="248" text-anchor="middle" class="h">Ubuntu VPS + Docker Compose</text>
+  <text x="1460" y="285" text-anchor="middle" class="b">Caddy HTTPS • Next.js • FastAPI • PostgreSQL • Redis</text>
+  <text x="1460" y="317" text-anchor="middle" class="b">Persistent storage • Automatic service restart</text>
+  <path d="M1840 280 H1930" class="arrow"/>
+
+  <rect x="1945" y="220" width="565" height="120" rx="18" fill="#ffffff" stroke="#b9c8e8" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="2228" y="262" text-anchor="middle" class="h">LinuxCloud DNS</text>
+  <text x="2228" y="298" text-anchor="middle" class="b">ai.aromazenind.com → Static server IP</text>
+  <text x="2228" y="327" text-anchor="middle" class="bb">HTTPS + AUTOMATIC SSL</text>
+
+  <!-- 2 Access/auth -->
+  <text x="90" y="430" class="lane">2  EMPLOYEE LOGIN AND AUTHENTICATION</text>
+
+  <rect x="90" y="460" width="390" height="140" rx="18" fill="#fff8ee" stroke="#e8bd78" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="285" y="505" text-anchor="middle" class="h">Approved Employee</text>
+  <text x="285" y="542" text-anchor="middle" class="b">Work email + password</text>
+  <text x="285" y="575" text-anchor="middle" class="bb">HR PILOT USERS ONLY</text>
+  <path d="M480 530 H570" class="arrow"/>
+
+  <rect x="585" y="460" width="390" height="140" rx="18" fill="#ffffff" stroke="#b9c8e8" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="780" y="505" text-anchor="middle" class="h">Secure Portal</text>
+  <text x="780" y="542" text-anchor="middle" class="b">HTTPS login request</text>
+  <text x="780" y="575" text-anchor="middle" class="bb">ENCRYPTED CONNECTION</text>
+  <path d="M975 530 H1065" class="arrow"/>
+
+  <rect x="1080" y="460" width="420" height="140" rx="18" fill="#eef4ff" stroke="#86a8eb" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="1290" y="505" text-anchor="middle" class="h">Login Protection</text>
+  <text x="1290" y="542" text-anchor="middle" class="b">Password verification + Redis limit</text>
+  <text x="1290" y="575" text-anchor="middle" class="bb">BLOCK REPEATED ATTEMPTS</text>
+  <path d="M1500 530 H1590" class="arrow"/>
+
+  <rect x="1605" y="460" width="420" height="140" rx="18" fill="#eef4ff" stroke="#86a8eb" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="1815" y="505" text-anchor="middle" class="h">Secure Session</text>
+  <text x="1815" y="542" text-anchor="middle" class="b">Short JWT + secure refresh cookie</text>
+  <text x="1815" y="575" text-anchor="middle" class="bb">AUTHENTICATED USER</text>
+  <path d="M2025 530 H2115" class="arrow"/>
+
+  <rect x="2130" y="460" width="380" height="140" rx="18" fill="#f0fbf5" stroke="#88c9a5" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="2320" y="505" text-anchor="middle" class="h">Permission Gate</text>
+  <text x="2320" y="542" text-anchor="middle" class="b">Organization + role + department</text>
+  <text x="2320" y="575" text-anchor="middle" class="bb">ALLOW OR 403 DENY</text>
+
+  <!-- Central permission fan-out -->
+  <path d="M2320 600 V655 H330 V705" class="thin"/>
+  <path d="M2320 600 V655 H965 V705" class="thin"/>
+  <path d="M2320 600 V655 H1600 V705" class="thin"/>
+  <path d="M2320 600 V705" class="thin"/>
+
+  <!-- 3 Role experiences -->
+  <text x="90" y="690" class="lane">3  ROLE-BASED PORTAL EXPERIENCE</text>
+
+  <!-- Admin -->
+  <rect x="90" y="720" width="530" height="350" rx="20" fill="#eef4ff" stroke="#86a8eb" stroke-width="3" filter="url(#shadow2)"/>
+  <rect x="90" y="720" width="530" height="58" rx="20" fill="#2457c5"/>
+  <rect x="90" y="755" width="530" height="23" fill="#2457c5"/>
+  <text x="355" y="758" text-anchor="middle" class="whiteh">SUPER ADMIN</text>
+  <text x="130" y="820" class="h">Administration</text>
+  <text x="130" y="858" class="b">• Create departments and invite users</text>
+  <text x="130" y="893" class="b">• Assign roles and permissions</text>
+  <text x="130" y="928" class="b">• Enable or disable accounts</text>
+  <text x="130" y="963" class="b">• Manage knowledge access</text>
+  <text x="130" y="998" class="b">• Review usage, settings and audit events</text>
+  <text x="130" y="1035" class="bb">ACCESS TO ALL MODULES</text>
+
+  <!-- Shared AI -->
+  <rect x="725" y="720" width="530" height="350" rx="20" fill="#faf5ff" stroke="#c9a1e7" stroke-width="3" filter="url(#shadow2)"/>
+  <rect x="725" y="720" width="530" height="58" rx="20" fill="#7b3fb0"/>
+  <rect x="725" y="755" width="530" height="23" fill="#7b3fb0"/>
+  <text x="990" y="758" text-anchor="middle" class="whiteh">AI WORKSPACE</text>
+  <text x="765" y="820" class="h">Question or Attachment</text>
+  <text x="765" y="858" class="b">• AI chat and follow-up conversation</text>
+  <text x="765" y="893" class="b">• PDF, Word and Excel analysis</text>
+  <text x="765" y="928" class="b">• Department-filtered knowledge retrieval</text>
+  <text x="765" y="963" class="b">• OpenAI or Anthropic response</text>
+  <text x="765" y="998" class="b">• Citations, email drafts and usage logs</text>
+  <text x="765" y="1035" class="bb">ONLY APPROVED KNOWLEDGE IS RETRIEVED</text>
+
+  <!-- HR -->
+  <rect x="1360" y="720" width="530" height="350" rx="20" fill="#f0fbf5" stroke="#88c9a5" stroke-width="4" filter="url(#shadow2)"/>
+  <rect x="1360" y="720" width="530" height="58" rx="20" fill="#258653"/>
+  <rect x="1360" y="755" width="530" height="23" fill="#258653"/>
+  <text x="1625" y="758" text-anchor="middle" class="whiteh">HR - CURRENT PILOT</text>
+  <text x="1400" y="820" class="h">HR Operations</text>
+  <text x="1400" y="858" class="b">• Offer, appointment and increment letters</text>
+  <text x="1400" y="893" class="b">• Interview checklist and PDF report</text>
+  <text x="1400" y="928" class="b">• Attendance and shift-roster analysis</text>
+  <text x="1400" y="963" class="b">• Payroll Excel and salary-slip generation</text>
+  <text x="1400" y="998" class="b">• Preview, email, history and retry</text>
+  <text x="1400" y="1035" class="bb">ZOHO EMAIL DELIVERY AFTER CONFIRMATION</text>
+
+  <!-- R&D -->
+  <rect x="1995" y="720" width="515" height="350" rx="20" fill="#fff8ee" stroke="#e8bd78" stroke-width="3" filter="url(#shadow2)"/>
+  <rect x="1995" y="720" width="515" height="58" rx="20" fill="#c78225"/>
+  <rect x="1995" y="755" width="515" height="23" fill="#c78225"/>
+  <text x="2252" y="758" text-anchor="middle" class="whiteh">R&amp;D - DEPLOYED, NO PILOT ACCOUNTS</text>
+  <text x="2035" y="820" class="h">R&amp;D Operations</text>
+  <text x="2035" y="858" class="b">• COA, SDS and GCMS Word documents</text>
+  <text x="2035" y="893" class="b">• AI-assisted template drafting</text>
+  <text x="2035" y="928" class="b">• Formulation and batch-sheet export</text>
+  <text x="2035" y="963" class="b">• Raw-material evaluation export</text>
+  <text x="2035" y="998" class="b">• Approved SOP search and viewing</text>
+  <text x="2035" y="1035" class="bb">ACCESS ENABLED ONLY WHEN APPROVED</text>
+
+  <!-- 4 Knowledge and document pipelines -->
+  <text x="90" y="1145" class="lane">4  DOCUMENT, KNOWLEDGE AND AI PROCESSING</text>
+
+  <rect x="90" y="1175" width="570" height="260" rx="20" fill="#ffffff" stroke="#c9a1e7" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="375" y="1220" text-anchor="middle" class="h">Knowledge Upload</text>
+  <text x="135" y="1260" class="b">1. Upload PDF, DOCX, XLSX or PPTX</text>
+  <text x="135" y="1297" class="b">2. Validate size and file type</text>
+  <text x="135" y="1334" class="b">3. Extract text and create chunks</text>
+  <text x="135" y="1371" class="b">4. Generate pgvector embeddings</text>
+  <text x="135" y="1408" class="bb">COLLECTION LINKED TO HR OR R&amp;D</text>
+
+  <path d="M660 1305 H735" class="arrow"/>
+
+  <rect x="750" y="1175" width="570" height="260" rx="20" fill="#faf5ff" stroke="#c9a1e7" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="1035" y="1220" text-anchor="middle" class="h">AI Question Workflow</text>
+  <text x="795" y="1260" class="b">1. Check user and department access</text>
+  <text x="795" y="1297" class="b">2. Search authorized knowledge chunks</text>
+  <text x="795" y="1334" class="b">3. Send relevant context to AI provider</text>
+  <text x="795" y="1371" class="b">4. Stream answer with source citations</text>
+  <text x="795" y="1408" class="bb">AI NEVER SELECTS UNAUTHORIZED COLLECTIONS</text>
+
+  <path d="M1320 1305 H1395" class="arrow"/>
+
+  <rect x="1410" y="1175" width="520" height="260" rx="20" fill="#f0fbf5" stroke="#88c9a5" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="1670" y="1220" text-anchor="middle" class="h">Generated Output</text>
+  <text x="1455" y="1260" class="b">• Portal answer or analysis</text>
+  <text x="1455" y="1297" class="b">• PDF or Word document</text>
+  <text x="1455" y="1334" class="b">• Attendance/payroll result</text>
+  <text x="1455" y="1371" class="b">• Preview before email</text>
+  <text x="1455" y="1408" class="bb">USER CONFIRMS IMPORTANT ACTIONS</text>
+
+  <path d="M1930 1305 H2005" class="arrow"/>
+
+  <rect x="2020" y="1175" width="490" height="260" rx="20" fill="#fff8ee" stroke="#e8bd78" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="2265" y="1220" text-anchor="middle" class="h">External Services</text>
+  <text x="2065" y="1265" class="b">OpenAI / Anthropic</text>
+  <text x="2065" y="1302" class="sm">AI chat, drafting and analysis</text>
+  <text x="2065" y="1350" class="b">Zoho SMTP</text>
+  <text x="2065" y="1387" class="sm">Approved HR email delivery</text>
+  <text x="2065" y="1418" class="bb">API KEYS STORED ONLY ON SERVER</text>
+
+  <!-- 5 Data -->
+  <text x="90" y="1515" class="lane">5  PERMANENT DATA, TEMPORARY DATA AND BACKUPS</text>
+
+  <rect x="90" y="1545" width="520" height="180" rx="20" fill="#ffffff" stroke="#d4b7e7" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="350" y="1593" text-anchor="middle" class="h">PostgreSQL + pgvector</text>
+  <text x="350" y="1632" text-anchor="middle" class="b">Users • Roles • Payroll • Knowledge</text>
+  <text x="350" y="1666" text-anchor="middle" class="b">AI history • Audit • Embeddings</text>
+  <text x="350" y="1700" text-anchor="middle" class="bb">PERMANENT DATABASE</text>
+
+  <rect x="680" y="1545" width="520" height="180" rx="20" fill="#ffffff" stroke="#d4b7e7" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="940" y="1593" text-anchor="middle" class="h">Private File Storage</text>
+  <text x="940" y="1632" text-anchor="middle" class="b">Templates • Uploads • Generated files</text>
+  <text x="940" y="1666" text-anchor="middle" class="b">Salary slips • HR and R&amp;D documents</text>
+  <text x="940" y="1700" text-anchor="middle" class="bb">PERSISTENT FILES</text>
+
+  <rect x="1270" y="1545" width="440" height="180" rx="20" fill="#eef4ff" stroke="#86a8eb" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="1490" y="1593" text-anchor="middle" class="h">Redis</text>
+  <text x="1490" y="1632" text-anchor="middle" class="b">Login and AI request limits</text>
+  <text x="1490" y="1666" text-anchor="middle" class="b">Fast temporary counters/cache</text>
+  <text x="1490" y="1700" text-anchor="middle" class="bb">NOT THE PERMANENT DATABASE</text>
+
+  <path d="M610 1635 H665" class="thin"/>
+  <path d="M1200 1635 H1255" class="thin"/>
+  <path d="M1710 1635 H1790" class="arrow"/>
+
+  <rect x="1805" y="1545" width="705" height="180" rx="20" fill="#f0fbf5" stroke="#88c9a5" stroke-width="3" filter="url(#shadow2)"/>
+  <text x="2157" y="1593" text-anchor="middle" class="h">Separate Encrypted Backup Storage</text>
+  <text x="2157" y="1632" text-anchor="middle" class="b">Daily database backup + daily file synchronization</text>
+  <text x="2157" y="1666" text-anchor="middle" class="b">Private access • 90-day retention • Restore test</text>
+  <text x="2157" y="1700" text-anchor="middle" class="bb">RECOVERY IF THE MAIN SERVER FAILS</text>
+
+  <!-- 6 Operations -->
+  <text x="90" y="1810" class="lane">6  RELEASE UPDATES AND OPERATIONS</text>
+
+  <rect x="90" y="1840" width="350" height="120" rx="18" fill="#ffffff" stroke="#b9c8e8" stroke-width="3"/>
+  <text x="265" y="1886" text-anchor="middle" class="h">1. Test Locally</text>
+  <text x="265" y="1925" text-anchor="middle" class="b">Review before release</text>
+  <path d="M440 1900 H500" class="arrow"/>
+
+  <rect x="515" y="1840" width="350" height="120" rx="18" fill="#ffffff" stroke="#b9c8e8" stroke-width="3"/>
+  <text x="690" y="1886" text-anchor="middle" class="h">2. Push Release</text>
+  <text x="690" y="1925" text-anchor="middle" class="b">GitHub version tag</text>
+  <path d="M865 1900 H925" class="arrow"/>
+
+  <rect x="940" y="1840" width="350" height="120" rx="18" fill="#fff8ee" stroke="#e8bd78" stroke-width="3"/>
+  <text x="1115" y="1886" text-anchor="middle" class="h">3. Backup First</text>
+  <text x="1115" y="1925" text-anchor="middle" class="b">Database and files</text>
+  <path d="M1290 1900 H1350" class="arrow"/>
+
+  <rect x="1365" y="1840" width="350" height="120" rx="18" fill="#eef4ff" stroke="#86a8eb" stroke-width="3"/>
+  <text x="1540" y="1886" text-anchor="middle" class="h">4. Deploy</text>
+  <text x="1540" y="1925" text-anchor="middle" class="b">Pull, build and migrate</text>
+  <path d="M1715 1900 H1775" class="arrow"/>
+
+  <rect x="1790" y="1840" width="350" height="120" rx="18" fill="#f0fbf5" stroke="#88c9a5" stroke-width="3"/>
+  <text x="1965" y="1886" text-anchor="middle" class="h">5. Verify</text>
+  <text x="1965" y="1925" text-anchor="middle" class="b">Health and HR testing</text>
+  <path d="M2140 1900 H2200" class="arrow"/>
+
+  <rect x="2215" y="1840" width="295" height="120" rx="18" fill="#f0fbf5" stroke="#88c9a5" stroke-width="3"/>
+  <text x="2362" y="1886" text-anchor="middle" class="h">6. Release</text>
+  <text x="2362" y="1925" text-anchor="middle" class="b">Controlled HR rollout</text>
+
+  <rect x="90" y="2000" width="2420" height="62" rx="16" fill="#ffffff" stroke="#d6deea" stroke-width="2"/>
+  <text x="1300" y="2039" text-anchor="middle" class="b">Security rule: secrets never enter GitHub • database/Redis ports remain private • every sensitive request is checked by the backend</text>
+</svg>

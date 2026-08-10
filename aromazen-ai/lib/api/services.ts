@@ -30,6 +30,11 @@ import type {
   PayrollTemplate,
   AttendanceAnalysis,
   AttendanceShiftRule,
+  LeaveCalculatorAnalysis,
+  AssetListResponse,
+  AssetPayload,
+  ITAsset,
+  AssetMaintenanceEvent,
 } from './types'
 
 export const api = {
@@ -42,6 +47,24 @@ export const api = {
   dashboard: {
     overview: (accessToken: string) => apiRequest<DashboardOverview>('/dashboard/overview', { headers: { Authorization: `Bearer ${accessToken}` } }),
   },
+  assets: {
+    list: (accessToken: string, filters: { search?: string; status?: string; category?: string; location?: string; department?: string; attentionOnly?: boolean } = {}) => {
+      const query = new URLSearchParams()
+      if (filters.search) query.set('search', filters.search)
+      if (filters.status && filters.status !== 'All') query.set('status', filters.status)
+      if (filters.category && filters.category !== 'All') query.set('category', filters.category)
+      if (filters.location && filters.location !== 'All') query.set('location', filters.location)
+      if (filters.department && filters.department !== 'All') query.set('department', filters.department)
+      if (filters.attentionOnly) query.set('attention_only', 'true')
+      return apiRequest<AssetListResponse>(`/assets${query.size ? `?${query}` : ''}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    create: (accessToken: string, payload: AssetPayload) => apiRequest<ITAsset>('/assets', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    update: (accessToken: string, id: string, payload: Partial<AssetPayload>) => apiRequest<ITAsset>(`/assets/${id}`, { method: 'PATCH', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    recordMaintenance: (accessToken: string, id: string, payload: { service_date: string; vendor?: string | null; cost?: number | null; notes?: string | null; next_due_date?: string | null }) => apiRequest<ITAsset>(`/assets/${id}/maintenance`, { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    maintenanceHistory: (accessToken: string, id: string) => apiRequest<AssetMaintenanceEvent[]>(`/assets/${id}/maintenance`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    importRegister: (accessToken: string, file: File) => { const form = new FormData(); form.append('file', file); return apiRequest<{ created: number; updated: number; total_rows: number }>('/assets/import', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } }) },
+    exportRegister: (accessToken: string) => apiFileRequest('/assets/export/register', accessToken),
+  },
   settings: {
     get: (accessToken: string) => apiRequest<OrganizationSettings>('/settings', { headers: { Authorization: `Bearer ${accessToken}` } }),
     update: (accessToken: string, payload: Pick<OrganizationSettings, 'organization_name' | 'platform_name' | 'theme' | 'default_ai_provider' | 'session_timeout_minutes' | 'timezone' | 'daily_ai_request_limit' | 'monthly_ai_request_limit' | 'monthly_ai_cost_limit_inr'>) => apiRequest<OrganizationSettings>('/settings', { method: 'PUT', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
@@ -51,7 +74,8 @@ export const api = {
     documents: (accessToken: string, collectionId: string) => apiRequest<KnowledgeDocument[]>(`/knowledge/collections/${collectionId}/documents`, { headers: { Authorization: `Bearer ${accessToken}` } }),
     processDocument: (accessToken: string, collectionId: string, documentId: string) => apiRequest<{ id: string; status: string; extracted_characters: number }>(`/knowledge/collections/${collectionId}/documents/${documentId}/process`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
     documentContentUrl: (collectionId: string, documentId: string) => `/api/v1/knowledge/collections/${collectionId}/documents/${documentId}/content`,
-    uploadDocument: (accessToken: string, collectionId: string, file: File) => apiRequest<{ id: string; name: string; status: string; version: number }>(`/knowledge/collections/${collectionId}/documents`, { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form })(), headers: { Authorization: `Bearer ${accessToken}` } }),
+    uploadDocument: (accessToken: string, collectionId: string, file: File, reminder?: { document_category?: string; expiry_date?: string; reminder_days_before?: number; reminder_owner?: string }) => apiRequest<KnowledgeDocument>(`/knowledge/collections/${collectionId}/documents`, { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); if (reminder?.document_category) form.append('document_category', reminder.document_category); if (reminder?.expiry_date) form.append('expiry_date', reminder.expiry_date); form.append('reminder_days_before', String(reminder?.reminder_days_before ?? 30)); if (reminder?.reminder_owner) form.append('reminder_owner', reminder.reminder_owner); return form })(), headers: { Authorization: `Bearer ${accessToken}` } }),
+    updateDocumentReminder: (accessToken: string, collectionId: string, documentId: string, reminder: { document_category?: string | null; expiry_date?: string | null; reminder_days_before: number; reminder_owner?: string | null }) => apiRequest<KnowledgeDocument>(`/knowledge/collections/${collectionId}/documents/${documentId}/reminder`, { method: 'PATCH', body: reminder, headers: { Authorization: `Bearer ${accessToken}` } }),
   },
   workspace: {
     streamMessage: (accessToken: string, payload: CreateChatMessageRequest, signal?: AbortSignal) =>
@@ -104,6 +128,14 @@ export const api = {
     analyzeAttendance: (accessToken: string, file: File, shifts: AttendanceShiftRule[], shiftRoster?: File | null) => {
       const form = new FormData(); form.append('excel_file', file); form.append('shift_rules', JSON.stringify(shifts)); if (shiftRoster) form.append('shift_roster_file', shiftRoster)
       return apiRequest<AttendanceAnalysis>('/payroll/attendance/analyze', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    analyzeLeaves: (accessToken: string, payrollMonth: string, salaryFile: File, attendanceFile: File, shifts: AttendanceShiftRule[], shiftRoster?: File | null) => {
+      const form = new FormData(); form.append('payroll_month', payrollMonth); form.append('salary_file', salaryFile); form.append('attendance_file', attendanceFile); form.append('shift_rules', JSON.stringify(shifts)); if (shiftRoster) form.append('shift_roster_file', shiftRoster)
+      return apiRequest<LeaveCalculatorAnalysis>('/payroll/leave-calculator/analyze', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    mergeLeaves: (accessToken: string, payrollMonth: string, salaryFile: File, attendanceFile: File, shifts: AttendanceShiftRule[], adjustments: { row_number: number; paid_leave_days: number; lop_override: number | null }[], shiftRoster?: File | null) => {
+      const form = new FormData(); form.append('payroll_month', payrollMonth); form.append('salary_file', salaryFile); form.append('attendance_file', attendanceFile); form.append('shift_rules', JSON.stringify(shifts)); form.append('adjustments_json', JSON.stringify(adjustments)); if (shiftRoster) form.append('shift_roster_file', shiftRoster)
+      return apiFileRequest('/payroll/leave-calculator/merge', accessToken, { method: 'POST', body: form })
     },
   },
   admin: {

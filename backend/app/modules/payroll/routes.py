@@ -18,13 +18,16 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal, get_db_session
 from app.modules.identity.authorization import require_department, require_permissions
 from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User
 from app.modules.identity.service import role_keys_for_user
-from app.modules.payroll.engine import create_excel_template, generate_salary_pdf, password_for, read_salary_excel, validate_template_pdf
+from app.modules.payroll.attendance_rules import DEFAULT_LATE_GRACE_MINUTES, apply_monthly_late_policy
+from app.modules.payroll.engine import COLUMNS, create_excel_template, generate_salary_pdf, password_for, read_salary_excel, validate_template_pdf
 
 router = APIRouter(dependencies=[Depends(require_department("hr"))])
 
@@ -472,10 +475,10 @@ ATTENDANCE_STATUS_LABELS = {
     "HD": "Half day",
 }
 DEFAULT_ATTENDANCE_SHIFTS = [
-    {"name": "Shift 1", "start": "06:00", "end": "14:00", "grace_minutes": 0},
-    {"name": "General", "start": "09:00", "end": "17:30", "grace_minutes": 0},
-    {"name": "Shift 2", "start": "14:00", "end": "22:00", "grace_minutes": 0},
-    {"name": "Shift 3", "start": "22:00", "end": "06:00", "grace_minutes": 0},
+    {"name": "Shift 1", "start": "06:00", "end": "14:00", "grace_minutes": DEFAULT_LATE_GRACE_MINUTES},
+    {"name": "General", "start": "09:00", "end": "17:30", "grace_minutes": DEFAULT_LATE_GRACE_MINUTES},
+    {"name": "Shift 2", "start": "14:00", "end": "22:00", "grace_minutes": DEFAULT_LATE_GRACE_MINUTES},
+    {"name": "Shift 3", "start": "22:00", "end": "06:00", "grace_minutes": DEFAULT_LATE_GRACE_MINUTES},
 ]
 
 
@@ -695,6 +698,7 @@ def _attendance_analysis(records: list[dict], shifts: list[dict], filename: str,
     department_summary: dict[str, dict] = {}
     normalized_records = []
     status_totals = Counter()
+    monthly_late_counts = Counter()
     for record in sorted(records, key=lambda item: (item["date"], item["employee_name"])):
         key = record["employee_code"] or record["employee_name"]
         shift_name = record.get("shift_name") or primary_shifts.get(key) or "Unassigned"
@@ -707,23 +711,23 @@ def _attendance_analysis(records: list[dict], shifts: list[dict], filename: str,
             if end_dt < start_dt:
                 end_dt += timedelta(days=1)
             worked_hours = round((end_dt - start_dt).total_seconds() / 3600, 2)
-        status_code = str(record.get("status_code") or "").upper()
+        raw_status_code = str(record.get("status_code") or "").upper()
         computed_late = False
         if shift and first_in:
             computed_late = _time_minutes(first_in) > shift["start_minutes"] + shift["grace_minutes"]
-        is_late = computed_late if shift and first_in else status_code == "LT"
-        is_early = status_code == "EL"
-        if status_code == "LT" and not is_late:
-            status_code = "P"
-        elif status_code in {"", "P"} and is_late:
-            status_code = "LT"
-        status_label = ATTENDANCE_STATUS_LABELS.get(status_code, status_code.title() if status_code else "Present")
+        detected_late = computed_late if shift and first_in else raw_status_code == "LT"
+        late_policy = apply_monthly_late_policy(monthly_late_counts, key, record["date"], raw_status_code, detected_late)
+        status_code = late_policy.status_code
+        is_late = late_policy.is_late
+        is_early = raw_status_code == "EL"
+        late_penalty_half_day = late_policy.half_day_penalty
+        status_label = "Half day (4th late)" if late_penalty_half_day else ATTENDANCE_STATUS_LABELS.get(status_code, status_code.title() if status_code else "Present")
         scheduled_hours = shift["duration_hours"] if shift else 0
         overtime_hours = round(max(0.0, worked_hours - scheduled_hours), 2) if scheduled_hours else 0.0
         scheduled = status_code != "WO"
         present_value = 0.5 if status_code == "HD" else (1.0 if status_code in {"P", "LT", "EL"} else 0.0)
         status_totals[status_label] += 1
-        item = employees.setdefault(key, {"employee_code": record["employee_code"], "employee_name": record["employee_name"], "department": record.get("department") or "Unassigned", "primary_shift": primary_shifts.get(key, "Unassigned"), "scheduled_days": 0, "present_days": 0.0, "absent_days": 0, "weekly_off_days": 0, "late_days": 0, "early_leave_days": 0, "half_days": 0, "total_hours": 0.0, "overtime_hours": 0.0, "days_with_hours": 0})
+        item = employees.setdefault(key, {"employee_code": record["employee_code"], "employee_name": record["employee_name"], "department": record.get("department") or "Unassigned", "primary_shift": primary_shifts.get(key, "Unassigned"), "scheduled_days": 0, "present_days": 0.0, "absent_days": 0, "weekly_off_days": 0, "late_days": 0, "early_leave_days": 0, "half_days": 0, "late_penalty_half_days": 0, "total_hours": 0.0, "overtime_hours": 0.0, "days_with_hours": 0})
         item["scheduled_days"] += int(scheduled)
         item["present_days"] += present_value
         item["absent_days"] += int(status_code == "A")
@@ -731,20 +735,22 @@ def _attendance_analysis(records: list[dict], shifts: list[dict], filename: str,
         item["late_days"] += int(is_late)
         item["early_leave_days"] += int(is_early)
         item["half_days"] += int(status_code == "HD")
+        item["late_penalty_half_days"] += int(late_penalty_half_day)
         item["total_hours"] = round(item["total_hours"] + worked_hours, 2)
         item["overtime_hours"] = round(item["overtime_hours"] + overtime_hours, 2)
         item["days_with_hours"] += int(worked_hours > 0)
         for summary, summary_key in ((shift_summary, shift_name), (department_summary, item["department"])):
-            group = summary.setdefault(summary_key, {"name": summary_key, "employee_ids": set(), "scheduled_days": 0, "present_days": 0.0, "absent_days": 0, "late_days": 0, "early_leave_days": 0, "total_hours": 0.0, "overtime_hours": 0.0})
+            group = summary.setdefault(summary_key, {"name": summary_key, "employee_ids": set(), "scheduled_days": 0, "present_days": 0.0, "absent_days": 0, "late_days": 0, "early_leave_days": 0, "late_penalty_half_days": 0, "total_hours": 0.0, "overtime_hours": 0.0})
             group["employee_ids"].add(key)
             group["scheduled_days"] += int(scheduled)
             group["present_days"] += present_value
             group["absent_days"] += int(status_code == "A")
             group["late_days"] += int(is_late)
             group["early_leave_days"] += int(is_early)
+            group["late_penalty_half_days"] += int(late_penalty_half_day)
             group["total_hours"] = round(group["total_hours"] + worked_hours, 2)
             group["overtime_hours"] = round(group["overtime_hours"] + overtime_hours, 2)
-        normalized_records.append({"employee_code": record["employee_code"], "employee_name": record["employee_name"], "department": record.get("department") or "Unassigned", "date": record["date"].isoformat(), "shift_name": shift_name, "first_in": first_in.strftime("%H:%M") if first_in else "", "last_out": last_out.strftime("%H:%M") if last_out else "", "worked_hours": worked_hours, "overtime_hours": overtime_hours, "status_code": status_code, "status": status_label, "assignment_source": record.get("assignment_source") or ("Primary shift" if shift_name != "Unassigned" else "Unassigned")})
+        normalized_records.append({"employee_code": record["employee_code"], "employee_name": record["employee_name"], "department": record.get("department") or "Unassigned", "date": record["date"].isoformat(), "shift_name": shift_name, "first_in": first_in.strftime("%H:%M") if first_in else "", "last_out": last_out.strftime("%H:%M") if last_out else "", "worked_hours": worked_hours, "overtime_hours": overtime_hours, "status_code": status_code, "status": status_label, "late_penalty_half_day": late_penalty_half_day, "assignment_source": record.get("assignment_source") or ("Primary shift" if shift_name != "Unassigned" else "Unassigned")})
     employee_items = []
     for item in employees.values():
         days_with_hours = item.pop("days_with_hours")
@@ -775,6 +781,7 @@ def _attendance_analysis(records: list[dict], shifts: list[dict], filename: str,
         "late_days": sum(item["late_days"] for item in employee_items),
         "early_leave_days": sum(item["early_leave_days"] for item in employee_items),
         "half_days": sum(item["half_days"] for item in employee_items),
+        "late_penalty_half_days": sum(item["late_penalty_half_days"] for item in employee_items),
         "total_hours": round(sum(item["total_hours"] for item in employee_items), 2),
         "overtime_hours": round(sum(item["overtime_hours"] for item in employee_items), 2),
         "status_counts": dict(status_totals),
@@ -784,6 +791,23 @@ def _attendance_analysis(records: list[dict], shifts: list[dict], filename: str,
         "employees": employee_items,
         "records": normalized_records,
     }
+
+
+def _parse_attendance_shifts(shift_rules: str) -> list[dict]:
+    try:
+        parsed_shifts = json.loads(shift_rules) if shift_rules.strip() else DEFAULT_ATTENDANCE_SHIFTS
+        if not isinstance(parsed_shifts, list) or not parsed_shifts:
+            raise ValueError("invalid_shift_rules")
+        shifts = []
+        for index, item in enumerate(parsed_shifts):
+            start = _attendance_clock(item.get("start"))
+            end = _attendance_clock(item.get("end"))
+            if not start or not end:
+                raise ValueError("invalid_shift_time")
+            shifts.append({"name": str(item.get("name") or f"Shift {index + 1}").strip(), "start": start.strftime("%H:%M"), "end": end.strftime("%H:%M"), "start_minutes": _time_minutes(start), "end_minutes": _time_minutes(end), "grace_minutes": max(0, int(item.get("grace_minutes") or 0)), "duration_hours": _shift_duration(start, end)})
+        return shifts
+    except (ValueError, TypeError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=422, detail="Review the shift names, start/end times and grace minutes.") from error
 
 
 @router.post("/attendance/analyze")
@@ -803,19 +827,7 @@ async def analyze_attendance(
         workbook = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
     except Exception as error:
         raise HTTPException(status_code=422, detail="The attendance workbook could not be opened.") from error
-    try:
-        parsed_shifts = json.loads(shift_rules) if shift_rules.strip() else DEFAULT_ATTENDANCE_SHIFTS
-        if not isinstance(parsed_shifts, list) or not parsed_shifts:
-            raise ValueError("invalid_shift_rules")
-        shifts = []
-        for index, item in enumerate(parsed_shifts):
-            start = _attendance_clock(item.get("start"))
-            end = _attendance_clock(item.get("end"))
-            if not start or not end:
-                raise ValueError("invalid_shift_time")
-            shifts.append({"name": str(item.get("name") or f"Shift {index + 1}").strip(), "start": start.strftime("%H:%M"), "end": end.strftime("%H:%M"), "start_minutes": _time_minutes(start), "end_minutes": _time_minutes(end), "grace_minutes": max(0, int(item.get("grace_minutes") or 0)), "duration_hours": _shift_duration(start, end)})
-    except (ValueError, TypeError, json.JSONDecodeError) as error:
-        raise HTTPException(status_code=422, detail="Review the shift names, start/end times and grace minutes.") from error
+    shifts = _parse_attendance_shifts(shift_rules)
     assignments: list[dict] = []
     if shift_roster_file and shift_roster_file.filename:
         assignments = _parse_shift_roster(await shift_roster_file.read(), shift_roster_file.filename)
@@ -827,3 +839,251 @@ async def analyze_attendance(
         records = _parse_tabular_attendance(workbook)
     workbook.close()
     return _attendance_analysis(records, shifts, excel_file.filename or "attendance.xlsx", assignments)
+
+
+def _salary_merge_workbook(content: bytes):
+    try:
+        workbook = load_workbook(io.BytesIO(content))
+    except Exception as error:
+        raise HTTPException(status_code=422, detail="The salary workbook could not be opened.") from error
+    sheet = workbook["Salary Data"] if "Salary Data" in workbook.sheetnames else workbook.active
+    aliases = {
+        "employee_name": {"employeename", "employee", "name"},
+        "employee_code": {"employeecode", "empcode", "employeeid", "empid"},
+        "days": {"days", "totaldays"},
+        "present_days": {"presentdays", "paiddays"},
+        "lop": {"lop", "lossofpay"},
+        "ot_hours": {"othours", "overtimehours"},
+    }
+    header = [_attendance_key(cell.value) for cell in sheet[1]]
+    indexes = {key: next((index + 1 for index, value in enumerate(header) if value in names), None) for key, names in aliases.items()}
+    missing = [dict(COLUMNS).get(key, key.replace("_", " ").title()) for key, index in indexes.items() if index is None]
+    if missing:
+        workbook.close()
+        raise HTTPException(status_code=422, detail="The final salary template is missing: " + ", ".join(missing))
+    rows = []
+    for row_number in range(2, sheet.max_row + 1):
+        name = str(sheet.cell(row_number, indexes["employee_name"]).value or "").strip()
+        code = str(sheet.cell(row_number, indexes["employee_code"]).value or "").strip()
+        if not name and not code:
+            continue
+        rows.append({"row_number": row_number, "employee_name": name, "employee_code": code})
+    if not rows:
+        workbook.close()
+        raise HTTPException(status_code=422, detail="No employee rows were found in Salary Data.")
+    return workbook, sheet, indexes, rows
+
+
+def _leave_calculator_analysis(
+    salary_content: bytes,
+    attendance_content: bytes,
+    payroll_month: str,
+    shift_rules: str,
+    attendance_filename: str,
+    salary_filename: str,
+    roster_content: bytes | None = None,
+    roster_filename: str = "",
+):
+    try:
+        month_date = datetime.strptime(payroll_month, "%Y-%m")
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="Payroll month must use YYYY-MM.") from error
+    shifts = _parse_attendance_shifts(shift_rules)
+    assignments = _parse_shift_roster(roster_content, roster_filename) if roster_content and roster_filename else []
+    unknown_shifts = sorted({item["shift_name"] for item in assignments} - {shift["name"] for shift in shifts})
+    if unknown_shifts:
+        raise HTTPException(status_code=422, detail=f"These roster shift names do not match the configured shifts: {', '.join(unknown_shifts)}")
+    try:
+        attendance_workbook = load_workbook(io.BytesIO(attendance_content), data_only=True, read_only=True)
+    except Exception as error:
+        raise HTTPException(status_code=422, detail="The attendance workbook could not be opened.") from error
+    records = _parse_matrix_attendance(attendance_workbook)
+    if not records:
+        records = _parse_tabular_attendance(attendance_workbook)
+    attendance_workbook.close()
+    records = [item for item in records if item["date"].year == month_date.year and item["date"].month == month_date.month]
+    if not records:
+        raise HTTPException(status_code=422, detail=f"No attendance records were found for {month_date.strftime('%B %Y')}.")
+    attendance = _attendance_analysis(records, shifts, attendance_filename, assignments)
+    workbook, salary_sheet, indexes, salary_rows = _salary_merge_workbook(salary_content)
+    by_code: dict[str, list[dict]] = {}
+    by_name: dict[str, list[dict]] = {}
+    for employee in attendance["employees"]:
+        code_key = _attendance_key(employee["employee_code"])
+        name_key = _attendance_key(employee["employee_name"])
+        if code_key:
+            by_code.setdefault(code_key, []).append(employee)
+        if name_key:
+            by_name.setdefault(name_key, []).append(employee)
+    matched_attendance: set[str] = set()
+    calendar_days = monthrange(month_date.year, month_date.month)[1]
+    result_rows = []
+    for salary_row in salary_rows:
+        code_matches = by_code.get(_attendance_key(salary_row["employee_code"]), []) if salary_row["employee_code"] else []
+        name_matches = by_name.get(_attendance_key(salary_row["employee_name"]), []) if salary_row["employee_name"] else []
+        employee = code_matches[0] if len(code_matches) == 1 else name_matches[0] if len(name_matches) == 1 else None
+        match_status = "Matched by employee code" if employee and len(code_matches) == 1 else "Matched by employee name" if employee else "Not found in attendance"
+        if employee:
+            matched_attendance.add(_attendance_key(employee["employee_code"]) or _attendance_key(employee["employee_name"]))
+        calculated_lop = round(float(employee["absent_days"]) + float(employee["half_days"]) * 0.5, 1) if employee else None
+        result_rows.append({
+            **salary_row,
+            "department": employee["department"] if employee else "",
+            "primary_shift": employee["primary_shift"] if employee else "",
+            "calendar_days": calendar_days,
+            "scheduled_days": employee["scheduled_days"] if employee else None,
+            "attendance_present_days": employee["present_days"] if employee else None,
+            "absent_days": employee["absent_days"] if employee else None,
+            "half_days": employee["half_days"] if employee else None,
+            "late_penalty_half_days": employee["late_penalty_half_days"] if employee else None,
+            "weekly_off_days": employee["weekly_off_days"] if employee else None,
+            "paid_leave_days": 0,
+            "calculated_lop": calculated_lop,
+            "lop_override": None,
+            "final_lop": calculated_lop,
+            "paid_days": round(calendar_days - calculated_lop, 1) if calculated_lop is not None else None,
+            "ot_hours": employee["overtime_hours"] if employee else None,
+            "match_status": match_status,
+        })
+    attendance_only = [employee for employee in attendance["employees"] if (_attendance_key(employee["employee_code"]) or _attendance_key(employee["employee_name"])) not in matched_attendance]
+    matched_rows = [item for item in result_rows if item["calculated_lop"] is not None]
+    payload = {
+        "payroll_month": payroll_month,
+        "month_label": month_date.strftime("%B %Y"),
+        "calendar_days": calendar_days,
+        "salary_filename": salary_filename,
+        "attendance_filename": attendance_filename,
+        "employee_count": len(result_rows),
+        "matched_count": len(matched_rows),
+        "unmatched_count": len(result_rows) - len(matched_rows),
+        "attendance_only_count": len(attendance_only),
+        "total_calculated_lop": round(sum(item["calculated_lop"] or 0 for item in matched_rows), 1),
+        "total_late_penalty_half_days": sum(item["late_penalty_half_days"] or 0 for item in matched_rows),
+        "total_paid_days": round(sum(item["paid_days"] or 0 for item in matched_rows), 1),
+        "total_ot_hours": round(sum(item["ot_hours"] or 0 for item in matched_rows), 2),
+        "rows": result_rows,
+        "attendance_only": [{"employee_code": item["employee_code"], "employee_name": item["employee_name"], "department": item["department"]} for item in attendance_only],
+        "shift_rules": attendance["shift_rules"],
+    }
+    return payload, workbook, salary_sheet, indexes
+
+
+def _number(value: object, label: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=f"{label} must be a number.") from error
+    if number < 0:
+        raise HTTPException(status_code=422, detail=f"{label} cannot be negative.")
+    return round(number, 2)
+
+
+def _merged_leave_workbook(analysis: dict, workbook, salary_sheet, indexes: dict, adjustments_json: str) -> bytes:
+    try:
+        adjustments = json.loads(adjustments_json) if adjustments_json.strip() else []
+        adjustment_map = {int(item["row_number"]): item for item in adjustments}
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
+        workbook.close()
+        raise HTTPException(status_code=422, detail="The leave adjustments could not be read.") from error
+    if analysis["unmatched_count"]:
+        workbook.close()
+        raise HTTPException(status_code=409, detail="Resolve every unmatched salary employee before downloading the merged payroll file.")
+    for item in analysis["rows"]:
+        adjustment = adjustment_map.get(item["row_number"], {})
+        paid_leave = min(_number(adjustment.get("paid_leave_days", 0), "Paid leave"), item["calculated_lop"])
+        override_value = adjustment.get("lop_override")
+        final_lop = _number(override_value, "LOP override") if override_value not in (None, "") else round(item["calculated_lop"] - paid_leave, 2)
+        if final_lop > analysis["calendar_days"]:
+            workbook.close()
+            raise HTTPException(status_code=422, detail=f"LOP cannot exceed {analysis['calendar_days']} days.")
+        item["paid_leave_days"] = paid_leave
+        item["lop_override"] = override_value if override_value not in (None, "") else None
+        item["final_lop"] = final_lop
+        item["paid_days"] = round(analysis["calendar_days"] - final_lop, 2)
+        salary_sheet.cell(item["row_number"], indexes["days"], analysis["calendar_days"])
+        salary_sheet.cell(item["row_number"], indexes["present_days"], item["paid_days"])
+        salary_sheet.cell(item["row_number"], indexes["lop"], final_lop)
+        salary_sheet.cell(item["row_number"], indexes["ot_hours"], item["ot_hours"])
+    review_name = "Leave Calculation Review"
+    if review_name in workbook.sheetnames:
+        workbook.remove(workbook[review_name])
+    review = workbook.create_sheet(review_name, 1)
+    review.sheet_view.showGridLines = False
+    review.merge_cells("A1:P1")
+    review["A1"] = f"Employee Leave Calculator · {analysis['month_label']}"
+    review["A1"].font = Font(size=16, bold=True, color="FFFFFF")
+    review["A1"].fill = PatternFill("solid", fgColor="111827")
+    review["A1"].alignment = Alignment(horizontal="left", vertical="center")
+    review.row_dimensions[1].height = 30
+    review["A3"] = "Employees"
+    review["B3"] = analysis["employee_count"]
+    review["D3"] = "Final paid days"
+    review["E3"] = round(sum(item["paid_days"] for item in analysis["rows"]), 1)
+    review["G3"] = "Final LOP"
+    review["H3"] = round(sum(item["final_lop"] for item in analysis["rows"]), 1)
+    review["J3"] = "OT hours"
+    review["K3"] = round(sum(item["ot_hours"] or 0 for item in analysis["rows"]), 2)
+    for cell in (review["A3"], review["D3"], review["G3"], review["J3"]):
+        cell.font = Font(bold=True, color="6B7280")
+    headers = ["Employee Code", "Employee Name", "Department", "Primary Shift", "Calendar Days", "Attendance Present", "Absent", "Half Days", "Late Penalty HD", "Weekly Offs", "Paid Leave", "Calculated LOP", "LOP Override", "Final LOP", "Final Paid Days", "OT Hours"]
+    for column, value in enumerate(headers, 1):
+        cell = review.cell(6, column, value)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="374151")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for row_number, item in enumerate(analysis["rows"], 7):
+        values = [item["employee_code"], item["employee_name"], item["department"], item["primary_shift"], item["calendar_days"], item["attendance_present_days"], item["absent_days"], item["half_days"], item["late_penalty_half_days"], item["weekly_off_days"], item["paid_leave_days"], item["calculated_lop"], item["lop_override"], item["final_lop"], item["paid_days"], item["ot_hours"]]
+        for column, value in enumerate(values, 1):
+            review.cell(row_number, column, value)
+        if row_number % 2 == 0:
+            for column in range(1, len(headers) + 1):
+                review.cell(row_number, column).fill = PatternFill("solid", fgColor="F3F4F6")
+    widths = [16, 24, 18, 16, 14, 18, 11, 11, 16, 12, 12, 15, 14, 12, 16, 12]
+    for column, width in enumerate(widths, 1):
+        review.column_dimensions[get_column_letter(column)].width = width
+    review.freeze_panes = "A7"
+    review.auto_filter.ref = f"A6:P{max(6, 6 + len(analysis['rows']))}"
+    output = io.BytesIO()
+    workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
+@router.post("/leave-calculator/analyze")
+async def analyze_employee_leaves(
+    payroll_month: str = Form(...),
+    salary_file: UploadFile = File(...),
+    attendance_file: UploadFile = File(...),
+    shift_rules: str = Form(""),
+    shift_roster_file: UploadFile | None = File(None),
+    user: User = Depends(require_permissions("users.manage")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _ensure_hr_access(user, session)
+    if Path(salary_file.filename or "").suffix.lower() not in {".xlsx", ".xlsm"} or Path(attendance_file.filename or "").suffix.lower() not in {".xlsx", ".xlsm"}:
+        raise HTTPException(status_code=422, detail="Upload the final salary template and fingerprint attendance as Excel files.")
+    salary_content, attendance_content = await salary_file.read(), await attendance_file.read()
+    roster_content = await shift_roster_file.read() if shift_roster_file and shift_roster_file.filename else None
+    result, workbook, _sheet, _indexes = await run_in_threadpool(_leave_calculator_analysis, salary_content, attendance_content, payroll_month, shift_rules, attendance_file.filename or "attendance.xlsx", salary_file.filename or "salary.xlsx", roster_content, shift_roster_file.filename if shift_roster_file else "")
+    workbook.close()
+    return result
+
+
+@router.post("/leave-calculator/merge")
+async def merge_employee_leaves(
+    payroll_month: str = Form(...),
+    salary_file: UploadFile = File(...),
+    attendance_file: UploadFile = File(...),
+    shift_rules: str = Form(""),
+    adjustments_json: str = Form("[]"),
+    shift_roster_file: UploadFile | None = File(None),
+    user: User = Depends(require_permissions("users.manage")),
+    session: AsyncSession = Depends(get_db_session),
+) -> StreamingResponse:
+    await _ensure_hr_access(user, session)
+    salary_content, attendance_content = await salary_file.read(), await attendance_file.read()
+    roster_content = await shift_roster_file.read() if shift_roster_file and shift_roster_file.filename else None
+    analysis, workbook, salary_sheet, indexes = await run_in_threadpool(_leave_calculator_analysis, salary_content, attendance_content, payroll_month, shift_rules, attendance_file.filename or "attendance.xlsx", salary_file.filename or "salary.xlsx", roster_content, shift_roster_file.filename if shift_roster_file else "")
+    content = await run_in_threadpool(_merged_leave_workbook, analysis, workbook, salary_sheet, indexes, adjustments_json)
+    filename = f"AROMAZEN_Salary_With_Attendance_{payroll_month}.xlsx"
+    return StreamingResponse(io.BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{filename}"'})

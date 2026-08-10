@@ -51,6 +51,10 @@ export interface KnowledgeDocument {
   extracted_characters: number
   created_at: string
   processed_at: string | null
+  document_category: string | null
+  expiry_date: string | null
+  reminder_days_before: number
+  reminder_owner: string | null
 }
 
 export interface ChatCitation {
@@ -168,9 +172,9 @@ export interface PayrollTemplate {
 }
 
 export interface AttendanceShiftRule { name: string; start: string; end: string; grace_minutes: number }
-export interface AttendanceGroupSummary { name: string; employee_count: number; scheduled_days: number; present_days: number; absent_days: number; late_days: number; early_leave_days: number; total_hours: number; overtime_hours: number; attendance_rate: number; average_hours: number }
-export interface AttendanceEmployeeSummary { employee_code: string; employee_name: string; department: string; primary_shift: string; scheduled_days: number; present_days: number; absent_days: number; weekly_off_days: number; late_days: number; early_leave_days: number; half_days: number; total_hours: number; overtime_hours: number; average_hours: number; attendance_rate: number }
-export interface AttendanceRecord { employee_code: string; employee_name: string; department: string; date: string; shift_name: string; first_in: string; last_out: string; worked_hours: number; overtime_hours: number; status_code: string; status: string; assignment_source: string }
+export interface AttendanceGroupSummary { name: string; employee_count: number; scheduled_days: number; present_days: number; absent_days: number; late_days: number; early_leave_days: number; late_penalty_half_days: number; total_hours: number; overtime_hours: number; attendance_rate: number; average_hours: number }
+export interface AttendanceEmployeeSummary { employee_code: string; employee_name: string; department: string; primary_shift: string; scheduled_days: number; present_days: number; absent_days: number; weekly_off_days: number; late_days: number; early_leave_days: number; half_days: number; late_penalty_half_days: number; total_hours: number; overtime_hours: number; average_hours: number; attendance_rate: number }
+export interface AttendanceRecord { employee_code: string; employee_name: string; department: string; date: string; shift_name: string; first_in: string; last_out: string; worked_hours: number; overtime_hours: number; status_code: string; status: string; late_penalty_half_day: boolean; assignment_source: string }
 export interface AttendanceAnalysis {
   filename: string
   period: { from: string; to: string }
@@ -185,6 +189,7 @@ export interface AttendanceAnalysis {
   late_days: number
   early_leave_days: number
   half_days: number
+  late_penalty_half_days: number
   total_hours: number
   overtime_hours: number
   status_counts: Record<string, number>
@@ -193,6 +198,47 @@ export interface AttendanceAnalysis {
   departments: AttendanceGroupSummary[]
   employees: AttendanceEmployeeSummary[]
   records: AttendanceRecord[]
+}
+
+export interface LeaveCalculatorRow {
+  row_number: number
+  employee_name: string
+  employee_code: string
+  department: string
+  primary_shift: string
+  calendar_days: number
+  scheduled_days: number | null
+  attendance_present_days: number | null
+  absent_days: number | null
+  half_days: number | null
+  late_penalty_half_days: number | null
+  weekly_off_days: number | null
+  paid_leave_days: number
+  calculated_lop: number | null
+  lop_override: number | null
+  final_lop: number | null
+  paid_days: number | null
+  ot_hours: number | null
+  match_status: 'Matched by employee code' | 'Matched by employee name' | 'Not found in attendance'
+}
+
+export interface LeaveCalculatorAnalysis {
+  payroll_month: string
+  month_label: string
+  calendar_days: number
+  salary_filename: string
+  attendance_filename: string
+  employee_count: number
+  matched_count: number
+  unmatched_count: number
+  attendance_only_count: number
+  total_calculated_lop: number
+  total_late_penalty_half_days: number
+  total_paid_days: number
+  total_ot_hours: number
+  rows: LeaveCalculatorRow[]
+  attendance_only: { employee_code: string; employee_name: string; department: string }[]
+  shift_rules: AttendanceShiftRule[]
 }
 
 export interface UsageSummary {
@@ -213,6 +259,82 @@ export interface UsageNotification {
   title: string
   message: string
   severity: 'warning' | 'critical'
+  created_at: string
+  kind?: 'usage' | 'document_reminder' | 'asset_maintenance'
+  href?: string
+}
+
+export type AssetStatus = 'Active' | 'Spare' | 'Under maintenance' | 'Repair needed' | 'Recovery required' | 'Lost' | 'Scrap proposed' | 'Approved for scrap' | 'Scrapped' | 'Disposed'
+export type AssetCondition = 'Good' | 'Fair' | 'Poor' | 'Damaged' | 'Obsolete'
+
+export interface ITAsset {
+  id: string
+  source_sn: string | null
+  employee: string | null
+  physical_location: string | null
+  department_name: string | null
+  home_office: string | null
+  category: string | null
+  brand: string | null
+  model: string | null
+  serial_imei: string | null
+  sim_no: string | null
+  ups: string | null
+  label_no: string | null
+  invoice_date: string | null
+  invoice_no: string | null
+  supplier_name: string | null
+  price: number | null
+  warranty: string | null
+  status: AssetStatus
+  condition: AssetCondition
+  notes: string | null
+  last_maintenance_date: string | null
+  next_maintenance_date: string | null
+  maintenance_interval_months: number | null
+  maintenance_reminder_days: number
+  maintenance_owner: string | null
+  maintenance_notes: string | null
+  scrap_reason: string | null
+  scrap_date: string | null
+  scrap_value: number | null
+  maintenance_state: 'overdue' | 'due' | 'scheduled' | 'not_scheduled'
+  maintenance_days_remaining: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type AssetPayload = Omit<ITAsset, 'id' | 'source_sn' | 'maintenance_state' | 'maintenance_days_remaining' | 'created_at' | 'updated_at'>
+
+export interface AssetSummary {
+  total: number
+  active: number
+  spare: number
+  maintenance_due: number
+  maintenance_overdue: number
+  repair_needed: number
+  recovery_required: number
+  scrap_queue: number
+  scrapped_or_disposed: number
+  total_value: number
+}
+
+export interface AssetListResponse {
+  items: ITAsset[]
+  summary: AssetSummary
+  categories: string[]
+  locations: string[]
+  departments: string[]
+}
+
+export interface AssetMaintenanceEvent {
+  id: string
+  asset_id: string
+  service_date: string
+  vendor: string | null
+  cost: number | null
+  notes: string | null
+  next_due_date: string | null
   created_at: string
 }
 
@@ -236,6 +358,13 @@ export interface DashboardOverview {
   department_usage: { department: string; requests: number; cost: number }[]
   recent_documents: { id: string; name: string; collection: string; uploader: string; status: DocumentStatus; version: number; created_at: string }[]
   recent_activity: { id: string; actor: string; action: string; department: string; created_at: string }[]
+  hr_action_center: {
+    due_reminders: number
+    overdue_documents: number
+    rule_documents: number
+    open_payroll_batches: number
+    items: { key: string; title: string; description: string; href: string; tone: 'default' | 'primary' | 'warning' | 'danger' | 'disabled'; count: number | null }[]
+  } | null
   refreshed_at: string
 }
 

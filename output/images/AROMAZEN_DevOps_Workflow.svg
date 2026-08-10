@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1250" viewBox="0 0 1800 1250">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#172033" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#52627a"/>
+    </marker>
+    <style>
+      .title { font: 700 46px Arial, sans-serif; fill: #172033; }
+      .subtitle { font: 400 24px Arial, sans-serif; fill: #65748a; }
+      .lane { font: 700 22px Arial, sans-serif; letter-spacing: 2px; fill: #52627a; }
+      .node-title { font: 700 25px Arial, sans-serif; fill: #172033; }
+      .node-text { font: 400 19px Arial, sans-serif; fill: #52627a; }
+      .auth { font: 700 17px Arial, sans-serif; fill: #2457c5; }
+      .small { font: 400 17px Arial, sans-serif; fill: #65748a; }
+      .key-title { font: 700 20px Arial, sans-serif; fill: #172033; }
+      .key-text { font: 400 17px Arial, sans-serif; fill: #52627a; }
+      .arrow { stroke: #52627a; stroke-width: 4; fill: none; marker-end: url(#arrow); }
+      .dash { stroke: #2457c5; stroke-width: 3; stroke-dasharray: 10 8; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1250" fill="#f7f9fc"/>
+
+  <text x="900" y="70" text-anchor="middle" class="title">AROMAZEN AI - SIMPLE DEVOPS PLAN</text>
+  <text x="900" y="110" text-anchor="middle" class="subtitle">One secure server • HR access only • Automatic backups</text>
+
+  <rect x="505" y="135" width="790" height="52" rx="26" fill="#e9efff"/>
+  <text x="900" y="168" text-anchor="middle" class="small">Software company manages: server, static IP, DNS, SSL and backup infrastructure</text>
+
+  <!-- Deployment lane -->
+  <text x="90" y="245" class="lane">1  DEPLOYMENT</text>
+
+  <rect x="90" y="275" width="360" height="150" rx="18" fill="#ffffff" stroke="#b9c8e8" stroke-width="3" filter="url(#shadow)"/>
+  <circle cx="150" cy="330" r="30" fill="#dce7ff"/>
+  <path d="M136 334 l10 10 20-25" fill="none" stroke="#2457c5" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="205" y="325" class="node-title">Developer</text>
+  <text x="205" y="357" class="node-text">Tests and approves code</text>
+  <text x="205" y="387" class="node-text">Creates a release version</text>
+
+  <path d="M450 350 H565" class="arrow"/>
+  <text x="507" y="330" text-anchor="middle" class="small">Push</text>
+
+  <rect x="580" y="275" width="360" height="150" rx="18" fill="#ffffff" stroke="#b9c8e8" stroke-width="3" filter="url(#shadow)"/>
+  <circle cx="640" cy="330" r="30" fill="#dce7ff"/>
+  <path d="M626 320 h28 v24 h-28 z M632 320 v-8 h16 v8" fill="none" stroke="#2457c5" stroke-width="4"/>
+  <text x="695" y="325" class="node-title">Private GitHub</text>
+  <text x="695" y="357" class="node-text">Stores approved code</text>
+  <text x="695" y="387" class="node-text">Release tag for rollback</text>
+
+  <path d="M940 350 H1055" class="arrow"/>
+  <text x="997" y="322" text-anchor="middle" class="auth">DEPLOY KEY</text>
+
+  <rect x="1070" y="275" width="640" height="150" rx="18" fill="#f0fbf5" stroke="#88c9a5" stroke-width="3" filter="url(#shadow)"/>
+  <circle cx="1135" cy="330" r="30" fill="#d8f3e3"/>
+  <rect x="1119" y="314" width="32" height="32" rx="3" fill="none" stroke="#258653" stroke-width="4"/>
+  <path d="M1127 324 h16 M1127 334 h16" stroke="#258653" stroke-width="3"/>
+  <text x="1190" y="318" class="node-title">Ubuntu VPS + Docker</text>
+  <text x="1190" y="350" class="node-text">Website + FastAPI + PostgreSQL + Redis + HTTPS</text>
+  <text x="1190" y="382" class="node-text">The complete portal runs here continuously</text>
+
+  <path d="M315 425 C315 475 1180 475 1180 425" class="dash"/>
+  <rect x="635" y="447" width="300" height="36" rx="18" fill="#e9efff"/>
+  <text x="785" y="471" text-anchor="middle" class="auth">DEVELOPER SSH KEY</text>
+
+  <!-- Employee access lane -->
+  <text x="90" y="555" class="lane">2  HR EMPLOYEE ACCESS</text>
+
+  <rect x="90" y="585" width="300" height="145" rx="18" fill="#fff8ee" stroke="#e8bd78" stroke-width="3" filter="url(#shadow)"/>
+  <text x="240" y="635" text-anchor="middle" class="node-title">Approved HR User</text>
+  <text x="240" y="671" text-anchor="middle" class="node-text">Work email + password</text>
+  <text x="240" y="704" text-anchor="middle" class="auth">EMPLOYEE LOGIN</text>
+
+  <path d="M390 657 H470" class="arrow"/>
+
+  <rect x="485" y="585" width="360" height="145" rx="18" fill="#ffffff" stroke="#b9c8e8" stroke-width="3" filter="url(#shadow)"/>
+  <text x="665" y="627" text-anchor="middle" class="node-title">Secure Subdomain</text>
+  <text x="665" y="666" text-anchor="middle" class="node-text">ai.aromazenind.com</text>
+  <text x="665" y="704" text-anchor="middle" class="auth">HTTPS ENCRYPTION</text>
+
+  <path d="M845 657 H925" class="arrow"/>
+
+  <rect x="940" y="585" width="360" height="145" rx="18" fill="#f0fbf5" stroke="#88c9a5" stroke-width="3" filter="url(#shadow)"/>
+  <text x="1120" y="627" text-anchor="middle" class="node-title">Backend Security Check</text>
+  <text x="1120" y="666" text-anchor="middle" class="node-text">Secure token + HR department</text>
+  <text x="1120" y="704" text-anchor="middle" class="auth">ROLE PERMISSION</text>
+
+  <path d="M1300 657 H1380" class="arrow"/>
+
+  <rect x="1395" y="585" width="315" height="145" rx="18" fill="#f0fbf5" stroke="#88c9a5" stroke-width="3" filter="url(#shadow)"/>
+  <text x="1552" y="627" text-anchor="middle" class="node-title">HR Tools Only</text>
+  <text x="1552" y="666" text-anchor="middle" class="node-text">Letters • Attendance</text>
+  <text x="1552" y="697" text-anchor="middle" class="node-text">Payroll • Salary slips</text>
+
+  <rect x="940" y="755" width="770" height="48" rx="12" fill="#fff1f1" stroke="#e7a4a4" stroke-width="2"/>
+  <text x="1325" y="786" text-anchor="middle" class="small">Other departments or unauthorized requests → 403 Access Denied</text>
+
+  <!-- Data protection lane -->
+  <text x="90" y="875" class="lane">3  DATA PROTECTION</text>
+
+  <rect x="90" y="905" width="440" height="145" rx="18" fill="#ffffff" stroke="#d4b7e7" stroke-width="3" filter="url(#shadow)"/>
+  <text x="310" y="950" text-anchor="middle" class="node-title">PostgreSQL Database</text>
+  <text x="310" y="987" text-anchor="middle" class="node-text">Users, permissions, payroll</text>
+  <text x="310" y="1018" text-anchor="middle" class="node-text">and portal records</text>
+
+  <rect x="610" y="905" width="440" height="145" rx="18" fill="#ffffff" stroke="#d4b7e7" stroke-width="3" filter="url(#shadow)"/>
+  <text x="830" y="950" text-anchor="middle" class="node-title">Private HR Files</text>
+  <text x="830" y="987" text-anchor="middle" class="node-text">Documents, workbooks</text>
+  <text x="830" y="1018" text-anchor="middle" class="node-text">and salary slips</text>
+
+  <text x="570" y="992" text-anchor="middle" class="node-title">+</text>
+  <path d="M1050 977 H1160" class="arrow"/>
+
+  <rect x="1175" y="905" width="535" height="145" rx="18" fill="#f0fbf5" stroke="#88c9a5" stroke-width="3" filter="url(#shadow)"/>
+  <text x="1442" y="950" text-anchor="middle" class="node-title">Separate Encrypted Backup</text>
+  <text x="1442" y="987" text-anchor="middle" class="node-text">Automatic daily database and file backup</text>
+  <text x="1442" y="1018" text-anchor="middle" class="node-text">Private storage • 90-day retention</text>
+
+  <!-- Authentication key -->
+  <rect x="90" y="1100" width="1620" height="95" rx="18" fill="#ffffff" stroke="#d6deea" stroke-width="2"/>
+  <text x="130" y="1138" class="key-title">AUTHENTICATION SUMMARY</text>
+  <circle cx="545" cy="1148" r="10" fill="#2457c5"/>
+  <text x="570" y="1155" class="key-text">Developer → SSH key</text>
+  <circle cx="895" cy="1148" r="10" fill="#258653"/>
+  <text x="920" y="1155" class="key-text">Server → GitHub deploy key</text>
+  <circle cx="1295" cy="1148" r="10" fill="#c78225"/>
+  <text x="1320" y="1155" class="key-text">HR user → Password + secure token</text>
+</svg>

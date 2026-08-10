@@ -23,7 +23,7 @@ These cannot be completed from the source repository:
 
 1. Create the company-owned AWS account and enable MFA.
 2. Purchase/create the Lightsail instance and private storage bucket.
-3. Obtain access to the DNS zone for `aromazen.com`.
+3. Obtain access to the DNS zone for `aromazenind.com`.
 4. Obtain a Zoho SMTP app password from the company administrator.
 5. Obtain and fund any AI provider API keys.
 6. Approve the first Super Admin email address.
@@ -96,7 +96,7 @@ In the existing DNS provider/Cloudflare zone:
 
 DNS-only mode is intentional: Cloudflare Free currently limits proxied request bodies to 100 MB, and multipart overhead can cause a nominal 100 MB file to fail. Caddy still provides normal public HTTPS directly on the server. If uploads are later redesigned as multipart/direct-to-object-storage, Cloudflare proxying can be enabled safely.
 
-Wait until `ai.aromazen.com` resolves to the static IP before the first production start, allowing Caddy to obtain its HTTPS certificate.
+Wait until `ai.aromazenind.com` resolves to the static IP before the first production start, allowing Caddy to obtain its HTTPS certificate.
 
 ## 6. First deployment
 
@@ -113,10 +113,10 @@ Check:
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
-curl -fsS https://ai.aromazen.com/api/v1/health
+curl -fsS https://ai.aromazenind.com/api/v1/health
 ```
 
-Open `https://ai.aromazen.com`, sign in as the first Super Admin and immediately change/secure the temporary credentials. Then clear `BOOTSTRAP_OWNER_PASSWORD` in `.env.production` and run `deploy.sh` again. Existing data is preserved.
+Open `https://ai.aromazenind.com`, sign in as the first Super Admin and immediately change/secure the temporary credentials. Then clear `BOOTSTRAP_OWNER_PASSWORD` in `.env.production` and run `deploy.sh` again. Existing data is preserved.
 
 ## 7. Create pilot access
 

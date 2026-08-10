@@ -1,7 +1,8 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, Eye, FileSpreadsheet, FileText, LoaderCircle, RefreshCw, Send, ShieldCheck, X, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Download, Eye, FileSpreadsheet, FileText, LoaderCircle, RefreshCw, Send, ShieldCheck, X, XCircle } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
@@ -64,6 +65,12 @@ export default function SalarySlipsPage() {
     catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to open template.') }
   }
 
+  async function downloadSalaryTemplate() {
+    if (!accessToken) return
+    try { const file = await api.payroll.template(accessToken); const url = URL.createObjectURL(file.blob); const link = document.createElement('a'); link.href = url; link.download = file.filename; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
+    catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to download the final salary template.') }
+  }
+
   async function prepare() {
     if (!accessToken || !excel || !payrollMonth) return
     setBusy('upload')
@@ -111,9 +118,13 @@ export default function SalarySlipsPage() {
   if (!canUse) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="text-center"><ShieldCheck className="mx-auto h-10 w-10 text-muted-foreground" /><h1 className="mt-3 text-xl font-semibold">Access restricted</h1></div></main></AppLayout>
 
   return <AppLayout><main className="space-y-5 p-4 md:p-6">
-    <PageHeader title="Salary slips" description="Prepare, review and send." />
+    <PageHeader title="Salary slips" description="Upload the reviewed salary-ready Excel, prepare every PDF and send through HR email." actions={<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void downloadSalaryTemplate()}><Download className="mr-2 h-4 w-4" />Final salary template</Button><Link href="/hr/leave-calculator"><Button variant="outline"><FileSpreadsheet className="mr-2 h-4 w-4" />Leave calculator</Button></Link></div>} />
 
-    <section className="grid gap-3 md:grid-cols-3">
+    <section className="flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold">Need to calculate Present Days and LOP?</h2><p className="mt-1 text-sm text-muted-foreground">Merge salary details with attendance and shifts first, review the leave calculation, then upload that downloaded Excel here.</p></div><Link href="/hr/leave-calculator"><Button>Open Leave Calculator</Button></Link></section>
+
+    <details className="rounded-2xl border border-border bg-card">
+      <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Payslip templates <span className="ml-1 text-xs font-normal text-muted-foreground">{templates.length}/3 ready</span></summary>
+      <div className="grid gap-3 border-t border-border p-4 md:grid-cols-3">
       {[1, 2, 3].map((unit) => {
         const template = templates.find((item) => item.unit_number === unit)
         return <button key={unit} type="button" disabled={!template} onClick={() => template && void viewTemplate(template)} className="group flex items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/50 disabled:opacity-50">
@@ -121,7 +132,8 @@ export default function SalarySlipsPage() {
           {template ? <Eye className="h-4 w-4 text-muted-foreground group-hover:text-primary" /> : <X className="h-4 w-4 text-red-400" />}
         </button>
       })}
-    </section>
+      </div>
+    </details>
 
     <section className="rounded-2xl border border-border bg-card p-4 md:p-5">
       <div className="grid gap-3 md:grid-cols-[12rem_1fr_auto]">
@@ -132,12 +144,12 @@ export default function SalarySlipsPage() {
     </section>
 
     {batch && <>
-      <section className="rounded-2xl border border-border bg-card p-4 md:p-5">
-        <div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">Email draft</h2><Button size="sm" variant="outline" disabled={busy !== null || batch.status === 'sending'} onClick={() => void saveEmail()}>{busy === 'save' ? 'Saving' : 'Save'}</Button></div>
+      <details className="rounded-2xl border border-border bg-card"><summary className="cursor-pointer p-4 text-sm font-medium">Email message <span className="ml-1 text-xs font-normal text-muted-foreground">Optional edit</span></summary><div className="border-t border-border p-4 md:p-5">
+        <div className="mb-3 flex items-center justify-end"><Button size="sm" variant="outline" disabled={busy !== null || batch.status === 'sending'} onClick={() => void saveEmail()}>{busy === 'save' ? 'Saving' : 'Save changes'}</Button></div>
         <input value={subject} maxLength={240} onChange={(event) => setSubject(event.target.value)} className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm" aria-label="Email subject" />
         <textarea value={body} maxLength={8000} onChange={(event) => setBody(event.target.value)} rows={7} className="mt-3 w-full resize-y rounded-xl border border-border bg-background p-3 text-sm leading-6" aria-label="Email body" />
         <p className="mt-2 text-xs text-muted-foreground">Use {'{employee_name}'} and {'{month}'}.</p>
-      </section>
+      </div></details>
 
       <section className="rounded-2xl border border-border bg-card p-4 md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="font-semibold">{monthLabel(batch.payroll_month)}</h2><span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs capitalize ${tone(batch.status)}`}>{statusIcon(batch.status)}{batch.status}</span></div><p className="mt-1 text-xs text-muted-foreground">{batch.total_count} employees · {money(netPayroll)} net</p></div><div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => void refreshBatch(batch.id)}><RefreshCw className="mr-1.5 h-4 w-4" />Refresh</Button>{batch.failed_count > 0 && batch.status !== 'sending' && <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void retryFailed()}>Retry {batch.failed_count}</Button>}{batch.pending_count > 0 && batch.status !== 'sending' && <Button size="sm" disabled={busy !== null || !subject.trim() || !body.trim()} onClick={() => setConfirming(true)}><Send className="mr-1.5 h-4 w-4" />Send {batch.pending_count}</Button>}</div></div>
@@ -149,7 +161,7 @@ export default function SalarySlipsPage() {
       </section>
     </>}
 
-    <section className="rounded-2xl border border-border bg-card p-4 md:p-5"><h2 className="font-semibold">History</h2>{history.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">No batches yet.</p> : <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{history.map((item) => <button key={item.id} type="button" onClick={() => void refreshBatch(item.id)} className="flex items-center justify-between rounded-xl border border-border p-3 text-left hover:bg-muted/40"><div><p className="font-medium">{monthLabel(item.payroll_month)}</p><p className="text-xs text-muted-foreground">{item.sent_count} sent · {item.failed_count} failed</p></div><span className={`rounded-full px-2 py-1 text-[11px] capitalize ${tone(item.status)}`}>{item.status}</span></button>)}</div>}</section>
+    <details className="rounded-2xl border border-border bg-card"><summary className="cursor-pointer p-4 text-sm font-medium">Previous batches <span className="ml-1 text-xs font-normal text-muted-foreground">{history.length}</span></summary><div className="border-t border-border p-4">{history.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">No batches yet.</p> : <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{history.map((item) => <button key={item.id} type="button" onClick={() => void refreshBatch(item.id)} className="flex items-center justify-between rounded-xl border border-border p-3 text-left hover:bg-muted/40"><div><p className="font-medium">{monthLabel(item.payroll_month)}</p><p className="text-xs text-muted-foreground">{item.sent_count} sent · {item.failed_count} failed</p></div><span className={`rounded-full px-2 py-1 text-[11px] capitalize ${tone(item.status)}`}>{item.status}</span></button>)}</div>}</div></details>
 
     {confirming && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start gap-3"><span className="rounded-xl bg-amber-500/10 p-2 text-amber-400"><AlertTriangle className="h-5 w-5" /></span><div><h2 className="text-lg font-semibold">Send {batch?.pending_count} salary slips?</h2><p className="mt-1 text-sm text-muted-foreground">From AROMAZEN HR · {batch && monthLabel(batch.payroll_month)}</p></div></div>{Boolean(batch?.duplicate_email_count) && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-300">{batch?.duplicate_email_count} duplicate email {batch?.duplicate_email_count === 1 ? 'entry' : 'entries'} found. Each employee row will still be sent separately.</div>}<div className="mt-5 flex justify-end gap-2"><Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button><Button disabled={busy !== null} onClick={() => void sendAll()}><Send className="mr-2 h-4 w-4" />Confirm & send</Button></div></div></div>}
   </main></AppLayout>

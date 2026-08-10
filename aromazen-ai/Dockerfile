@@ -14,7 +14,6 @@ RUN corepack enable && pnpm build
 
 FROM base AS runtime
 ENV NODE_ENV=production
-RUN corepack enable
 COPY --from=build /app .
 EXPOSE 3000
-CMD ["pnpm", "start"]
+CMD ["node", "node_modules/next/dist/bin/next", "start"]

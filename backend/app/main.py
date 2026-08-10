@@ -9,6 +9,7 @@ from app.core.logging import configure_logging
 from app.db.session import SessionLocal
 from app.modules.identity.service import bootstrap_owner
 from app.modules.hr_letters.seed import seed_hr_letter_templates
+from app.modules.assets.service import seed_asset_register
 
 settings = get_settings()
 
@@ -22,6 +23,7 @@ async def lifespan(app: FastAPI):
     async with SessionLocal() as session:
         await bootstrap_owner(session)
         await seed_hr_letter_templates(session)
+        await seed_asset_register(session)
     yield
     await redis.aclose()
 
