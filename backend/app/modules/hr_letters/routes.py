@@ -24,14 +24,18 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfgen import canvas
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from app.core.config import get_settings
+from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_cost
 from app.modules.identity.authorization import require_department, require_permissions
 from app.db.session import get_db_session
 from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, User
 from app.modules.identity.service import role_keys_for_user
+from app.modules.settings.service import provider_runtime_settings
 
 router = APIRouter(dependencies=[Depends(require_department("hr"))])
+logger = structlog.get_logger(__name__)
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "assets" / "hr_letters"
 TEMPLATE_FILES = {
     "offer": "offer-template.pdf",
@@ -39,6 +43,7 @@ TEMPLATE_FILES = {
     "spot_appreciation": "spot-appreciation-template.docx",
     "special_increment": "special-increment-template.docx",
 }
+APPOINTMENT_PAGE_COUNT = 10
 
 
 class LetterRequest(BaseModel):
@@ -55,6 +60,10 @@ class SendLetterRequest(LetterRequest):
 class InterviewChecklistRequest(BaseModel):
     fields: dict[str, str] = Field(default_factory=dict)
     rows: list[dict[str, str]] = Field(default_factory=list)
+
+
+class KannadaTranslationRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
 
 
 def _paragraphs(document: Document):
@@ -100,7 +109,10 @@ def _fill_docx(template_key: str, fields: dict[str, str], workdir: Path) -> Path
     document = Document(source)
     for paragraph in _paragraphs(document):
         for key in set(re.findall(r"\{\{([^}]+)\}\}", paragraph.text)):
-            _replace_token(paragraph, f"{{{{{key}}}}}", fields.get(key, "NIL" if key.startswith("salary_") else ""))
+            value = fields.get(key, "").strip()
+            if key.startswith("salary_") and not value:
+                value = "NIL"
+            _replace_token(paragraph, f"{{{{{key}}}}}", value)
     output = workdir / f"{template_key}.docx"
     document.save(output)
     return output
@@ -247,7 +259,10 @@ def _generate_pdf(template_key: str, fields: dict[str, str]) -> bytes:
         pdf_path = docx_path.with_suffix(".pdf")
         if result.returncode != 0 or not pdf_path.is_file():
             raise RuntimeError("pdf_conversion_failed")
-        return pdf_path.read_bytes()
+        pdf_bytes = pdf_path.read_bytes()
+        if template_key == "appointment" and len(PdfReader(io.BytesIO(pdf_bytes)).pages) != APPOINTMENT_PAGE_COUNT:
+            raise RuntimeError("appointment_page_count_changed")
+        return pdf_bytes
 
 
 async def _require_hr(session: AsyncSession, user: User) -> None:
@@ -255,6 +270,60 @@ async def _require_hr(session: AsyncSession, user: User) -> None:
     roles = await role_keys_for_user(session, user.id)
     if (department is None or department.name != "HR") and not roles.intersection({"owner", "super_admin", "admin"}):
         raise HTTPException(status_code=403, detail="This letter generator is available only to HR.")
+
+
+@router.post("/translate-kannada")
+async def translate_kannada(
+    payload: KannadaTranslationRequest,
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[str, str]:
+    await _require_hr(session, user)
+    runtime_settings = await provider_runtime_settings(session, user.organization_id)
+    translation = ""
+    provider = ""
+    model = ""
+    input_tokens = 0
+    output_tokens = 0
+    system = (
+        "Translate the supplied English text into natural, professional Kannada suitable for an employee "
+        "appointment letter. Transliterate personal names and job titles appropriately. Preserve dates, numbers, "
+        "and company names accurately. Return only the Kannada translation with no label, explanation, or quotes."
+    )
+    try:
+        async for event in AIProviderRouter(runtime_settings).stream(system, payload.text.strip(), payload.text):
+            provider = event.provider
+            model = event.model
+            if event.kind == "delta":
+                translation += event.text
+            elif event.kind == "usage":
+                input_tokens = event.input_tokens
+                output_tokens = event.output_tokens
+    except ProviderError as error:
+        logger.warning(
+            "kannada_translation_provider_error",
+            provider=error.provider,
+            code=error.code,
+            retryable=error.retryable,
+        )
+        raise HTTPException(status_code=503, detail="The Kannada translator is temporarily unavailable. Please try again.") from error
+    translation = translation.strip()
+    if not translation:
+        raise HTTPException(status_code=502, detail="The Kannada translator returned an empty result. Please try again.")
+    session.add(AIUsageEvent(
+        organization_id=user.organization_id,
+        user_id=user.id,
+        department_id=user.department_id,
+        operation="hr_kannada_translation",
+        provider=provider,
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_usd=estimate_cost(provider, model, input_tokens, output_tokens),
+        status="completed",
+    ))
+    await session.commit()
+    return {"translation": translation}
 
 
 def _send_email(payload: SendLetterRequest, pdf_bytes: bytes) -> None:

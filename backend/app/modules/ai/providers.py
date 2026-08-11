@@ -300,9 +300,9 @@ class AIProviderRouter:
                     return
                 except ProviderError as error:
                     last_error = error
-                    if emitted_text or not error.retryable:
+                    if emitted_text:
                         raise
-                    if attempt + 1 < attempts:
+                    if error.retryable and attempt + 1 < attempts:
                         await asyncio.sleep(0.4 * (attempt + 1))
                         continue
                     break
