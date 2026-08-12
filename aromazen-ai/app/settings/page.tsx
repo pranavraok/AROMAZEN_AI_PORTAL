@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { FormEvent, useCallback, useEffect, useState } from 'react'
-import { BellRing, Bot, Database, ExternalLink, Loader2, Palette, RefreshCw, Save, ShieldCheck } from 'lucide-react'
+import { BellRing, Bot, Database, ExternalLink, Loader2, LockKeyhole, Palette, RefreshCw, Save, ShieldCheck } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
@@ -16,11 +16,12 @@ function bytes(value: number) { if (value < 1024) return `${value} B`; if (value
 function applyTheme(theme: OrganizationSettings['theme']) { const dark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.classList.toggle('dark', dark); document.documentElement.classList.toggle('light', !dark) }
 
 export default function SettingsPage() {
-  const { accessToken, refreshProfile } = useAuth()
+  const { accessToken, refreshProfile, hasPermission } = useAuth()
   const { notify } = useToast()
   const [settings, setSettings] = useState<OrganizationSettings | null>(null)
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
+  const canManagePlatform = hasPermission('platform.manage')
 
   const load = useCallback(async () => {
     if (!accessToken) return
@@ -46,9 +47,10 @@ export default function SettingsPage() {
     <PageHeader title="Organization Settings" description="Persistent controls for branding, appearance, AI routing, security, and operational capacity" actions={<div className="flex gap-2"><Button type="button" variant="outline" onClick={() => void load()}><RefreshCw className="mr-2 h-4 w-4" />Reload</Button><Button type="submit" disabled={busy}><Save className="mr-2 h-4 w-4" />{busy ? 'Saving…' : 'Save changes'}</Button></div>} />
 
     <div className="grid gap-6 xl:grid-cols-2">
-      <Section icon={<ShieldCheck />} title="Organization profile" description="Names displayed across the managed portal.">
-        <Field label="Organization name"><input required value={settings.organization_name} onChange={(e) => field('organization_name', e.target.value)} className="control" /></Field>
-        <Field label="Platform name"><input required value={settings.platform_name} onChange={(e) => field('platform_name', e.target.value)} className="control" /></Field>
+      <Section icon={<ShieldCheck />} title="Organization profile" description="Names displayed across the managed portal. Identity changes are reserved for the Super Admin.">
+        <Field label="Organization name"><input required disabled={!canManagePlatform} value={settings.organization_name} onChange={(e) => field('organization_name', e.target.value)} className="control disabled:cursor-not-allowed disabled:opacity-60" /></Field>
+        <Field label="Platform name"><input required disabled={!canManagePlatform} value={settings.platform_name} onChange={(e) => field('platform_name', e.target.value)} className="control disabled:cursor-not-allowed disabled:opacity-60" /></Field>
+        {!canManagePlatform && <ProtectedNote />}
         <Field label="Organization timezone"><select value={settings.timezone} onChange={(e) => field('timezone', e.target.value)} className="control"><option value="Asia/Calcutta">India Standard Time</option><option value="UTC">UTC</option><option value="Asia/Dubai">Dubai</option><option value="Europe/London">London</option><option value="America/New_York">New York</option></select></Field>
       </Section>
 
@@ -56,13 +58,15 @@ export default function SettingsPage() {
         <div className="grid gap-3 sm:grid-cols-3">{(['light', 'dark', 'system'] as const).map((theme) => <label key={theme} className={`cursor-pointer rounded-xl border p-4 capitalize transition ${settings.theme === theme ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted/40'}`}><input className="mr-2" type="radio" name="theme" checked={settings.theme === theme} onChange={() => { field('theme', theme); applyTheme(theme) }} />{theme}<p className="mt-2 text-xs normal-case text-muted-foreground">{theme === 'system' ? 'Follow the device appearance' : theme === 'light' ? 'Ivory, charcoal, and warm accents' : 'Deep graphite with cool green accents'}</p></label>)}</div>
       </Section>
 
-      <Section icon={<Bot />} title="AI provider routing" description="Choose the primary provider. The existing provider remains an automatic fallback when available.">
-        <div className="space-y-3">{settings.providers.map((provider) => <label key={provider.key} className={`flex items-start gap-3 rounded-lg border p-4 ${provider.connected ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} ${settings.default_ai_provider === provider.key ? 'border-primary bg-primary/10' : 'border-border'}`}><input type="radio" name="provider" disabled={!provider.connected} checked={settings.default_ai_provider === provider.key} onChange={() => field('default_ai_provider', provider.key)} /><div className="min-w-0 flex-1"><div className="flex items-center justify-between"><span className="font-medium">{provider.name}</span><span className={`text-xs ${provider.connected ? 'text-emerald-500' : 'text-muted-foreground'}`}>{provider.connected ? 'Connected' : 'Not configured'}</span></div><p className="mt-1 truncate text-xs text-muted-foreground">{provider.models.join(' · ')}</p></div></label>)}</div>
+      <Section icon={<Bot />} title="AI provider routing" description="Choose the primary provider. Routing changes are reserved for the Super Admin.">
+        <div className="space-y-3">{settings.providers.map((provider) => <label key={provider.key} className={`flex items-start gap-3 rounded-lg border p-4 ${provider.connected && canManagePlatform ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} ${settings.default_ai_provider === provider.key ? 'border-primary bg-primary/10' : 'border-border'}`}><input type="radio" name="provider" disabled={!provider.connected || !canManagePlatform} checked={settings.default_ai_provider === provider.key} onChange={() => field('default_ai_provider', provider.key)} /><div className="min-w-0 flex-1"><div className="flex items-center justify-between"><span className="font-medium">{provider.name}</span><span className={`text-xs ${provider.connected ? 'text-emerald-500' : 'text-muted-foreground'}`}>{provider.connected ? 'Connected' : 'Not configured'}</span></div><p className="mt-1 truncate text-xs text-muted-foreground">{provider.models.join(' · ')}</p></div></label>)}</div>
+        {!canManagePlatform && <ProtectedNote />}
         <div className="flex items-center justify-between rounded-lg border border-border p-4"><div><p className="text-sm font-medium">Zoho Mail</p><p className="mt-1 text-xs text-muted-foreground">Secure confirmed email sending from AI chat</p></div><span className={`text-xs ${settings.zoho_email_connected ? 'text-emerald-500' : 'text-muted-foreground'}`}>{settings.zoho_email_connected ? 'Connected' : 'Not configured'}</span></div>
       </Section>
 
-      <Section icon={<ShieldCheck />} title="Security and accountability" description="Applies to newly issued access tokens; refresh sessions remain securely rotated.">
-        <Field label="Access session duration"><select value={settings.session_timeout_minutes} onChange={(e) => field('session_timeout_minutes', Number(e.target.value))} className="control"><option value={30}>30 minutes</option><option value={120}>2 hours</option><option value={480}>8 hours</option><option value={1440}>24 hours</option></select></Field>
+      <Section icon={<ShieldCheck />} title="Security and accountability" description="Session security is protected while the audit log remains available to administrators.">
+        <Field label="Access session duration"><select disabled={!canManagePlatform} value={settings.session_timeout_minutes} onChange={(e) => field('session_timeout_minutes', Number(e.target.value))} className="control disabled:cursor-not-allowed disabled:opacity-60"><option value={30}>30 minutes</option><option value={120}>2 hours</option><option value={480}>8 hours</option><option value={1440}>24 hours</option></select></Field>
+        {!canManagePlatform && <ProtectedNote />}
         <Link href="/admin/users" className="block"><Button type="button" variant="outline" className="w-full">View users and audit log <ExternalLink className="ml-2 h-4 w-4" /></Button></Link>
       </Section>
 
@@ -85,3 +89,4 @@ export default function SettingsPage() {
 function Section({ icon, title, description, children }: { icon: React.ReactNode; title: string; description: string; children: React.ReactNode }) { return <section className="space-y-4 rounded-lg border border-border bg-card p-6"><div className="flex gap-3"><div className="mt-0.5 text-primary [&>svg]:h-5 [&>svg]:w-5">{icon}</div><div><h2 className="text-lg font-semibold">{title}</h2><p className="text-sm text-muted-foreground">{description}</p></div></div>{children}</section> }
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block space-y-2"><span className="text-sm font-medium">{label}</span>{children}</label> }
 function Stat({ label, value }: { label: string; value: string }) { return <div className="rounded-lg border border-border bg-muted/30 p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-xl font-semibold">{value}</p></div> }
+function ProtectedNote() { return <p className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground"><LockKeyhole className="h-3.5 w-3.5" />Super Admin control</p> }

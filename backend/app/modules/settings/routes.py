@@ -7,6 +7,7 @@ from app.core.currency import usd_to_inr, usd_to_inr_rate
 from app.db.session import get_db_session
 from app.modules.identity.authorization import require_permissions
 from app.modules.identity.models import AuditEvent, DocumentGeneration, KnowledgeDocument, Organization, User
+from app.modules.identity.service import permission_keys_for_user
 from app.modules.settings.schemas import OrganizationSettingsResponse, ProviderStatus, UpdateOrganizationSettingsRequest
 from app.modules.settings.service import organization_settings
 
@@ -50,12 +51,21 @@ async def get_organization_settings(user: User = Depends(require_permissions("se
 @router.put("", response_model=OrganizationSettingsResponse)
 async def update_organization_settings(payload: UpdateOrganizationSettingsRequest, user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> OrganizationSettingsResponse:
     organization = await session.get(Organization, user.organization_id)
-    duplicate = await session.scalar(select(Organization.id).where(Organization.name == payload.organization_name.strip(), Organization.id != organization.id))
-    if duplicate:
-        raise HTTPException(status_code=409, detail="Another organization already uses this name.")
     config = get_settings()
     configured = {"openai": bool(config.openai_api_key), "anthropic": bool(config.anthropic_api_key)}
     current_value = await organization_settings(session, user.organization_id)
+    permissions = set(await permission_keys_for_user(session, user.id))
+    protected_changes = (
+        payload.organization_name.strip() != organization.name
+        or payload.platform_name.strip() != current_value.platform_name
+        or payload.default_ai_provider != current_value.default_ai_provider
+        or payload.session_timeout_minutes != current_value.session_timeout_minutes
+    )
+    if protected_changes and "platform.manage" not in permissions:
+        raise HTTPException(status_code=403, detail="Only the Super Admin can change organization identity, AI provider routing, or session security.")
+    duplicate = await session.scalar(select(Organization.id).where(Organization.name == payload.organization_name.strip(), Organization.id != organization.id))
+    if duplicate:
+        raise HTTPException(status_code=409, detail="Another organization already uses this name.")
     if not configured[payload.default_ai_provider] and payload.default_ai_provider != current_value.default_ai_provider:
         raise HTTPException(status_code=422, detail=f"{payload.default_ai_provider.title()} is not configured on this deployment.")
     value = current_value

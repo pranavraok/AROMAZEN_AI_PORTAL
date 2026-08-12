@@ -27,7 +27,7 @@ DEFAULT_ROLES = [
 ]
 ROLE_PERMISSION_KEYS = {
     "owner": {key for key, _ in DEFAULT_PERMISSIONS},
-    "super_admin": {key for key, _ in DEFAULT_PERMISSIONS},
+    "super_admin": {key for key, _ in DEFAULT_PERMISSIONS if key != "platform.manage"},
     "department_admin": {"users.manage", "knowledge.read", "knowledge.write", "ai.workspace.use", "audit.read"},
     "employee": {"knowledge.read", "ai.workspace.use"},
 }

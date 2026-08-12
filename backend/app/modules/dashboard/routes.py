@@ -41,7 +41,7 @@ ROLE_PRESENTATION = {
 }
 CAPABILITIES = {
     "owner": ["Full platform control", "Manage admins and roles", "Organization-wide analytics", "All knowledge and audit activity"],
-    "super_admin": ["Manage departments and employees", "Organization-wide analytics", "Manage knowledge", "View audit activity"],
+    "super_admin": ["Manage departments and employees", "Organization-wide analytics", "Manage knowledge and organization settings", "View audit activity"],
     "department_admin": ["Manage employees in own department", "Department knowledge", "Department activity", "No role or organization settings"],
     "employee": ["Personal AI activity", "Permitted knowledge", "No administration access"],
 }
