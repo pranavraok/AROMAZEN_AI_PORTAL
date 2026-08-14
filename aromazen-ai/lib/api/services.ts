@@ -35,6 +35,7 @@ import type {
   AssetPayload,
   ITAsset,
   AssetMaintenanceEvent,
+  AssetNotificationSettings,
 } from './types'
 
 export const api = {
@@ -48,22 +49,27 @@ export const api = {
     overview: (accessToken: string) => apiRequest<DashboardOverview>('/dashboard/overview', { headers: { Authorization: `Bearer ${accessToken}` } }),
   },
   assets: {
-    list: (accessToken: string, filters: { search?: string; status?: string; category?: string; location?: string; department?: string; attentionOnly?: boolean } = {}) => {
+    list: (accessToken: string, filters: { search?: string; status?: string; category?: string; location?: string; department?: string; register?: string; assetGroup?: string; attentionOnly?: boolean } = {}) => {
       const query = new URLSearchParams()
       if (filters.search) query.set('search', filters.search)
       if (filters.status && filters.status !== 'All') query.set('status', filters.status)
       if (filters.category && filters.category !== 'All') query.set('category', filters.category)
       if (filters.location && filters.location !== 'All') query.set('location', filters.location)
       if (filters.department && filters.department !== 'All') query.set('department', filters.department)
+      if (filters.register && filters.register !== 'All') query.set('register', filters.register)
+      if (filters.assetGroup) query.set('asset_group', filters.assetGroup)
       if (filters.attentionOnly) query.set('attention_only', 'true')
       return apiRequest<AssetListResponse>(`/assets${query.size ? `?${query}` : ''}`, { headers: { Authorization: `Bearer ${accessToken}` } })
     },
     create: (accessToken: string, payload: AssetPayload) => apiRequest<ITAsset>('/assets', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
     update: (accessToken: string, id: string, payload: Partial<AssetPayload>) => apiRequest<ITAsset>(`/assets/${id}`, { method: 'PATCH', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    remove: (accessToken: string, id: string) => apiRequest<void>(`/assets/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }),
     recordMaintenance: (accessToken: string, id: string, payload: { service_date: string; vendor?: string | null; cost?: number | null; notes?: string | null; next_due_date?: string | null }) => apiRequest<ITAsset>(`/assets/${id}/maintenance`, { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
     maintenanceHistory: (accessToken: string, id: string) => apiRequest<AssetMaintenanceEvent[]>(`/assets/${id}/maintenance`, { headers: { Authorization: `Bearer ${accessToken}` } }),
     importRegister: (accessToken: string, file: File) => { const form = new FormData(); form.append('file', file); return apiRequest<{ created: number; updated: number; total_rows: number }>('/assets/import', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } }) },
-    exportRegister: (accessToken: string) => apiFileRequest('/assets/export/register', accessToken),
+    exportRegister: (accessToken: string, assetGroup?: string) => apiFileRequest(`/assets/export/register${assetGroup ? `?asset_group=${encodeURIComponent(assetGroup)}` : ''}`, accessToken),
+    notificationSettings: (accessToken: string) => apiRequest<AssetNotificationSettings>('/assets/notification-settings', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    updateNotificationSettings: (accessToken: string, payload: Omit<AssetNotificationSettings, 'updated_at'>) => apiRequest<AssetNotificationSettings>('/assets/notification-settings', { method: 'PUT', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
   },
   settings: {
     get: (accessToken: string) => apiRequest<OrganizationSettings>('/settings', { headers: { Authorization: `Bearer ${accessToken}` } }),

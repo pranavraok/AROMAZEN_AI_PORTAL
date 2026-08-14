@@ -32,7 +32,7 @@ from app.modules.identity.service import permission_keys_for_user, role_keys_for
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.knowledge.routes import can_access_collection
 from app.modules.settings.service import organization_settings, provider_runtime_settings
-from app.modules.assets.models import ITAsset
+from app.modules.assets.models import AssetNotificationSetting, ITAsset
 from app.modules.assets.routes import maintenance_status
 
 router = APIRouter()
@@ -284,6 +284,7 @@ async def usage_notifications(
         department and department.slug == "hr" and "department_admin" in roles
     )
     alerts: list[dict] = []
+    today = datetime.now(timezone.utc).date()
 
     if is_hr_admin:
         reminder_documents = list(await session.scalars(
@@ -295,7 +296,6 @@ async def usage_notifications(
             )
             .order_by(KnowledgeDocument.expiry_date)
         ))
-        today = datetime.now(timezone.utc).date()
         for document in reminder_documents:
             due_date = document.expiry_date.date()
             days_remaining = (due_date - today).days
@@ -314,9 +314,30 @@ async def usage_notifications(
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
 
+    asset_settings = await session.get(AssetNotificationSetting, user.organization_id)
+    is_top_admin = bool(roles.intersection({"owner", "super_admin"}))
+    department_notification_fields = {
+        "inventory": "notify_inventory_admin",
+        "hr": "notify_hr_admin",
+        "accounts": "notify_accounts_admin",
+    }
+    department_field = department_notification_fields.get(department.slug) if department else None
+    can_receive_asset_alerts = (
+        (is_top_admin and (asset_settings is None or asset_settings.notify_admins))
+        or (
+            "department_admin" in roles
+            and department_field is not None
+            and (asset_settings is None or getattr(asset_settings, department_field))
+        )
+    )
+    if can_receive_asset_alerts:
         assets = list(await session.scalars(
             select(ITAsset)
-            .where(ITAsset.organization_id == user.organization_id, ITAsset.next_maintenance_date.is_not(None))
+            .where(
+                ITAsset.organization_id == user.organization_id,
+                ITAsset.next_maintenance_date.is_not(None),
+                ITAsset.notification_enabled.is_(True),
+            )
             .order_by(ITAsset.next_maintenance_date)
         ))
         for asset in assets:

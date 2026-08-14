@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 
 from docx import Document
+from docx.oxml.ns import qn
+from docx.shared import Pt
 
 
 SALARY_COMPONENTS = [
@@ -18,8 +20,6 @@ SALARY_COMPONENTS = [
     "employer_contribution_pf_12",
     "employer_contribution_esi_3_25",
     "b_employee_retiral_total",
-    "residential_telephone_reimbursement",
-    "car_fuel_and_maintenance_allowance",
     "monthly_perquisites_total",
     "group_medical_insurance_policy_premium_gmc",
     "group_personal_accident_policy_gpa",
@@ -111,9 +111,26 @@ def build(source: Path, output: Path) -> None:
     replace_everywhere(document, "Human Resources", "{{signatory_title}}")
 
     table = document.tables[0]
+    for row_index in (13, 12):
+        table._tbl.remove(table.rows[row_index]._tr)
     for row_index, component in enumerate(SALARY_COMPONENTS, start=2):
         set_blank_cell_token(table.rows[row_index].cells[1], f"{{{{salary_{component}_monthly}}}}")
         set_blank_cell_token(table.rows[row_index].cells[2], f"{{{{salary_{component}_annual}}}}")
+
+    # Keep a clean Kannada compensation placeholder sentence. The runtime
+    # applies the final bold/underline treatment after inserting employee data.
+    kannada_compensation = paragraphs[50]
+    kannada_compensation.text = (
+        "ಪರಿಹಾರ: ನೀವು ರೂ. {{gross_salary}} ({{gross_salary_words_kannada}}) "
+        "ಒಟ್ಟು ಮಾಸಿಕ ವೇತನವನ್ನು ಪಡೆಯುತ್ತೀರಿ. ಆದಾಯ ತೆರಿಗೆ ಕಾಯ್ದೆ ಮತ್ತು ಅನ್ವಯವಾಗುವ "
+        "ಇತರ ಶಾಸನಬದ್ಧ ಕಡಿತಗಳಿಗೆ ಅನುಸಾರವಾಗಿ ಮೂಲದಲ್ಲೇ ತೆರಿಗೆ ಕಡಿತಗೊಳಿಸಲಾಗುತ್ತದೆ."
+    )
+    for run in kannada_compensation.runs:
+        run.font.name = "Nirmala UI"
+        run.font.size = Pt(11)
+        run_fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+        for font_type in ("ascii", "hAnsi", "eastAsia", "cs"):
+            run_fonts.set(qn(f"w:{font_type}"), "Nirmala UI")
 
     # The two-line designation block is the only approved paragraph that can
     # otherwise split across pages after variable values are inserted.

@@ -266,10 +266,13 @@ export interface UsageNotification {
 
 export type AssetStatus = 'Active' | 'Spare' | 'Under maintenance' | 'Repair needed' | 'Recovery required' | 'Lost' | 'Scrap proposed' | 'Approved for scrap' | 'Scrapped' | 'Disposed'
 export type AssetCondition = 'Good' | 'Fair' | 'Poor' | 'Damaged' | 'Obsolete'
+export type AssetGroup = 'IT' | 'General'
 
 export interface ITAsset {
   id: string
   source_sn: string | null
+  source_register: string | null
+  asset_group: AssetGroup
   employee: string | null
   physical_location: string | null
   department_name: string | null
@@ -286,6 +289,7 @@ export interface ITAsset {
   supplier_name: string | null
   price: number | null
   warranty: string | null
+  custom_fields: Record<string, string>
   status: AssetStatus
   condition: AssetCondition
   notes: string | null
@@ -293,6 +297,7 @@ export interface ITAsset {
   next_maintenance_date: string | null
   maintenance_interval_months: number | null
   maintenance_reminder_days: number
+  notification_enabled: boolean
   maintenance_owner: string | null
   maintenance_notes: string | null
   scrap_reason: string | null
@@ -325,6 +330,20 @@ export interface AssetListResponse {
   categories: string[]
   locations: string[]
   departments: string[]
+  registers: string[]
+  group_counts: Record<AssetGroup, number>
+}
+
+export interface AssetNotificationSettings {
+  default_notification_enabled: boolean
+  default_reminder_days: number
+  default_maintenance_interval_months: number | null
+  notify_inventory_admin: boolean
+  notify_hr_admin: boolean
+  notify_accounts_admin: boolean
+  notify_admins: boolean
+  apply_to_current_assets: boolean
+  updated_at: string | null
 }
 
 export interface AssetMaintenanceEvent {

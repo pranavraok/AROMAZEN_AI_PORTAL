@@ -3,16 +3,25 @@ from __future__ import annotations
 import copy
 import io
 from html import escape
+import os
 import re
+import shutil
 import smtplib
 import subprocess
+import sys
 import tempfile
+import time
+import urllib.error
+import urllib.request
+import uuid
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
 
 from docx import Document
+from docx.oxml.ns import qn
+from docx.shared import Pt
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
@@ -43,7 +52,29 @@ TEMPLATE_FILES = {
     "spot_appreciation": "spot-appreciation-template.docx",
     "special_increment": "special-increment-template.docx",
 }
-APPOINTMENT_PAGE_COUNT = 10
+EXPECTED_APPOINTMENT_PAGE_COUNT = 10
+KANNADA_FONT_NAME = (
+    "Nirmala UI"
+    if sys.platform == "win32"
+    or os.environ.get("DOCUMENT_CONVERTER_URL")
+    or os.environ.get("DOCUMENT_CONVERTER_DIR")
+    else "Noto Sans Kannada"
+)
+APPOINTMENT_REQUIRED_FIELDS = {
+    "reference_number",
+    "issue_date",
+    "employee_salutation_name",
+    "employee_name",
+    "employee_address",
+    "employee_phone",
+    "designation",
+    "joining_date",
+    "reporting_officer",
+    "gross_salary",
+    "gross_salary_words",
+    "signatory_name",
+    "signatory_title",
+}
 
 
 class LetterRequest(BaseModel):
@@ -83,7 +114,13 @@ def _paragraphs(document: Document):
         yield from section.footer.paragraphs
 
 
-def _replace_token(paragraph, token: str, value: str) -> None:
+def _replace_token(
+    paragraph,
+    token: str,
+    value: str,
+    font_name: str | None = None,
+    font_size: float | None = None,
+) -> None:
     while token in "".join(run.text for run in paragraph.runs):
         combined = "".join(run.text for run in paragraph.runs)
         start = combined.index(token)
@@ -100,11 +137,26 @@ def _replace_token(paragraph, token: str, value: str) -> None:
         prefix = paragraph.runs[start_run].text[: start - start_left]
         suffix = paragraph.runs[end_run].text[end - end_left :]
         paragraph.runs[start_run].text = prefix + value + suffix
+        if font_name:
+            run = paragraph.runs[start_run]
+            run.font.name = font_name
+            run_properties = run._element.get_or_add_rPr()
+            run_fonts = run_properties.get_or_add_rFonts()
+            for font_type in ("ascii", "hAnsi", "eastAsia", "cs"):
+                run_fonts.set(qn(f"w:{font_type}"), font_name)
+        if font_size:
+            paragraph.runs[start_run].font.size = Pt(font_size)
         for index in range(start_run + 1, end_run + 1):
             paragraph.runs[index].text = ""
 
 
-def _fill_docx(template_key: str, fields: dict[str, str], workdir: Path) -> Path:
+def _fill_docx(
+    template_key: str,
+    fields: dict[str, str],
+    workdir: Path,
+    *,
+    appointment_scale: float = 1.0,
+) -> Path:
     source = ASSET_ROOT / TEMPLATE_FILES[template_key]
     document = Document(source)
     for paragraph in _paragraphs(document):
@@ -112,10 +164,334 @@ def _fill_docx(template_key: str, fields: dict[str, str], workdir: Path) -> Path
             value = fields.get(key, "").strip()
             if key.startswith("salary_") and not value:
                 value = "NIL"
-            _replace_token(paragraph, f"{{{{{key}}}}}", value)
+            _replace_token(
+                paragraph,
+                f"{{{{{key}}}}}",
+                value,
+                font_name=KANNADA_FONT_NAME if key.endswith("_kannada") else None,
+                # Keep the exact size defined by the approved Word template.
+                # Enlarging replacement values changes wrapping and moves the
+                # date, section 9, and annexure to different pages.
+                font_size=None,
+            )
+    if template_key == "appointment":
+        # Rebuild the bilingual compensation sentences so currency words are
+        # stated exactly once and Kannada shaping/spacing stays consistent.
+        english_compensation = next(
+            paragraph
+            for paragraph in document.paragraphs
+            if paragraph.text.strip().startswith("a. Compensation:")
+        )
+        english_compensation.clear()
+
+        def add_english(text: str, *, bold: bool = False, underline: bool = False) -> None:
+            run = english_compensation.add_run(text)
+            run.bold = bold
+            run.underline = underline
+            run.font.name = "Arial"
+            run.font.size = Pt(10)
+
+        add_english("a. Compensation: ", bold=True)
+        add_english("You will receive a ")
+        add_english("Gross salary of Rs. ", bold=True)
+        add_english(fields.get("gross_salary", "").strip(), bold=True, underline=True)
+        add_english(" (")
+        add_english(fields.get("gross_salary_words", "").strip(), bold=True, underline=True)
+        add_english(") per month, subject to tax deduction at source in accordance with the Income Tax Act and any other applicable statutory deductions.")
+
+        kannada_compensation = next(
+            paragraph
+            for paragraph in document.paragraphs
+            if paragraph.text.strip().startswith("ಪರಿಹಾರ:")
+        )
+        kannada_compensation.clear()
+
+        def add_kannada(text: str, *, bold: bool = False, underline: bool = False) -> None:
+            run = kannada_compensation.add_run(text)
+            run.bold = bold
+            run.underline = underline
+            run.font.name = KANNADA_FONT_NAME
+            run.font.size = Pt(11)
+            run_fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+            for font_type in ("ascii", "hAnsi", "eastAsia", "cs"):
+                run_fonts.set(qn(f"w:{font_type}"), KANNADA_FONT_NAME)
+
+        add_kannada("ಪರಿಹಾರ: ", bold=True)
+        add_kannada("ನೀವು ರೂ. ")
+        add_kannada(fields.get("gross_salary", "").strip(), underline=True)
+        add_kannada(" (")
+        add_kannada(fields.get("gross_salary_words_kannada", "").strip(), underline=True)
+        add_kannada(") ಒಟ್ಟು ಮಾಸಿಕ ವೇತನವನ್ನು ಪಡೆಯುತ್ತೀರಿ. ಆದಾಯ ತೆರಿಗೆ ಕಾಯ್ದೆ ಮತ್ತು ಅನ್ವಯವಾಗುವ ಇತರ ಶಾಸನಬದ್ಧ ಕಡಿತಗಳಿಗೆ ಅನುಸಾರವಾಗಿ ಮೂಲದಲ್ಲೇ ತೆರಿಗೆ ಕಡಿತಗೊಳಿಸಲಾಗುತ್ತದೆ.")
+
+        # Keep the bilingual confidentiality label legible. The source used
+        # manual spaces inside the Kannada words, which rendered as cramped
+        # and malformed text in the PDF.
+        confidentiality_kannada = document.paragraphs[2]
+        confidentiality_kannada.text = "ಖಾಸಗಿ ಮತ್ತು ಗೌಪ್ಯ"
+        confidentiality_kannada.paragraph_format.space_before = Pt(2)
+        confidentiality_kannada.paragraph_format.space_after = Pt(3)
+        confidentiality_kannada.paragraph_format.line_spacing = 1.15
+        for run in confidentiality_kannada.runs:
+            run.font.name = KANNADA_FONT_NAME
+            run.font.size = Pt(11)
+            run_fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+            for font_type in ("ascii", "hAnsi", "eastAsia", "cs"):
+                run_fonts.set(qn(f"w:{font_type}"), KANNADA_FONT_NAME)
+        # Preserve the supplied dummy document's native margins, paragraph
+        # rhythm, blank spacer paragraphs and run sizes. Those blank paragraphs
+        # are intentional signing space, not disposable whitespace.
+        # Do not force page-end signature blocks. The dummy document uses its
+        # own blank paragraphs and Word pagination to position these blocks.
+        signature_lines = (27, 57, 86, 108, 131, 154, 185, 214, 251, 262)
+        signature_blocks = (28, 58, 87, 109, 132, 155, 186, 215, 252, 263)
+        for line_index, block_index in zip(signature_lines, signature_blocks):
+            document.paragraphs[line_index].paragraph_format.keep_with_next = True
+            document.paragraphs[block_index].paragraph_format.keep_together = True
+        # The annexure acceptance signature needs an actual handwriting area.
+        # Reserve this independently of removable blank template paragraphs so
+        # the portal's Word-to-PDF conversion cannot collapse the gap.
+        document.paragraphs[signature_lines[-1]].paragraph_format.space_before = Pt(42)
+        # Preserve the dummy document's ten logical page sections. Dynamic
+        # employee data must not pull the following section upward onto the
+        # preceding signature page.
+        for page_start in (29, 59, 89, 111, 134, 158, 188, 217, 253):
+            document.paragraphs[page_start].paragraph_format.page_break_before = True
+        # Section 9 follows the page-8 employee/date block; pairing it with
+        # clause 9.1 prevents the heading from being orphaned on page 7.
+        document.paragraphs[188].paragraph_format.keep_with_next = True
+        # The joining confirmation naturally follows the page-9 employee/date
+        # block in the approved template; an explicit break creates a blank page.
+        # Keep the annexure label and subtitle paired at the page 9/10 boundary.
+        document.paragraphs[253].paragraph_format.keep_with_next = True
+        document.paragraphs[254].paragraph_format.keep_with_next = True
+        # Keep table row heights flexible, but retain the template's own font
+        # sizes and cell spacing.
+        table = document.tables[0]
+        removed_annexure_labels = {
+            "Residential Telephone Reimbursement*",
+            "Car fuel and Maintenance Allowance",
+        }
+        for row in list(table.rows):
+            if row.cells[0].text.strip() in removed_annexure_labels:
+                table._tbl.remove(row._tr)
+        for row in table.rows:
+            row.height = None
+        # Reclaim exactly one of the dummy's repeated empty spacer lines before
+        # each signature. Do this last so fixed template anchors above remain
+        # valid while their formatting is applied.
+        for line_index in reversed(signature_lines):
+            removals_needed = 2 if line_index == signature_lines[0] else 1
+            for _ in range(removals_needed):
+                current_line_index = next(
+                    index
+                    for index, paragraph in enumerate(document.paragraphs)
+                    if paragraph.text.strip() == "________________"
+                    and index <= line_index
+                ) if line_index == signature_lines[0] else line_index
+                for candidate_index in range(current_line_index - 1, -1, -1):
+                    candidate = document.paragraphs[candidate_index]
+                    if not candidate.text.strip():
+                        candidate._element.getparent().remove(candidate._element)
+                        break
+    if template_key == "appointment" and appointment_scale < 1.0:
+        for style in document.styles:
+            style_font = getattr(style, "font", None)
+            if style_font is not None and style_font.size:
+                style_font.size = Pt(style_font.size.pt * appointment_scale)
+        for paragraph in _paragraphs(document):
+            for run in paragraph.runs:
+                if run.font.size:
+                    run.font.size = Pt(run.font.size.pt * appointment_scale)
+            formatting = paragraph.paragraph_format
+            if formatting.space_before:
+                formatting.space_before = Pt(formatting.space_before.pt * appointment_scale)
+            if formatting.space_after:
+                formatting.space_after = Pt(formatting.space_after.pt * appointment_scale)
     output = workdir / f"{template_key}.docx"
     document.save(output)
     return output
+
+
+def _validate_letter_fields(template_key: str, fields: dict[str, str]) -> None:
+    if template_key != "appointment":
+        return
+    missing = sorted(key for key in APPOINTMENT_REQUIRED_FIELDS if not fields.get(key, "").strip())
+    if missing:
+        raise ValueError(f"missing_fields:{','.join(missing)}")
+
+
+def _convert_with_libreoffice(docx_path: Path, output_dir: Path, executable: str) -> Path:
+    profile_dir = output_dir / "libreoffice-profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    profile_uri = profile_dir.resolve().as_uri()
+    environment = os.environ.copy()
+    environment["HOME"] = str(output_dir)
+    result = subprocess.run(
+        [
+            executable,
+            "--headless",
+            "--nologo",
+            "--nodefault",
+            "--nolockcheck",
+            f"-env:UserInstallation={profile_uri}",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(output_dir),
+            str(docx_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+        env=environment,
+    )
+    pdf_path = output_dir / f"{docx_path.stem}.pdf"
+    if result.returncode != 0 or not pdf_path.is_file() or pdf_path.stat().st_size == 0:
+        logger.error(
+            "hr_letter_libreoffice_conversion_failed",
+            return_code=result.returncode,
+            stdout=result.stdout[-2000:],
+            stderr=result.stderr[-2000:],
+        )
+        raise RuntimeError("pdf_conversion_failed")
+    return pdf_path
+
+
+def _convert_with_microsoft_word(docx_path: Path, output_dir: Path) -> Path:
+    powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+    program_roots = {
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")),
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")),
+    }
+    word_available = any(
+        (root / "Microsoft Office/root/Office16/WINWORD.EXE").is_file()
+        for root in program_roots
+    )
+    if not powershell or not word_available:
+        raise RuntimeError("document_converter_unavailable")
+    pdf_path = output_dir / f"{docx_path.stem}.pdf"
+    script_path = output_dir / "convert-docx.ps1"
+    script_path.write_text(
+        """param([string]$InputDocx, [string]$OutputPdf)
+$ErrorActionPreference = 'Stop'
+$word = New-Object -ComObject Word.Application
+$word.Visible = $false
+$word.DisplayAlerts = 0
+try {
+  $document = $word.Documents.Open($InputDocx, $false, $true)
+  try { $document.ExportAsFixedFormat($OutputPdf, 17) } finally { $document.Close($false) }
+} finally { try { $word.Quit() } catch {} }
+""",
+        encoding="utf-8-sig",
+    )
+    result = subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script_path),
+            str(docx_path.resolve()),
+            str(pdf_path.resolve()),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    if result.returncode != 0 or not pdf_path.is_file() or pdf_path.stat().st_size == 0:
+        logger.error(
+            "hr_letter_word_conversion_failed",
+            return_code=result.returncode,
+            stdout=result.stdout[-2000:],
+            stderr=result.stderr[-2000:],
+        )
+        raise RuntimeError("pdf_conversion_failed")
+    return pdf_path
+
+
+def _convert_docx_to_pdf(docx_path: Path, output_dir: Path) -> Path:
+    converter_dir_value = os.environ.get("DOCUMENT_CONVERTER_DIR", "").strip()
+    if converter_dir_value:
+        converter_dir = Path(converter_dir_value)
+        request_id = uuid.uuid4().hex
+        request_path = converter_dir / f"{request_id}.docx"
+        response_path = converter_dir / f"{request_id}.pdf"
+        error_path = converter_dir / f"{request_id}.error"
+        converter_dir.mkdir(parents=True, exist_ok=True)
+        request_path.write_bytes(docx_path.read_bytes())
+        try:
+            deadline = datetime.now(timezone.utc).timestamp() + 150
+            while datetime.now(timezone.utc).timestamp() < deadline:
+                if response_path.is_file() and response_path.stat().st_size:
+                    pdf_bytes = response_path.read_bytes()
+                    if not pdf_bytes.startswith(b"%PDF-"):
+                        raise RuntimeError("pdf_conversion_failed")
+                    pdf_path = output_dir / f"{docx_path.stem}.pdf"
+                    pdf_path.write_bytes(pdf_bytes)
+                    return pdf_path
+                if error_path.is_file():
+                    logger.error("hr_letter_word_bridge_failed", error=error_path.read_text(errors="replace")[-1000:])
+                    raise RuntimeError("pdf_conversion_failed")
+                time.sleep(0.2)
+            raise RuntimeError("pdf_conversion_failed")
+        finally:
+            for path in (request_path, response_path, error_path):
+                path.unlink(missing_ok=True)
+    converter_url = os.environ.get("DOCUMENT_CONVERTER_URL", "").strip()
+    if converter_url:
+        request = urllib.request.Request(
+            converter_url,
+            data=docx_path.read_bytes(),
+            headers={"Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=150) as response:
+                pdf_bytes = response.read()
+        except (urllib.error.URLError, TimeoutError) as error:
+            logger.error("hr_letter_word_bridge_failed", error=str(error))
+            raise RuntimeError("pdf_conversion_failed") from error
+        if not pdf_bytes.startswith(b"%PDF-"):
+            raise RuntimeError("pdf_conversion_failed")
+        pdf_path = output_dir / f"{docx_path.stem}.pdf"
+        pdf_path.write_bytes(pdf_bytes)
+        return pdf_path
+    executable = shutil.which("soffice") or shutil.which("libreoffice")
+    if executable:
+        return _convert_with_libreoffice(docx_path, output_dir, executable)
+    if sys.platform == "win32":
+        return _convert_with_microsoft_word(docx_path, output_dir)
+    raise RuntimeError("document_converter_unavailable")
+
+
+def _trim_appointment_footer_overflow(pdf_bytes: bytes) -> bytes:
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    keep_count = len(reader.pages)
+    while keep_count > EXPECTED_APPOINTMENT_PAGE_COUNT:
+        text = reader.pages[keep_count - 1].extract_text() or ""
+        body = re.sub(r"Page\s+\d+\s+of\s+\d+", "", text, flags=re.IGNORECASE)
+        body = re.sub(r"Date\s*/?[^:]*:\s*[0-9/.-]+", "", body, flags=re.IGNORECASE)
+        body = re.sub(r"[\s\W_]+", "", body, flags=re.UNICODE)
+        if body:
+            break
+        keep_count -= 1
+    if keep_count == len(reader.pages):
+        return pdf_bytes
+    writer = PdfWriter()
+    for page in reader.pages[:keep_count]:
+        writer.add_page(page)
+    output = io.BytesIO()
+    writer.write(output)
+    logger.info(
+        "appointment_letter_footer_overflow_trimmed",
+        original_page_count=len(reader.pages),
+        final_page_count=keep_count,
+    )
+    return output.getvalue()
 
 
 def _offer_pdf(fields: dict[str, str]) -> bytes:
@@ -244,24 +620,47 @@ def _interview_checklist_pdf(fields: dict[str, str], rows: list[dict[str, str]])
 def _generate_pdf(template_key: str, fields: dict[str, str]) -> bytes:
     if template_key not in TEMPLATE_FILES:
         raise ValueError("unknown_template")
+    _validate_letter_fields(template_key, fields)
     if template_key == "offer":
         return _offer_pdf(fields)
     with tempfile.TemporaryDirectory(prefix="aromazen-hr-letter-") as temporary:
         workdir = Path(temporary)
         docx_path = _fill_docx(template_key, fields, workdir)
-        result = subprocess.run(
-            ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(workdir), str(docx_path)],
-            capture_output=True,
-            text=True,
-            timeout=90,
-            check=False,
-        )
-        pdf_path = docx_path.with_suffix(".pdf")
-        if result.returncode != 0 or not pdf_path.is_file():
-            raise RuntimeError("pdf_conversion_failed")
+        pdf_path = _convert_docx_to_pdf(docx_path, workdir)
         pdf_bytes = pdf_path.read_bytes()
-        if template_key == "appointment" and len(PdfReader(io.BytesIO(pdf_bytes)).pages) != APPOINTMENT_PAGE_COUNT:
-            raise RuntimeError("appointment_page_count_changed")
+        if template_key == "appointment":
+            page_count = len(PdfReader(io.BytesIO(pdf_bytes)).pages)
+            if (
+                page_count > EXPECTED_APPOINTMENT_PAGE_COUNT
+                and not os.environ.get("DOCUMENT_CONVERTER_URL")
+                and not os.environ.get("DOCUMENT_CONVERTER_DIR")
+            ):
+                for scale in (0.96, 0.92, 0.88, 0.84, 0.80, 0.76, 0.72):
+                    compact_dir = workdir / f"compact-{int(scale * 100)}"
+                    compact_dir.mkdir()
+                    compact_docx = _fill_docx(
+                        template_key,
+                        fields,
+                        compact_dir,
+                        appointment_scale=scale,
+                    )
+                    compact_pdf = _convert_docx_to_pdf(compact_docx, compact_dir)
+                    compact_bytes = compact_pdf.read_bytes()
+                    compact_page_count = len(PdfReader(io.BytesIO(compact_bytes)).pages)
+                    if compact_page_count <= page_count:
+                        pdf_bytes = compact_bytes
+                        page_count = compact_page_count
+                    if page_count <= EXPECTED_APPOINTMENT_PAGE_COUNT:
+                        break
+            if page_count != EXPECTED_APPOINTMENT_PAGE_COUNT:
+                pdf_bytes = _trim_appointment_footer_overflow(pdf_bytes)
+                page_count = len(PdfReader(io.BytesIO(pdf_bytes)).pages)
+            if page_count != EXPECTED_APPOINTMENT_PAGE_COUNT:
+                logger.warning(
+                    "appointment_letter_page_count_changed",
+                    expected_page_count=EXPECTED_APPOINTMENT_PAGE_COUNT,
+                    actual_page_count=page_count,
+                )
         return pdf_bytes
 
 
@@ -355,8 +754,19 @@ async def preview_letter(payload: LetterRequest, user: User = Depends(require_pe
     await _require_hr(session, user)
     try:
         pdf = await run_in_threadpool(_generate_pdf, payload.template_key, payload.fields)
-    except (ValueError, RuntimeError, subprocess.SubprocessError) as error:
-        raise HTTPException(status_code=422, detail="The selected letter could not be generated. Please review the required fields.") from error
+    except ValueError as error:
+        if str(error).startswith("missing_fields:"):
+            missing = str(error).split(":", 1)[1].replace("_", " ").replace(",", ", ")
+            raise HTTPException(status_code=422, detail=f"Complete these appointment fields: {missing}.") from error
+        raise HTTPException(status_code=422, detail="The selected letter template is not valid.") from error
+    except RuntimeError as error:
+        if str(error) == "document_converter_unavailable":
+            raise HTTPException(status_code=503, detail="The server document converter is unavailable. Please contact the administrator.") from error
+        logger.exception("hr_letter_preview_failed", template_key=payload.template_key, error=str(error))
+        raise HTTPException(status_code=500, detail="The server could not convert the letter to PDF. Please try again or contact the administrator.") from error
+    except subprocess.SubprocessError as error:
+        logger.exception("hr_letter_preview_converter_failed", template_key=payload.template_key)
+        raise HTTPException(status_code=500, detail="The server document converter timed out. Please try again.") from error
     filename = f"{payload.template_key}-{payload.fields.get('employee_name', 'employee')}.pdf"
     return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"'})
 
@@ -378,9 +788,19 @@ async def send_letter(payload: SendLetterRequest, user: User = Depends(require_p
     try:
         pdf = await run_in_threadpool(_generate_pdf, payload.template_key, payload.fields)
         await run_in_threadpool(_send_email, payload, pdf)
+    except ValueError as error:
+        if str(error).startswith("missing_fields:"):
+            missing = str(error).split(":", 1)[1].replace("_", " ").replace(",", ", ")
+            raise HTTPException(status_code=422, detail=f"Complete these appointment fields: {missing}.") from error
+        raise HTTPException(status_code=422, detail="The selected letter template is not valid.") from error
     except RuntimeError as error:
         if str(error) == "zoho_not_configured":
             raise HTTPException(status_code=503, detail="The HR Zoho Mail account is not configured on the server.") from error
+        if str(error) == "document_converter_unavailable":
+            raise HTTPException(status_code=503, detail="The server document converter is unavailable. Please contact the administrator.") from error
+        if str(error) == "pdf_conversion_failed":
+            logger.exception("hr_letter_email_conversion_failed", template_key=payload.template_key)
+            raise HTTPException(status_code=500, detail="The server could not convert the letter to PDF. Please try again or contact the administrator.") from error
         raise HTTPException(status_code=502, detail="The letter could not be emailed. Please verify Zoho Mail and try again.") from error
     sent_at = datetime.now(timezone.utc).isoformat()
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="hr.letter_sent", target_type="hr_letter", target_id=payload.template_key, metadata_json={"recipient": str(payload.recipient_email), "employee": payload.fields.get("employee_name", ""), "subject": payload.subject.strip()}))

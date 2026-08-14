@@ -16,6 +16,7 @@ import {
   Pencil,
   Trash2,
   Sparkles,
+  Boxes,
 } from 'lucide-react'
 import { BrandMark } from '@/components/brand-mark'
 import { useAuth } from '@/components/auth/auth-provider'
@@ -28,6 +29,7 @@ const navItems = [
   { name: 'AI Workspace', href: '/workspace', icon: MessageSquare },
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Knowledge', href: '/knowledge', icon: BookOpen },
+  { name: 'Asset Inventory', href: '/hr/assets', icon: Boxes },
   { name: 'Analytics', href: '/admin/usage', icon: TrendingUp },
   { name: 'Administration', href: '/admin/users', icon: Shield },
   { name: 'Settings', href: '/settings', icon: Settings },
@@ -47,6 +49,10 @@ export function Sidebar({ open, onToggle }: SidebarProps) {
   const visibleNavItems = navItems.filter((item) => {
     if (item.href === '/workspace') return hasPermission('ai.workspace.use')
     if (item.href === '/knowledge') return hasPermission('knowledge.read')
+    if (item.href === '/hr/assets') return hasPermission('users.manage') && (
+      ['Inventory', 'HR', 'Accounts'].includes(user?.department_name ?? '')
+      || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
+    )
     if (item.href === '/admin/usage') return hasPermission('usage.read')
     if (item.href === '/admin/users') return hasPermission('users.manage')
     if (item.href === '/settings') return hasPermission('settings.manage')
