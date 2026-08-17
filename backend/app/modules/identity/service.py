@@ -74,9 +74,18 @@ async def bootstrap_owner(session: AsyncSession) -> None:
     session.add(organization)
     await session.flush()
 
-    permissions = [Permission(key=key, name=name) for key, name in DEFAULT_PERMISSIONS]
-    session.add_all(permissions)
+    permission_keys = [key for key, _ in DEFAULT_PERMISSIONS]
+    existing_permissions = list(
+        await session.scalars(select(Permission).where(Permission.key.in_(permission_keys)))
+    )
+    permissions_by_key = {permission.key: permission for permission in existing_permissions}
+    for key, name in DEFAULT_PERMISSIONS:
+        if key not in permissions_by_key:
+            permission = Permission(key=key, name=name)
+            session.add(permission)
+            permissions_by_key[key] = permission
     await session.flush()
+    permissions = [permissions_by_key[key] for key in permission_keys]
     owner_role = None
     for key, name, description in DEFAULT_ROLES:
         role = Role(organization_id=organization.id, key=key, name=name, description=description)
