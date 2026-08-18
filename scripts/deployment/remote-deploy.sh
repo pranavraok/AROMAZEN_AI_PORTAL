@@ -31,7 +31,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 echo "Creating encrypted pre-deployment backup..."
-./scripts/deployment/backup.sh
+bash ./scripts/deployment/backup.sh
 
 echo "Fetching the approved commit..."
 git fetch --prune origin main
@@ -44,7 +44,7 @@ fi
 git merge --ff-only "$EXPECTED_SHA"
 
 echo "Building and starting the approved release..."
-./scripts/deployment/deploy.sh
+bash ./scripts/deployment/deploy.sh
 
 echo "Waiting for the public health endpoint..."
 for attempt in $(seq 1 30); do

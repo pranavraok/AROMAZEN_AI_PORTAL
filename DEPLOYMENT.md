@@ -105,8 +105,8 @@ On the server:
 ```bash
 cd /opt/aromazen-portal
 chmod +x scripts/deployment/*.sh
-./scripts/deployment/validate-env.sh
-./scripts/deployment/deploy.sh
+bash ./scripts/deployment/validate-env.sh
+bash ./scripts/deployment/deploy.sh
 ```
 
 Check:
@@ -137,7 +137,7 @@ First run a manual backup:
 
 ```bash
 cd /opt/aromazen-portal
-./scripts/deployment/backup.sh
+bash ./scripts/deployment/backup.sh
 ```
 
 Confirm that an encrypted database file appears under the bucket's `database/` folder and uploaded files appear under `uploads/current/`.
@@ -158,7 +158,7 @@ Configure the bucket lifecycle to retain database backups and old object version
 Restoration replaces the current production database and intentionally requires an explicit confirmation value:
 
 ```bash
-RESTORE_CONFIRM=RESTORE_AROMAZEN ./scripts/deployment/restore.sh /path/to/aromazen-YYYYMMDDTHHMMSSZ.dump.enc
+RESTORE_CONFIRM=RESTORE_AROMAZEN bash ./scripts/deployment/restore.sh /path/to/aromazen-YYYYMMDDTHHMMSSZ.dump.enc
 ```
 
 To restore uploaded files, synchronize the bucket's `uploads/current/` folder back into `/srv/aromazen/uploads`, then verify ownership and permissions. Perform restoration during announced downtime and test all critical HR/R&D workflows before reopening access.
@@ -184,8 +184,8 @@ Back up first, transfer/pull the reviewed code, then run:
 
 ```bash
 cd /opt/aromazen-portal
-./scripts/deployment/backup.sh
-./scripts/deployment/deploy.sh
+bash ./scripts/deployment/backup.sh
+bash ./scripts/deployment/deploy.sh
 ```
 
 Do not run destructive Docker volume-removal commands. Database migrations run automatically before the new API becomes healthy.

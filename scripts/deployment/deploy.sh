@@ -5,7 +5,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$PROJECT_DIR/.env.production}"
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$PROJECT_DIR/docker-compose.prod.yml")
 
-"$PROJECT_DIR/scripts/deployment/validate-env.sh"
+bash "$PROJECT_DIR/scripts/deployment/validate-env.sh"
 
 set -a
 # shellcheck disable=SC1090

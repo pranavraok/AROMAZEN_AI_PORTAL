@@ -40,7 +40,7 @@ Before enabling automatic deployment, run this command successfully:
 
 ```bash
 cd /opt/aromazen-portal
-./scripts/deployment/backup.sh
+bash ./scripts/deployment/backup.sh
 ```
 
 When `BACKUP_BUCKET` is empty, the script retains encrypted database backups under
@@ -128,8 +128,8 @@ If GitHub Actions is unavailable, use the existing manual process:
 
 ```bash
 cd /opt/aromazen-portal
-./scripts/deployment/backup.sh
+bash ./scripts/deployment/backup.sh
 git pull --ff-only origin main
-./scripts/deployment/deploy.sh
+bash ./scripts/deployment/deploy.sh
 curl -fsS https://ai.aromazenind.com/api/v1/health
 ```
