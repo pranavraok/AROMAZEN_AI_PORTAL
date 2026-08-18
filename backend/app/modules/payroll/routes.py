@@ -23,7 +23,7 @@ from openpyxl.utils import get_column_letter
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal, get_db_session
-from app.modules.identity.authorization import require_department, require_permissions
+from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User
 from app.modules.identity.service import role_keys_for_user
 from app.modules.payroll.attendance_rules import DEFAULT_LATE_GRACE_MINUTES, apply_monthly_late_policy
@@ -79,7 +79,7 @@ async def _ensure_hr_access(user: User, session: AsyncSession) -> None:
     if roles.intersection({"owner", "super_admin"}):
         return
     department = await session.get(Department, user.department_id) if user.department_id else None
-    if not department or department.slug != "hr":
+    if not department_matches(department, "hr"):
         raise HTTPException(status_code=403, detail="Salary slips are restricted to HR administrators.")
 
 

@@ -26,6 +26,7 @@ from app.modules.identity.models import (
     collection_departments,
 )
 from app.modules.identity.routes import get_current_user
+from app.modules.identity.authorization import department_matches
 from app.modules.identity.service import role_keys_for_user
 from app.modules.assets.models import ITAsset
 from app.modules.assets.routes import maintenance_status
@@ -164,7 +165,7 @@ async def dashboard_overview(
 
     hr_action_center = None
     is_hr_admin = role_key in {"owner", "super_admin"} or bool(
-        department and department.slug == "hr" and role_key == "department_admin"
+        department_matches(department, "hr") and role_key == "department_admin"
     )
     if is_hr_admin:
         now = datetime.now(timezone.utc)

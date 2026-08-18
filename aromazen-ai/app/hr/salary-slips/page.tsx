@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, Download, Eye, FileSpreadsheet, FileText, LoaderCircle, RefreshCw, Send, ShieldCheck, X, XCircle } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { useAuth } from '@/components/auth/auth-provider'
 import { useToast } from '@/components/ui/toast-provider'
 import { api } from '@/lib/api/services'
@@ -31,8 +31,8 @@ export default function SalarySlipsPage() {
   const [body, setBody] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState<'upload' | 'save' | 'send' | 'retry' | null>(null)
-  const canUse = user?.department_name === 'HR' || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
-  const recipients = batch?.recipients ?? []
+  const canUse = ['HR', 'Human Resources'].includes(user?.department_name ?? '') || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
+  const recipients = useMemo(() => batch?.recipients ?? [], [batch?.recipients])
   const finished = (batch?.sent_count ?? 0) + (batch?.failed_count ?? 0)
   const progress = batch?.total_count ? Math.round((finished / batch.total_count) * 100) : 0
   const netPayroll = useMemo(() => recipients.reduce((sum, item) => sum + Number(item.net_wages || 0), 0), [recipients])
@@ -118,9 +118,9 @@ export default function SalarySlipsPage() {
   if (!canUse) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="text-center"><ShieldCheck className="mx-auto h-10 w-10 text-muted-foreground" /><h1 className="mt-3 text-xl font-semibold">Access restricted</h1></div></main></AppLayout>
 
   return <AppLayout><main className="space-y-5 p-4 md:p-6">
-    <PageHeader title="Salary slips" description="Upload the reviewed salary-ready Excel, prepare every PDF and send through HR email." actions={<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void downloadSalaryTemplate()}><Download className="mr-2 h-4 w-4" />Final salary template</Button><Link href="/hr/leave-calculator"><Button variant="outline"><FileSpreadsheet className="mr-2 h-4 w-4" />Leave calculator</Button></Link></div>} />
+    <PageHeader title="Salary slips" description="Upload the reviewed salary-ready Excel, prepare every PDF and send through HR email." actions={<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void downloadSalaryTemplate()}><Download className="mr-2 h-4 w-4" />Final salary template</Button><Link href="/hr/leave-calculator" className={buttonVariants({ variant: 'outline' })}><FileSpreadsheet className="mr-2 h-4 w-4" />Leave calculator</Link></div>} />
 
-    <section className="flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold">Need to calculate Present Days and LOP?</h2><p className="mt-1 text-sm text-muted-foreground">Merge salary details with attendance and shifts first, review the leave calculation, then upload that downloaded Excel here.</p></div><Link href="/hr/leave-calculator"><Button>Open Leave Calculator</Button></Link></section>
+    <section className="flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold">Need to calculate Present Days and LOP?</h2><p className="mt-1 text-sm text-muted-foreground">Merge salary details with attendance and shifts first, review the leave calculation, then upload that downloaded Excel here.</p></div><Link href="/hr/leave-calculator" className={buttonVariants()}>Open Leave Calculator</Link></section>
 
     <details className="rounded-2xl border border-border bg-card">
       <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Payslip templates <span className="ml-1 text-xs font-normal text-muted-foreground">{templates.length}/3 ready</span></summary>

@@ -5,7 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { BellRing, Bot, Database, ExternalLink, Loader2, LockKeyhole, Palette, RefreshCw, Save, ShieldCheck } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { useAuth } from '@/components/auth/auth-provider'
 import { useToast } from '@/components/ui/toast-provider'
 import { ApiError } from '@/lib/api/client'
@@ -67,7 +67,7 @@ export default function SettingsPage() {
       <Section icon={<ShieldCheck />} title="Security and accountability" description="Session security is protected while the audit log remains available to administrators.">
         <Field label="Access session duration"><select disabled={!canManagePlatform} value={settings.session_timeout_minutes} onChange={(e) => field('session_timeout_minutes', Number(e.target.value))} className="control disabled:cursor-not-allowed disabled:opacity-60"><option value={30}>30 minutes</option><option value={120}>2 hours</option><option value={480}>8 hours</option><option value={1440}>24 hours</option></select></Field>
         {!canManagePlatform && <ProtectedNote />}
-        <Link href="/admin/users" className="block"><Button type="button" variant="outline" className="w-full">View users and audit log <ExternalLink className="ml-2 h-4 w-4" /></Button></Link>
+        <Link href="/admin/users" className={buttonVariants({ variant: 'outline', className: 'w-full' })}>View users and audit log <ExternalLink className="ml-2 h-4 w-4" /></Link>
       </Section>
 
       <div id="usage-alerts"><Section icon={<BellRing />} title="AI usage alerts" description="Notify employees and their administration hierarchy before request or cost limits are exceeded.">
@@ -80,7 +80,7 @@ export default function SettingsPage() {
 
     <Section icon={<Database />} title="Live storage and content" description="Calculated from the current organization database; no sample quota or usage values.">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Stat label="Knowledge storage" value={bytes(settings.storage_bytes)} /><Stat label="Knowledge documents" value={settings.knowledge_documents.toLocaleString()} /><Stat label="Generated documents" value={settings.generated_documents.toLocaleString()} /><Stat label="Knowledge upload" value={`${settings.max_upload_size_mb} MB per file`} /><Stat label="R&D Excel upload" value={`${settings.max_excel_upload_size_mb} MB per file`} /></div>
-      <Link href="/admin/knowledge"><Button type="button" variant="outline">Manage knowledge storage <ExternalLink className="ml-2 h-4 w-4" /></Button></Link>
+      <Link href="/admin/knowledge" className={buttonVariants({ variant: 'outline' })}>Manage knowledge storage <ExternalLink className="ml-2 h-4 w-4" /></Link>
     </Section>
     <p className="text-right text-xs text-muted-foreground">{settings.updated_at ? `Last saved ${new Date(settings.updated_at).toLocaleString()}` : 'Using deployment defaults until first save'}</p>
   </form></AppLayout>

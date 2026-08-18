@@ -37,7 +37,7 @@ import structlog
 
 from app.core.config import get_settings
 from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_cost
-from app.modules.identity.authorization import require_department, require_permissions
+from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.db.session import get_db_session
 from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, User
 from app.modules.identity.service import role_keys_for_user
@@ -667,7 +667,7 @@ def _generate_pdf(template_key: str, fields: dict[str, str]) -> bytes:
 async def _require_hr(session: AsyncSession, user: User) -> None:
     department = await session.get(Department, user.department_id) if user.department_id else None
     roles = await role_keys_for_user(session, user.id)
-    if (department is None or department.name != "HR") and not roles.intersection({"owner", "super_admin", "admin"}):
+    if not department_matches(department, "hr") and not roles.intersection({"owner", "super_admin", "admin"}):
         raise HTTPException(status_code=403, detail="This letter generator is available only to HR.")
 
 

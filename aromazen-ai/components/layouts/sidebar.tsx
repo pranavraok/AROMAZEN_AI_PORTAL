@@ -50,7 +50,7 @@ export function Sidebar({ open, onToggle }: SidebarProps) {
     if (item.href === '/workspace') return hasPermission('ai.workspace.use')
     if (item.href === '/knowledge') return hasPermission('knowledge.read')
     if (item.href === '/hr/assets') return hasPermission('users.manage') && (
-      ['Inventory', 'HR', 'Accounts'].includes(user?.department_name ?? '')
+      ['Inventory', 'HR', 'Human Resources', 'Accounts'].includes(user?.department_name ?? '')
       || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
     )
     if (item.href === '/admin/usage') return hasPermission('usage.read')
@@ -135,17 +135,17 @@ export function Sidebar({ open, onToggle }: SidebarProps) {
             const Icon = item.icon
 
             return (
-              <Link key={item.href} href={item.href}>
-                <button
-                  className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-all ${
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-all ${
                     isActive
                       ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.18)]'
                       : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
                   }`}
-                >
-                  <Icon className="w-4 h-4 flex-shrink-0" />
-                  <span>{item.name}</span>
-                </button>
+              >
+                <Icon className="w-4 h-4 flex-shrink-0" />
+                <span>{item.name}</span>
               </Link>
             )
           })}

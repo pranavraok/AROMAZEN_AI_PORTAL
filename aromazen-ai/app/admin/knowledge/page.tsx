@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
@@ -25,11 +25,11 @@ export default function KnowledgeAdminPage() {
   const [editing, setEditing] = useState<AdminKnowledgeCollection | 'new' | null>(null)
   const [busy, setBusy] = useState(false)
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!accessToken || !hasPermission('settings.manage')) return
     try { const [nextCollections, nextDocuments, nextDepartments] = await Promise.all([api.admin.knowledgeCollections(accessToken), api.admin.knowledgeDocuments(accessToken), api.admin.departments(accessToken)]); setCollections(nextCollections); setDocuments(nextDocuments); setDepartments(nextDepartments) } catch (reason) { notify('error', reason instanceof ApiError ? reason.message : 'Unable to load knowledge administration.') }
-  }
-  useEffect(() => { void load() }, [accessToken])
+  }, [accessToken, hasPermission, notify])
+  useEffect(() => { void load() }, [load])
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!accessToken) return
     const form = new FormData(event.currentTarget); const payload = { name: String(form.get('name')).trim(), description: String(form.get('description')).trim() || null, is_shared: form.get('is_shared') === 'on', department_ids: form.getAll('department_ids').map(String) }

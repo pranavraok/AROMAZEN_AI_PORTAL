@@ -9,6 +9,18 @@ from app.modules.identity.routes import get_current_user
 from app.modules.identity.service import permission_keys_for_user, role_keys_for_user
 
 
+DEPARTMENT_ALIASES = {
+    "hr": {"hr", "human-resources"},
+}
+
+
+def department_matches(department: Department | None, department_slug: str) -> bool:
+    if department is None:
+        return False
+    allowed_slugs = DEPARTMENT_ALIASES.get(department_slug, {department_slug})
+    return department.slug in allowed_slugs
+
+
 def require_permissions(*required_permissions: str) -> Callable:
     """Dependency for API routes that require every listed permission."""
 
@@ -39,7 +51,7 @@ def require_department(department_slug: str) -> Callable:
             return user
 
         department = await session.get(Department, user.department_id) if user.department_id else None
-        if not department or department.slug != department_slug:
+        if not department_matches(department, department_slug):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This tool is restricted to another department.",

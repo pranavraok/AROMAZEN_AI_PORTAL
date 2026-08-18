@@ -26,7 +26,7 @@ from app.modules.identity.service import role_keys_for_user
 router = APIRouter()
 INACTIVE_MAINTENANCE_STATUSES = {"Scrapped", "Disposed", "Lost"}
 SCRAP_QUEUE_STATUSES = {"Scrap proposed", "Approved for scrap"}
-ASSET_ADMIN_DEPARTMENTS = {"inventory", "hr", "accounts"}
+ASSET_ADMIN_DEPARTMENTS = {"inventory", "hr", "human-resources", "accounts"}
 
 
 async def ensure_asset_access(user: User, session: AsyncSession) -> None:

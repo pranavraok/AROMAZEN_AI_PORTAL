@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { BookOpen, Lock, Settings2, Upload, Users } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { useAuth } from '@/components/auth/auth-provider'
 import { useToast } from '@/components/ui/toast-provider'
 import { api } from '@/lib/api/services'
@@ -54,7 +54,7 @@ export default function KnowledgePage() {
   }
 
   return <AppLayout><div className="space-y-6 p-6">
-    <PageHeader title="Knowledge Base" description="Collections are automatically filtered to the knowledge you are allowed to access." actions={hasPermission('settings.manage') ? <Link href="/knowledge/manage"><Button variant="outline"><Settings2 className="mr-2 h-4 w-4" />Manage knowledge</Button></Link> : undefined} />
+    <PageHeader title="Knowledge Base" description="Collections are automatically filtered to the knowledge you are allowed to access." actions={hasPermission('settings.manage') ? <Link href="/knowledge/manage" className={buttonVariants({ variant: 'outline' })}><Settings2 className="mr-2 h-4 w-4" />Manage knowledge</Link> : undefined} />
     {loading ? <p className="text-sm text-muted-foreground">Loading collections…</p> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{collections.map((collection) => <div key={collection.id} className="rounded-2xl border border-border bg-card p-5">
       <Link href={`/knowledge/${collection.slug}`} className="block transition hover:text-primary"><div className="mb-5 flex items-start justify-between"><div className="rounded-xl bg-primary/10 p-2.5 text-primary"><BookOpen className="h-5 w-5" /></div>{collection.is_shared ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><Users className="h-3 w-3" />Shared</span> : <span className="flex items-center gap-1 text-xs text-muted-foreground"><Lock className="h-3 w-3" />Restricted</span>}</div><h2 className="font-semibold text-foreground">{collection.name}</h2><div className="mt-4 border-t border-border pt-3 text-xs text-muted-foreground">{collection.is_shared ? 'Company-wide' : collection.department_names.join(' · ')} · {collection.document_count} documents</div></Link>
       {hasPermission('knowledge.write') && <label className="mt-4 block"><span className="sr-only">Upload to {collection.name}</span><input onChange={(event) => chooseUpload(event, collection)} disabled={isUploading} type="file" accept=".pdf,.docx,.xlsx,.pptx" className="hidden" /><span className="flex cursor-pointer items-center justify-center rounded-xl border border-border px-3 py-2.5 text-xs hover:bg-muted"><Upload className="mr-2 h-3 w-3" />Upload document</span></label>}

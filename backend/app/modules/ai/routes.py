@@ -26,7 +26,7 @@ from app.db.session import SessionLocal, get_db_session
 from app.modules.ai.providers import AIProviderRouter, OpenAIImageGenerator, ProviderError, estimate_cost
 from app.modules.ai.rag import ensure_permitted_documents_indexed, expand_relevant_documents, retrieve_chunks
 from app.modules.ai.schemas import ConversationUpdateRequest, EmailSendRequest, StreamChatRequest
-from app.modules.identity.authorization import require_permissions
+from app.modules.identity.authorization import department_matches, require_permissions
 from app.modules.identity.models import AIChatAttachment, AIConversation, AIMessage, AIUsageEvent, AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, User
 from app.modules.identity.service import permission_keys_for_user, role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
@@ -281,7 +281,7 @@ async def usage_notifications(
     is_admin = bool(roles.intersection({"owner", "super_admin", "department_admin"}))
     department = await session.get(Department, user.department_id) if user.department_id else None
     is_hr_admin = bool(roles.intersection({"owner", "super_admin"})) or bool(
-        department and department.slug == "hr" and "department_admin" in roles
+        department_matches(department, "hr") and "department_admin" in roles
     )
     alerts: list[dict] = []
     today = datetime.now(timezone.utc).date()

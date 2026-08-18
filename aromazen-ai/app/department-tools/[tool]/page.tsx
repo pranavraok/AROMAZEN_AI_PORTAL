@@ -1,7 +1,7 @@
 'use client'
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { BookOpenCheck, CheckCircle2, Download, Eye, FileSpreadsheet, FileText, LoaderCircle, Plus, Printer, Search, Trash2, Upload } from 'lucide-react'
+import { BookOpenCheck, CheckCircle2, Download, Eye, FileSpreadsheet, FileText, LoaderCircle, Plus, Printer, Search, Trash2 } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'

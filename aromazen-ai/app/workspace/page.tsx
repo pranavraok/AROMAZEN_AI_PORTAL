@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, LockKeyhole, Mail, X } from 'lucide-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AppLayout } from '@/components/layouts/app-layout'
@@ -33,7 +33,16 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
     { icon: 'Scale', text: 'Raw Material Evaluation Report', description: 'Evaluate a raw material against technical, quality and supplier requirements.', href: '/department-tools/rnd-raw-material' },
     { icon: 'BookOpenCheck', text: "SOP's to be Followed", description: 'Find and open approved procedures from the R&D knowledge collection.', href: '/department-tools/rnd-sops' },
   ]
-  if (department === 'HR') return []
+  if (department === 'HR') return [
+    { icon: 'Attendance', text: 'Review monthly attendance', description: 'Upload fingerprint attendance, apply shift rules, and work through exceptions.', href: '/department-tools/hr-attendance' },
+    { icon: 'ListChecks', text: 'Calculate leave and LOP', description: 'Merge attendance with the salary workbook and prepare payroll-ready data.', href: '/hr/leave-calculator' },
+    { icon: 'FileOutput', text: 'Create an HR letter', description: 'Prepare approved offer, appointment, appreciation, or increment letters.', href: '/department-tools/hr-letters' },
+    { icon: 'ClipboardList', text: 'Prepare an interview checklist', description: 'Score a candidate and generate the branded interview PDF.', href: '/department-tools/hr-interview' },
+    ...(permissions.has('users.manage') ? [
+      { icon: 'Payroll', text: 'Prepare salary slips', description: 'Create, review, and send the monthly salary-slip batch.', href: '/hr/salary-slips' },
+      { icon: 'Boxes', text: 'Manage company assets', description: 'Track assignments, maintenance, recovery, and scrap decisions.', href: '/hr/assets' },
+    ] : []),
+  ]
   if (isPlatformAdmin) return [
     { icon: 'BarChart3', text: 'Show overall API usage in a graph', description: 'See real provider, token, request, and cost activity.' },
     { icon: 'Users', text: 'Manage users and access', description: 'Invite employees and review role access.', href: '/admin/users' },
@@ -183,12 +192,12 @@ function WorkspaceContent() {
     finally { setIsLoadingChat(false) }
   }
 
-  function newChat() {
+  const newChat = useCallback(() => {
     if (isSending) return
     setConversationId(null)
     setMessages([])
     setStage(null)
-  }
+  }, [isSending])
 
   useEffect(() => {
     const requestedConversation = searchParams.get('conversation')
@@ -202,7 +211,7 @@ function WorkspaceContent() {
     const handleDeleted = (event: Event) => { if ((event as CustomEvent<string>).detail === conversationId) newChat() }
     window.addEventListener('aromazen:conversation-deleted', handleDeleted)
     return () => window.removeEventListener('aromazen:conversation-deleted', handleDeleted)
-  }, [conversationId, isSending])
+  }, [conversationId, newChat])
 
   async function openCitation(citation: { documentId: string; collectionId: string; page?: number }) {
     if (!accessToken) return

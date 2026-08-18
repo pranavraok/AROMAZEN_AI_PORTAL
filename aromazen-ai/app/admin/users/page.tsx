@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
@@ -31,14 +31,14 @@ export default function AdminUsersPage() {
   const [error, setError] = useState<string | null>(null)
   const filteredAudit = audit.filter((event) => { const value = event.created_at.slice(0, 10); return value >= auditFrom && value <= auditTo })
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!accessToken) return
     try {
       const [nextUsers, nextDepartments, nextRoles, nextAudit] = await Promise.all([api.admin.users(accessToken), api.admin.departments(accessToken), api.admin.roles(accessToken), api.admin.auditEvents(accessToken)])
       setUsers(nextUsers); setDepartments(nextDepartments); setRoles(nextRoles); setAudit(nextAudit)
     } catch (reason) { setError(reason instanceof ApiError ? reason.message : 'Unable to load administration.') }
-  }
-  useEffect(() => { void load() }, [accessToken])
+  }, [accessToken])
+  useEffect(() => { void load() }, [load])
 
   function report(reason: unknown, fallback: string) { const message = reason instanceof ApiError ? reason.message : fallback; setError(message); notify('error', message) }
   async function invite(event: FormEvent<HTMLFormElement>) {
