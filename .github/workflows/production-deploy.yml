@@ -1,0 +1,107 @@
+name: Validate and deploy production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aromazen-production
+  cancel-in-progress: false
+
+env:
+  SITE_ADDRESS: ai.aromazenind.com
+  APP_DATA_DIR: /tmp/aromazen-ci
+  POSTGRES_PASSWORD: ci-postgres-password-not-used-in-production
+  REDIS_PASSWORD: ci-redis-password-not-used-in-production
+  JWT_SECRET_KEY: ci-jwt-secret-not-used-in-production-0123456789abcdef0123456789
+  BACKUP_ENCRYPTION_PASSWORD: ci-backup-password-not-used-in-production
+  BOOTSTRAP_OWNER_PASSWORD: ""
+
+jobs:
+  verify:
+    name: Validate production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Validate deployment scripts
+        run: bash -n scripts/deployment/*.sh
+
+      - name: Validate Docker Compose configuration
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
+      - name: Validate Caddy configuration
+        run: >-
+          docker run --rm
+          --env SITE_ADDRESS
+          --volume "$PWD/deployment/Caddyfile:/etc/caddy/Caddyfile:ro"
+          caddy:2.10-alpine
+          caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Build production application images
+        run: docker compose -f docker-compose.prod.yml build --pull api migrations frontend
+
+  deploy:
+    name: Deploy after approval
+    needs: verify
+    if: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://ai.aromazenind.com
+    steps:
+      - name: Check out the approved commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Configure dedicated production SSH key
+        env:
+          PROD_SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          PROD_SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$PROD_SSH_PRIVATE_KEY"
+          test -n "$PROD_SSH_KNOWN_HOSTS"
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$PROD_SSH_PRIVATE_KEY" > "$HOME/.ssh/aromazen_production"
+          printf '%s\n' "$PROD_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/aromazen_production" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/aromazen_production" >/dev/null
+
+      - name: Back up, deploy, and verify
+        env:
+          PROD_SSH_HOST: ${{ vars.PROD_SSH_HOST }}
+          PROD_SSH_PORT: ${{ vars.PROD_SSH_PORT }}
+          PROD_SSH_USER: ${{ vars.PROD_SSH_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$PROD_SSH_HOST"
+          test -n "$PROD_SSH_USER"
+          [[ "$PROD_SSH_PORT" =~ ^[0-9]+$ ]]
+          ssh \
+            -i "$HOME/.ssh/aromazen_production" \
+            -p "$PROD_SSH_PORT" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            -o IdentitiesOnly=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=3 \
+            -o StrictHostKeyChecking=yes \
+            "$PROD_SSH_USER@$PROD_SSH_HOST" \
+            "bash -s -- '$GITHUB_SHA'" \
+            < scripts/deployment/remote-deploy.sh
+
+      - name: Remove temporary SSH material
+        if: always()
+        run: rm -f "$HOME/.ssh/aromazen_production" "$HOME/.ssh/known_hosts"
