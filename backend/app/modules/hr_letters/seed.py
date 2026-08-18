@@ -12,6 +12,12 @@ from app.modules.identity.models import KnowledgeCollection, KnowledgeDocument, 
 from app.modules.knowledge.extraction import extract_text
 
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "assets" / "hr_letters"
+TEMPLATE_KEYS = {
+    "offer-template.pdf": "offer",
+    "appointment-template.docx": "appointment",
+    "spot-appreciation-template.docx": "spot_appreciation",
+    "special-increment-template.docx": "special_increment",
+}
 
 
 async def seed_hr_letter_templates(session: AsyncSession) -> None:
@@ -25,13 +31,15 @@ async def seed_hr_letter_templates(session: AsyncSession) -> None:
         owner = await session.scalar(select(User).where(User.organization_id == organization.id).order_by(User.created_at))
         for asset in ASSET_ROOT.iterdir():
             display_name = asset.name.replace("-template", " Template").replace("-", " ").title().replace(".Docx", ".docx").replace(".Pdf", ".pdf")
-            exists = await session.scalar(select(KnowledgeDocument.id).where(KnowledgeDocument.collection_id == collection.id, KnowledgeDocument.original_filename == display_name))
+            exists = await session.scalar(select(KnowledgeDocument).where(KnowledgeDocument.collection_id == collection.id, KnowledgeDocument.original_filename == display_name))
             if exists:
+                if not exists.document_category:
+                    exists.document_category = f"hr_letter_template:{TEMPLATE_KEYS[asset.name]}"
                 continue
             stored_name = f"hr-template-{organization.id}-{asset.name}"
             destination = storage / stored_name
             shutil.copy2(asset, destination)
             extension = asset.suffix.lower()
             extracted = extract_text(destination, extension)
-            session.add(KnowledgeDocument(organization_id=organization.id, collection_id=collection.id, uploaded_by_user_id=owner.id if owner else None, original_filename=display_name, stored_filename=stored_name, mime_type="application/pdf" if extension == ".pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size_bytes=destination.stat().st_size, version=1, status="ready", extracted_text=extracted, extracted_characters=len(extracted), processed_at=datetime.now(timezone.utc)))
+            session.add(KnowledgeDocument(organization_id=organization.id, collection_id=collection.id, uploaded_by_user_id=owner.id if owner else None, original_filename=display_name, stored_filename=stored_name, mime_type="application/pdf" if extension == ".pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size_bytes=destination.stat().st_size, version=1, status="ready", extracted_text=extracted, extracted_characters=len(extracted), processed_at=datetime.now(timezone.utc), document_category=f"hr_letter_template:{TEMPLATE_KEYS[asset.name]}"))
     await session.commit()

@@ -27,7 +27,7 @@ from app.modules.identity.authorization import department_matches, require_depar
 from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User
 from app.modules.identity.service import role_keys_for_user
 from app.modules.payroll.attendance_rules import DEFAULT_LATE_GRACE_MINUTES, apply_monthly_late_policy
-from app.modules.payroll.engine import COLUMNS, create_excel_template, generate_salary_pdf, password_for, read_salary_excel, validate_template_pdf
+from app.modules.payroll.engine import COLUMNS, create_excel_template, generate_salary_pdf, password_for, read_salary_excel, salary_template_form_fields, validate_template_pdf
 
 router = APIRouter(dependencies=[Depends(require_department("hr"))])
 
@@ -122,7 +122,9 @@ def _template_response(template: PayrollTemplate) -> dict:
 
 
 def _knowledge_template_response(unit: int, document: KnowledgeDocument) -> dict:
-    return {"id": str(document.id), "name": f"Unit {unit}", "original_filename": document.original_filename, "is_active": True, "created_at": document.created_at.isoformat(), "unit_number": unit, "source": "HR Policies"}
+    path = Path(get_settings().upload_storage_path) / document.stored_filename
+    fields = salary_template_form_fields(path) if path.is_file() else []
+    return {"id": str(document.id), "name": f"Unit {unit}", "original_filename": document.original_filename, "is_active": True, "created_at": document.created_at.isoformat(), "unit_number": unit, "source": "Human Resources knowledge", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
 
 
 @router.get("/templates")
@@ -137,15 +139,17 @@ async def list_templates(
 
 @router.post("/templates")
 async def upload_template(
-    template_name: str = Form(...),
+    template_name: str = Form(""),
+    unit_number: int | None = Form(None),
     template_file: UploadFile = File(...),
     user: User = Depends(require_permissions("users.manage")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     await _ensure_hr_access(user, session)
     name = template_name.strip()
-    if not name or len(name) > 160:
-        raise HTTPException(status_code=422, detail="Template name is required and must be under 160 characters.")
+    inferred_unit = unit_number or _unit_from_template_name(template_file.filename or "") or _unit_from_template_name(name)
+    if inferred_unit not in {1, 2, 3}:
+        raise HTTPException(status_code=422, detail="Select Unit 1, Unit 2 or Unit 3 for this salary-slip template.")
     if Path(template_file.filename or "").suffix.lower() != ".pdf":
         raise HTTPException(status_code=422, detail="Export the Canva template as an A4 portrait PDF before uploading.")
     content = await template_file.read()
@@ -155,18 +159,49 @@ async def upload_template(
         validate_template_pdf(content)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    collection = await session.scalar(select(KnowledgeCollection).where(
+        KnowledgeCollection.organization_id == user.organization_id,
+        KnowledgeCollection.slug == "hr",
+        KnowledgeCollection.status == "active",
+    ))
+    if not collection:
+        raise HTTPException(status_code=422, detail="The Human Resources knowledge collection is unavailable.")
     template_id = uuid.uuid4()
-    stored_name = f"payroll-templates/{user.organization_id}/{template_id}.pdf"
+    stored_name = f"payroll-templates/{user.organization_id}/unit-{inferred_unit}/{template_id}.pdf"
     path = Path(get_settings().upload_storage_path) / stored_name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
-    await session.execute(update(PayrollTemplate).where(PayrollTemplate.organization_id == user.organization_id, PayrollTemplate.is_active.is_(True)).values(is_active=False))
-    template = PayrollTemplate(id=template_id, organization_id=user.organization_id, created_by_user_id=user.id, name=name, original_filename=template_file.filename or "salary-slip-template.pdf", stored_filename=stored_name, is_active=True)
+    current_documents = list((await session.scalars(select(KnowledgeDocument).where(
+        KnowledgeDocument.organization_id == user.organization_id,
+        KnowledgeDocument.collection_id == collection.id,
+        KnowledgeDocument.status == "ready",
+    ))))
+    previous = [item for item in current_documents if _unit_from_template_name(item.original_filename) == inferred_unit]
+    for item in previous:
+        item.status = "superseded"
+    canonical_name = f"UNIT-{inferred_unit}_SalarySlip.pdf"
+    template = KnowledgeDocument(
+        id=template_id,
+        organization_id=user.organization_id,
+        collection_id=collection.id,
+        uploaded_by_user_id=user.id,
+        original_filename=canonical_name,
+        stored_filename=stored_name,
+        mime_type="application/pdf",
+        size_bytes=len(content),
+        version=max((item.version for item in previous), default=0) + 1,
+        status="ready",
+        extracted_text="",
+        extracted_characters=0,
+        processed_at=datetime.now(timezone.utc),
+        document_category="salary_slip_template",
+    )
     session.add(template)
-    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.template_uploaded", target_type="payroll_template", target_id=str(template_id), metadata_json={"name": name, "filename": template.original_filename}))
+    detected_fields = salary_template_form_fields(content)
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.template_uploaded", target_type="knowledge_document", target_id=str(template_id), metadata_json={"name": name or f"Unit {inferred_unit}", "filename": canonical_name, "unit": inferred_unit, "detected_fields": detected_fields}))
     await session.commit()
     await session.refresh(template)
-    return _template_response(template)
+    return _knowledge_template_response(inferred_unit, template)
 
 
 @router.post("/templates/{template_id}/activate")

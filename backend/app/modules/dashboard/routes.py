@@ -196,8 +196,8 @@ async def dashboard_overview(
             items=[
                 HRActionItem(key="attendance", title="Review attendance", description="Analyze the month and work only on exceptions.", href="/department-tools/hr-attendance", tone="primary"),
                 HRActionItem(key="leaves", title="Employee leave calculator", description="Merge attendance into the final salary Excel.", href="/hr/leave-calculator", tone="primary"),
-                HRActionItem(key="letters", title="Create an HR letter", description="Prepare an approved employee letter.", href="/department-tools/hr-letters"),
-                HRActionItem(key="payroll", title="Salary slip batches", description="Review drafts and failed deliveries.", href="/hr/salary-slips", count=open_payroll_batches, tone="warning" if open_payroll_batches else "default"),
+                HRActionItem(key="letters", title="HR letters & templates", description="View, replace and use approved employee-letter templates.", href="/department-tools/hr-letters"),
+                HRActionItem(key="payroll", title="Salary slips & templates", description="Manage unit templates, drafts and failed deliveries.", href="/hr/salary-slips", count=open_payroll_batches, tone="warning" if open_payroll_batches else "default"),
                 HRActionItem(key="knowledge", title="Rules and reminders", description="Open HR documents, licences and renewal dates.", href="/knowledge/hr", count=due_reminders, tone="danger" if overdue_documents else "warning" if due_reminders else "default"),
                 HRActionItem(key="assets", title="Asset Management", description="Add devices, schedule maintenance and manage scrap decisions.", href="/hr/assets", count=asset_attention, tone="danger" if asset_overdue else "warning" if asset_attention else "default"),
             ],

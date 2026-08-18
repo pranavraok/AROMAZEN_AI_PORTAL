@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, Download, Eye, FileSpreadsheet, FileText, LoaderCircle, RefreshCw, Send, ShieldCheck, X, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Download, Eye, FileSpreadsheet, FileText, LoaderCircle, RefreshCw, Send, ShieldCheck, Upload, X, XCircle } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -19,7 +19,7 @@ function statusIcon(status: string) { return status === 'sent' ? <CheckCircle2 c
 function openBlob(blob: Blob) { const url = URL.createObjectURL(blob); window.open(url, '_blank', 'noopener,noreferrer'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) }
 
 export default function SalarySlipsPage() {
-  const { accessToken, user } = useAuth()
+  const { accessToken, user, hasPermission } = useAuth()
   const { notify } = useToast()
   const inputRef = useRef<HTMLInputElement>(null)
   const [payrollMonth, setPayrollMonth] = useState(() => { const today = new Date(); return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}` })
@@ -31,6 +31,7 @@ export default function SalarySlipsPage() {
   const [body, setBody] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState<'upload' | 'save' | 'send' | 'retry' | null>(null)
+  const [templateUploadUnit, setTemplateUploadUnit] = useState<number | null>(null)
   const canUse = ['HR', 'Human Resources'].includes(user?.department_name ?? '') || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
   const recipients = useMemo(() => batch?.recipients ?? [], [batch?.recipients])
   const finished = (batch?.sent_count ?? 0) + (batch?.failed_count ?? 0)
@@ -63,6 +64,17 @@ export default function SalarySlipsPage() {
     if (!accessToken) return
     try { const result = await api.payroll.templateContent(accessToken, template.id); openBlob(result.blob) }
     catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to open template.') }
+  }
+
+  async function replaceTemplate(unit: number, file: File | null) {
+    if (!accessToken || !file) return
+    setTemplateUploadUnit(unit)
+    try {
+      const next = await api.payroll.uploadTemplate(accessToken, unit, file)
+      setTemplates((items) => [...items.filter((item) => item.unit_number !== unit), next].sort((left, right) => Number(left.unit_number) - Number(right.unit_number)))
+      notify('success', `Unit ${unit} salary-slip template is active and saved in Human Resources Knowledge.`)
+    } catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to replace this salary-slip template.') }
+    finally { setTemplateUploadUnit(null) }
   }
 
   async function downloadSalaryTemplate() {
@@ -122,15 +134,12 @@ export default function SalarySlipsPage() {
 
     <section className="flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold">Need to calculate Present Days and LOP?</h2><p className="mt-1 text-sm text-muted-foreground">Merge salary details with attendance and shifts first, review the leave calculation, then upload that downloaded Excel here.</p></div><Link href="/hr/leave-calculator" className={buttonVariants()}>Open Leave Calculator</Link></section>
 
-    <details className="rounded-2xl border border-border bg-card">
-      <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Payslip templates <span className="ml-1 text-xs font-normal text-muted-foreground">{templates.length}/3 ready</span></summary>
+    <details className="rounded-2xl border border-border bg-card" open>
+      <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Payslip template library <span className="ml-1 text-xs font-normal text-muted-foreground">{templates.length}/3 ready · stored in Human Resources Knowledge</span></summary>
       <div className="grid gap-3 border-t border-border p-4 md:grid-cols-3">
       {[1, 2, 3].map((unit) => {
         const template = templates.find((item) => item.unit_number === unit)
-        return <button key={unit} type="button" disabled={!template} onClick={() => template && void viewTemplate(template)} className="group flex items-center justify-between rounded-2xl border border-border bg-card p-4 text-left transition hover:border-primary/50 disabled:opacity-50">
-          <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="h-5 w-5" /></span><div><p className="font-semibold">Unit {unit}</p><p className="text-xs text-muted-foreground">{template ? 'Template ready' : 'Missing in HR Policies'}</p></div></div>
-          {template ? <Eye className="h-4 w-4 text-muted-foreground group-hover:text-primary" /> : <X className="h-4 w-4 text-red-400" />}
-        </button>
+        return <div key={unit} className="rounded-2xl border border-border bg-card p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="h-5 w-5" /></span><div><p className="font-semibold">Unit {unit}</p><p className="text-xs text-muted-foreground">{template ? `${template.original_filename} · ${template.supports_dynamic_fields ? `${template.detected_fields.length} mapped PDF fields` : 'fixed-layout compatibility'}` : 'Template missing'}</p></div></div>{template ? <Check className="h-4 w-4 text-emerald-400" /> : <X className="h-4 w-4 text-red-400" />}</div><div className="mt-4 flex gap-2">{template && <Button size="sm" variant="outline" onClick={() => void viewTemplate(template)}><Eye className="mr-1.5 h-4 w-4" />View</Button>}{hasPermission('knowledge.write') && <label className={buttonVariants({ size: 'sm', variant: template ? 'outline' : 'default' })}><input hidden type="file" accept=".pdf,application/pdf" disabled={templateUploadUnit !== null} onChange={(event) => { void replaceTemplate(unit, event.target.files?.[0] ?? null); event.target.value = '' }} />{templateUploadUnit === unit ? <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}{template ? 'Replace' : 'Upload'}</label>}</div>{template && !template.supports_dynamic_fields && <p className="mt-3 text-[11px] leading-4 text-amber-400">For automatic field remapping after layout changes, upload a fillable PDF whose field names match the salary Excel headings.</p>}</div>
       })}
       </div>
     </details>

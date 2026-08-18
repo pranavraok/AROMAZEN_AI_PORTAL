@@ -169,6 +169,37 @@ export interface PayrollTemplate {
   created_at: string
   unit_number: number | null
   source: string
+  detected_fields: string[]
+  supports_dynamic_fields: boolean
+}
+
+export interface HRTemplateField {
+  key: string
+  label: string
+  multiline: boolean
+  required: boolean
+  default_value: string
+}
+
+export interface HRTemplateSalaryRow {
+  key: string
+  label: string
+  columns: ('existing' | 'revised' | 'monthly' | 'annual')[]
+}
+
+export interface HRTemplate {
+  key: string
+  title: string
+  short: string
+  description: string
+  filename: string
+  version: number
+  source: 'knowledge' | 'built_in'
+  uploaded_at: string | null
+  supports_dynamic_fields: boolean
+  detected_field_count: number
+  fields: HRTemplateField[]
+  salary_rows: HRTemplateSalaryRow[]
 }
 
 export interface AttendanceShiftRule { name: string; start: string; end: string; grace_minutes: number }

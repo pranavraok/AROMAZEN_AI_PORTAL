@@ -198,6 +198,29 @@ def password_for(name: str, birth_year: int) -> str:
     return f"{re.sub(r'[^A-Za-z]', '', name).upper()[:4]}{birth_year}"
 
 
+def salary_template_form_fields(template: Path | bytes) -> list[str]:
+    reader = PdfReader(io.BytesIO(template) if isinstance(template, bytes) else str(template))
+    return list((reader.get_fields() or {}).keys())
+
+
+def _salary_form_values(field_names: list[str], details: dict, payroll_month: str) -> dict[str, str]:
+    aliases = {_normalise_header(key): key for key, _ in COLUMNS}
+    aliases.update({_normalise_header(label): key for key, label in COLUMNS})
+    aliases.update(HEADER_ALIASES)
+    month_date = datetime.strptime(payroll_month, "%Y-%m")
+    month_label = month_date.strftime("%B %Y")
+    values: dict[str, str] = {}
+    for field_name in field_names:
+        normalised = _normalise_header(field_name)
+        if normalised in {"month", "salarymonth", "payrollmonth", "salaryperiod"}:
+            values[field_name] = month_label
+            continue
+        key = aliases.get(normalised)
+        if key:
+            values[field_name] = str(details.get(key, ""))
+    return values
+
+
 def read_salary_excel(content: bytes) -> list[dict]:
     try:
         workbook = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
@@ -474,6 +497,18 @@ def _draw_values(pdf: canvas.Canvas, details: dict, payroll_month: str, erase: b
 def generate_salary_pdf(details: dict, payroll_month: str, output_path: Path, password: str, template_path: Path | None = None) -> None:
     if template_path:
         template_reader = PdfReader(str(template_path))
+        form_fields = list((template_reader.get_fields() or {}).keys())
+        form_values = _salary_form_values(form_fields, details, payroll_month)
+        if form_fields and form_values:
+            writer = PdfWriter()
+            writer.clone_document_from_reader(template_reader)
+            for page in writer.pages:
+                writer.update_page_form_field_values(page, form_values, auto_regenerate=True)
+            writer.encrypt(password, algorithm="AES-256")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with output_path.open("wb") as file:
+                writer.write(file)
+            return
         template_page = template_reader.pages[0]
         page_width, page_height = float(template_page.mediabox.width), float(template_page.mediabox.height)
         overlay_buffer = io.BytesIO()

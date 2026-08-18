@@ -22,9 +22,9 @@ from pathlib import Path
 from docx import Document
 from docx.oxml.ns import qn
 from docx.shared import Pt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib import colors
@@ -32,6 +32,7 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfgen import canvas
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
@@ -39,8 +40,9 @@ from app.core.config import get_settings
 from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_cost
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.db.session import get_db_session
-from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, User
+from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, User
 from app.modules.identity.service import role_keys_for_user
+from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.settings.service import provider_runtime_settings
 
 router = APIRouter(dependencies=[Depends(require_department("hr"))])
@@ -52,6 +54,29 @@ TEMPLATE_FILES = {
     "spot_appreciation": "spot-appreciation-template.docx",
     "special_increment": "special-increment-template.docx",
 }
+TEMPLATE_CATALOG = {
+    "offer": ("Offer Letter", "Offer", "One-page employment offer letter."),
+    "appointment": ("Appointment Letter", "Appointment", "Employment appointment terms and compensation annexure."),
+    "spot_appreciation": ("Spot Appreciation Letter", "Spot appreciation", "Employee recognition and appreciation letter."),
+    "special_increment": ("Special Increment Letter", "Special increment", "Salary increment confirmation and compensation annexure."),
+}
+TEMPLATE_CATEGORY_PREFIX = "hr_letter_template:"
+MULTILINE_FIELD_MARKERS = ("address", "reason", "impact", "message", "statement", "comments", "summary", "description")
+FIELD_DEFAULTS = {
+    "signatory_name": "Ms. Swathi Nayak",
+    "signatory_name_kannada": "ಸ್ವಾತಿ ನಾಯಕ್",
+    "signatory_title": "Human Resources",
+}
+TEMPLATE_FIELD_DEFAULTS = {
+    "spot_appreciation": {
+        "appreciation_reason": "It gives us great pleasure to appreciate your alertness and proactive approach.",
+        "reward_statement": "We recognise your initiative and the positive impact of your contribution. As a token of our appreciation, please accept this reward.",
+        "closing_message": "Thank you for your dedication and good work. Keep up the excellent performance.",
+        "signatory_name": "Mrs. Deeksha",
+        "signatory_title": "Accounts & HR Head",
+    },
+}
+OFFER_FIELDS = ("issue_date", "employee_name", "interview_date", "designation", "joining_date", "signatory_name")
 EXPECTED_APPOINTMENT_PAGE_COUNT = 10
 KANNADA_FONT_NAME = (
     "Nirmala UI"
@@ -97,6 +122,50 @@ class KannadaTranslationRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
 
 
+def _template_category(template_key: str) -> str:
+    return f"{TEMPLATE_CATEGORY_PREFIX}{template_key}"
+
+
+def _field_label(key: str) -> str:
+    return re.sub(r"\s+", " ", key.replace("_", " ")).strip().title()
+
+
+def _template_tokens(path: Path) -> list[str]:
+    if path.suffix.lower() != ".docx":
+        return list(OFFER_FIELDS) if path.suffix.lower() == ".pdf" else []
+    document = Document(path)
+    tokens: list[str] = []
+    for paragraph in _paragraphs(document):
+        for key in re.findall(r"\{\{\s*([^}]+?)\s*\}\}", paragraph.text):
+            cleaned = key.strip()
+            if cleaned and cleaned not in tokens:
+                tokens.append(cleaned)
+    return tokens
+
+
+def _template_schema(template_key: str, path: Path) -> dict:
+    tokens = _template_tokens(path)
+    defaults = {**FIELD_DEFAULTS, **TEMPLATE_FIELD_DEFAULTS.get(template_key, {})}
+    normal_fields = []
+    salary_groups: dict[str, dict] = {}
+    for key in tokens:
+        salary_match = re.fullmatch(r"salary_(.+)_(existing|revised|monthly|annual)", key)
+        if salary_match:
+            row_key, column = salary_match.groups()
+            group = salary_groups.setdefault(row_key, {"key": row_key, "label": _field_label(row_key), "columns": []})
+            if column not in group["columns"]:
+                group["columns"].append(column)
+            continue
+        normal_fields.append({
+            "key": key,
+            "label": _field_label(key),
+            "multiline": any(marker in key.lower() for marker in MULTILINE_FIELD_MARKERS),
+            "required": template_key == "appointment" and key in APPOINTMENT_REQUIRED_FIELDS,
+            "default_value": defaults.get(key, ""),
+        })
+    return {"fields": normal_fields, "salary_rows": list(salary_groups.values()), "detected_field_count": len(tokens)}
+
+
 def _paragraphs(document: Document):
     yield from document.paragraphs
 
@@ -112,6 +181,15 @@ def _paragraphs(document: Document):
     for section in document.sections:
         yield from section.header.paragraphs
         yield from section.footer.paragraphs
+
+
+def _legacy_appointment_layout(document: Document) -> bool:
+    return (
+        len(document.paragraphs) > 263
+        and bool(document.tables)
+        and any(paragraph.text.strip().startswith("a. Compensation:") for paragraph in document.paragraphs)
+        and any(paragraph.text.strip().startswith("ಪರಿಹಾರ:") for paragraph in document.paragraphs)
+    )
 
 
 def _replace_token(
@@ -156,8 +234,9 @@ def _fill_docx(
     workdir: Path,
     *,
     appointment_scale: float = 1.0,
+    source_path: Path | None = None,
 ) -> Path:
-    source = ASSET_ROOT / TEMPLATE_FILES[template_key]
+    source = source_path or ASSET_ROOT / TEMPLATE_FILES[template_key]
     document = Document(source)
     for paragraph in _paragraphs(document):
         for key in set(re.findall(r"\{\{([^}]+)\}\}", paragraph.text)):
@@ -174,7 +253,8 @@ def _fill_docx(
                 # date, section 9, and annexure to different pages.
                 font_size=None,
             )
-    if template_key == "appointment":
+    legacy_appointment = template_key == "appointment" and _legacy_appointment_layout(document)
+    if legacy_appointment:
         # Rebuild the bilingual compensation sentences so currency words are
         # stated exactly once and Kannada shaping/spacing stays consistent.
         english_compensation = next(
@@ -293,7 +373,7 @@ def _fill_docx(
                     if not candidate.text.strip():
                         candidate._element.getparent().remove(candidate._element)
                         break
-    if template_key == "appointment" and appointment_scale < 1.0:
+    if legacy_appointment and appointment_scale < 1.0:
         for style in document.styles:
             style_font = getattr(style, "font", None)
             if style_font is not None and style_font.size:
@@ -312,10 +392,13 @@ def _fill_docx(
     return output
 
 
-def _validate_letter_fields(template_key: str, fields: dict[str, str]) -> None:
+def _validate_letter_fields(template_key: str, fields: dict[str, str], template_path: Path | None = None) -> None:
     if template_key != "appointment":
         return
-    missing = sorted(key for key in APPOINTMENT_REQUIRED_FIELDS if not fields.get(key, "").strip())
+    required = APPOINTMENT_REQUIRED_FIELDS
+    if template_path and template_path.suffix.lower() == ".docx":
+        required = required.intersection(_template_tokens(template_path))
+    missing = sorted(key for key in required if not fields.get(key, "").strip())
     if missing:
         raise ValueError(f"missing_fields:{','.join(missing)}")
 
@@ -494,8 +577,8 @@ def _trim_appointment_footer_overflow(pdf_bytes: bytes) -> bytes:
     return output.getvalue()
 
 
-def _offer_pdf(fields: dict[str, str]) -> bytes:
-    source = PdfReader(ASSET_ROOT / TEMPLATE_FILES["offer"])
+def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> bytes:
+    source = PdfReader(template_path or ASSET_ROOT / TEMPLATE_FILES["offer"])
     page = source.pages[0]
     packet = io.BytesIO()
     overlay = canvas.Canvas(packet, pagesize=(float(page.mediabox.width), float(page.mediabox.height)))
@@ -617,18 +700,22 @@ def _interview_checklist_pdf(fields: dict[str, str], rows: list[dict[str, str]])
     writer.write(result)
     return result.getvalue()
 
-def _generate_pdf(template_key: str, fields: dict[str, str]) -> bytes:
+def _generate_pdf(template_key: str, fields: dict[str, str], template_path: Path | None = None) -> bytes:
     if template_key not in TEMPLATE_FILES:
         raise ValueError("unknown_template")
-    _validate_letter_fields(template_key, fields)
-    if template_key == "offer":
-        return _offer_pdf(fields)
+    source_path = template_path or ASSET_ROOT / TEMPLATE_FILES[template_key]
+    _validate_letter_fields(template_key, fields, source_path)
+    if source_path.suffix.lower() == ".pdf":
+        if template_key != "offer":
+            raise ValueError("pdf_template_requires_docx")
+        return _offer_pdf(fields, source_path)
+    legacy_appointment = template_key == "appointment" and _legacy_appointment_layout(Document(source_path))
     with tempfile.TemporaryDirectory(prefix="aromazen-hr-letter-") as temporary:
         workdir = Path(temporary)
-        docx_path = _fill_docx(template_key, fields, workdir)
+        docx_path = _fill_docx(template_key, fields, workdir, source_path=source_path)
         pdf_path = _convert_docx_to_pdf(docx_path, workdir)
         pdf_bytes = pdf_path.read_bytes()
-        if template_key == "appointment":
+        if legacy_appointment:
             page_count = len(PdfReader(io.BytesIO(pdf_bytes)).pages)
             if (
                 page_count > EXPECTED_APPOINTMENT_PAGE_COUNT
@@ -643,6 +730,7 @@ def _generate_pdf(template_key: str, fields: dict[str, str]) -> bytes:
                         fields,
                         compact_dir,
                         appointment_scale=scale,
+                        source_path=source_path,
                     )
                     compact_pdf = _convert_docx_to_pdf(compact_docx, compact_dir)
                     compact_bytes = compact_pdf.read_bytes()
@@ -669,6 +757,145 @@ async def _require_hr(session: AsyncSession, user: User) -> None:
     roles = await role_keys_for_user(session, user.id)
     if not department_matches(department, "hr") and not roles.intersection({"owner", "super_admin", "admin"}):
         raise HTTPException(status_code=403, detail="This letter generator is available only to HR.")
+
+
+async def _active_template_document(session: AsyncSession, organization_id: uuid.UUID, template_key: str) -> KnowledgeDocument | None:
+    return await session.scalar(
+        select(KnowledgeDocument)
+        .where(
+            KnowledgeDocument.organization_id == organization_id,
+            KnowledgeDocument.document_category == _template_category(template_key),
+            KnowledgeDocument.status == "ready",
+        )
+        .order_by(KnowledgeDocument.version.desc(), KnowledgeDocument.created_at.desc())
+    )
+
+
+async def _template_source(session: AsyncSession, organization_id: uuid.UUID, template_key: str) -> tuple[Path, KnowledgeDocument | None]:
+    document = await _active_template_document(session, organization_id, template_key)
+    if document:
+        path = Path(get_settings().upload_storage_path) / document.stored_filename
+        if path.is_file():
+            return path, document
+    return ASSET_ROOT / TEMPLATE_FILES[template_key], None
+
+
+def _template_response(template_key: str, path: Path, document: KnowledgeDocument | None) -> dict:
+    title, short, description = TEMPLATE_CATALOG[template_key]
+    return {
+        "key": template_key,
+        "title": title,
+        "short": short,
+        "description": description,
+        "filename": document.original_filename if document else path.name,
+        "version": document.version if document else 1,
+        "source": "knowledge" if document else "built_in",
+        "uploaded_at": document.created_at.isoformat() if document else None,
+        "supports_dynamic_fields": path.suffix.lower() == ".docx",
+        **_template_schema(template_key, path),
+    }
+
+
+@router.get("/templates")
+async def list_letter_templates(
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[dict]:
+    await _require_hr(session, user)
+    result = []
+    for template_key in TEMPLATE_FILES:
+        path, document = await _template_source(session, user.organization_id, template_key)
+        result.append(_template_response(template_key, path, document))
+    return result
+
+
+@router.get("/templates/{template_key}/content")
+async def letter_template_content(
+    template_key: str,
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> FileResponse:
+    await _require_hr(session, user)
+    if template_key not in TEMPLATE_FILES:
+        raise HTTPException(status_code=404, detail="HR template not found.")
+    path, document = await _template_source(session, user.organization_id, template_key)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="HR template file is unavailable.")
+    return FileResponse(path, filename=document.original_filename if document else path.name, content_disposition_type="inline")
+
+
+@router.post("/templates/{template_key}")
+async def replace_letter_template(
+    template_key: str,
+    template_file: UploadFile = File(...),
+    user: User = Depends(require_permissions("knowledge.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _require_hr(session, user)
+    if template_key not in TEMPLATE_FILES:
+        raise HTTPException(status_code=404, detail="HR template not found.")
+    original_filename = Path(template_file.filename or "template.docx").name
+    if Path(original_filename).suffix.lower() != ".docx":
+        raise HTTPException(status_code=422, detail="Upload a DOCX template containing {{field_name}} placeholders so its fields can be mapped automatically.")
+    content = await template_file.read()
+    if len(content) > get_settings().max_upload_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="The HR template is too large.")
+    collection = await session.scalar(select(KnowledgeCollection).where(
+        KnowledgeCollection.organization_id == user.organization_id,
+        KnowledgeCollection.slug == "hr",
+        KnowledgeCollection.status == "active",
+    ))
+    if not collection:
+        raise HTTPException(status_code=422, detail="The Human Resources knowledge collection is unavailable.")
+    template_id = uuid.uuid4()
+    stored_filename = f"hr-templates/{user.organization_id}/{template_key}/{template_id}.docx"
+    destination = Path(get_settings().upload_storage_path) / stored_filename
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(content)
+    try:
+        tokens = _template_tokens(destination)
+        if not tokens:
+            raise ValueError("missing_placeholders")
+        extracted = extract_text(destination, ".docx")
+    except (ValueError, ExtractionError) as error:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail="No usable {{field_name}} placeholders were found in this DOCX template.") from error
+    previous_documents = list(await session.scalars(select(KnowledgeDocument).where(
+        KnowledgeDocument.organization_id == user.organization_id,
+        KnowledgeDocument.document_category == _template_category(template_key),
+    )))
+    for previous in previous_documents:
+        if previous.status == "ready":
+            previous.status = "superseded"
+    version = max((item.version for item in previous_documents), default=0) + 1
+    document = KnowledgeDocument(
+        id=template_id,
+        organization_id=user.organization_id,
+        collection_id=collection.id,
+        uploaded_by_user_id=user.id,
+        original_filename=original_filename,
+        stored_filename=stored_filename,
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        size_bytes=len(content),
+        version=version,
+        status="ready",
+        extracted_text=extracted,
+        extracted_characters=len(extracted),
+        processed_at=datetime.now(timezone.utc),
+        document_category=_template_category(template_key),
+    )
+    session.add(document)
+    session.add(AuditEvent(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="hr.template_replaced",
+        target_type="knowledge_document",
+        target_id=str(template_id),
+        metadata_json={"template_key": template_key, "filename": original_filename, "version": version, "detected_fields": tokens},
+    ))
+    await session.commit()
+    await session.refresh(document)
+    return _template_response(template_key, destination, document)
 
 
 @router.post("/translate-kannada")
@@ -752,8 +979,11 @@ def _send_email(payload: SendLetterRequest, pdf_bytes: bytes) -> None:
 @router.post("/preview")
 async def preview_letter(payload: LetterRequest, user: User = Depends(require_permissions("ai.workspace.use")), session: AsyncSession = Depends(get_db_session)) -> StreamingResponse:
     await _require_hr(session, user)
+    if payload.template_key not in TEMPLATE_FILES:
+        raise HTTPException(status_code=404, detail="HR template not found.")
+    template_path, _ = await _template_source(session, user.organization_id, payload.template_key)
     try:
-        pdf = await run_in_threadpool(_generate_pdf, payload.template_key, payload.fields)
+        pdf = await run_in_threadpool(_generate_pdf, payload.template_key, payload.fields, template_path)
     except ValueError as error:
         if str(error).startswith("missing_fields:"):
             missing = str(error).split(":", 1)[1].replace("_", " ").replace(",", ", ")
@@ -785,8 +1015,11 @@ async def preview_interview_checklist(payload: InterviewChecklistRequest, user: 
 @router.post("/send")
 async def send_letter(payload: SendLetterRequest, user: User = Depends(require_permissions("ai.workspace.use")), session: AsyncSession = Depends(get_db_session)) -> dict:
     await _require_hr(session, user)
+    if payload.template_key not in TEMPLATE_FILES:
+        raise HTTPException(status_code=404, detail="HR template not found.")
+    template_path, _ = await _template_source(session, user.organization_id, payload.template_key)
     try:
-        pdf = await run_in_threadpool(_generate_pdf, payload.template_key, payload.fields)
+        pdf = await run_in_threadpool(_generate_pdf, payload.template_key, payload.fields, template_path)
         await run_in_threadpool(_send_email, payload, pdf)
     except ValueError as error:
         if str(error).startswith("missing_fields:"):

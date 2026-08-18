@@ -28,6 +28,7 @@ import type {
   SendEmailRequest,
   PayrollBatch,
   PayrollTemplate,
+  HRTemplate,
   AttendanceAnalysis,
   AttendanceShiftRule,
   LeaveCalculatorAnalysis,
@@ -115,8 +116,8 @@ export const api = {
   payroll: {
     template: (accessToken: string) => apiFileRequest('/payroll/template', accessToken),
     templates: (accessToken: string) => apiRequest<PayrollTemplate[]>('/payroll/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
-    uploadTemplate: (accessToken: string, name: string, file: File) => {
-      const form = new FormData(); form.append('template_name', name); form.append('template_file', file)
+    uploadTemplate: (accessToken: string, unitNumber: number, file: File) => {
+      const form = new FormData(); form.append('template_name', `Unit ${unitNumber}`); form.append('unit_number', String(unitNumber)); form.append('template_file', file)
       return apiRequest<PayrollTemplate>('/payroll/templates', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
     activateTemplate: (accessToken: string, templateId: string) => apiRequest<PayrollTemplate>(`/payroll/templates/${templateId}/activate`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
@@ -143,6 +144,14 @@ export const api = {
       const form = new FormData(); form.append('payroll_month', payrollMonth); form.append('salary_file', salaryFile); form.append('attendance_file', attendanceFile); form.append('shift_rules', JSON.stringify(shifts)); form.append('adjustments_json', JSON.stringify(adjustments)); if (shiftRoster) form.append('shift_roster_file', shiftRoster)
       return apiFileRequest('/payroll/leave-calculator/merge', accessToken, { method: 'POST', body: form })
     },
+  },
+  hrTemplates: {
+    list: (accessToken: string) => apiRequest<HRTemplate[]>('/hr-letters/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    replace: (accessToken: string, templateKey: string, file: File) => {
+      const form = new FormData(); form.append('template_file', file)
+      return apiRequest<HRTemplate>(`/hr-letters/templates/${templateKey}`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    content: (accessToken: string, templateKey: string) => apiFileRequest(`/hr-letters/templates/${templateKey}/content`, accessToken),
   },
   admin: {
     users: (accessToken: string) => apiRequest<AdminUser[]>('/admin/users', { headers: { Authorization: `Bearer ${accessToken}` } }),
