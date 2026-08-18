@@ -26,7 +26,7 @@ ENCRYPTED_FILE="$RAW_FILE.enc"
 mkdir -p "$BACKUP_DIR"
 trap 'rm -f "$RAW_FILE"' EXIT
 
-"${COMPOSE[@]}" exec -T postgres pg_dump -U aromazen -d aromazen_ai -Fc > "$RAW_FILE"
+"${COMPOSE[@]}" exec -T postgres pg_dump -U aromazen -d aromazen_ai -Fc < /dev/null > "$RAW_FILE"
 test -s "$RAW_FILE"
 
 openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \

@@ -89,18 +89,26 @@ jobs:
           test -n "$PROD_SSH_HOST"
           test -n "$PROD_SSH_USER"
           [[ "$PROD_SSH_PORT" =~ ^[0-9]+$ ]]
-          ssh \
-            -i "$HOME/.ssh/aromazen_production" \
-            -p "$PROD_SSH_PORT" \
-            -o BatchMode=yes \
-            -o ConnectTimeout=20 \
-            -o IdentitiesOnly=yes \
-            -o ServerAliveInterval=30 \
-            -o ServerAliveCountMax=3 \
-            -o StrictHostKeyChecking=yes \
-            "$PROD_SSH_USER@$PROD_SSH_HOST" \
-            "bash -s -- '$GITHUB_SHA'" \
+          SSH_TARGET="$PROD_SSH_USER@$PROD_SSH_HOST"
+          REMOTE_SCRIPT="/tmp/aromazen-remote-deploy-$GITHUB_SHA.sh"
+          SSH_OPTIONS=(
+            -i "$HOME/.ssh/aromazen_production"
+            -p "$PROD_SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=20
+            -o IdentitiesOnly=yes
+            -o ServerAliveInterval=30
+            -o ServerAliveCountMax=3
+            -o StrictHostKeyChecking=yes
+          )
+
+          # Store the full script before running it. Streaming it directly to
+          # `bash -s` lets child commands consume the unread remainder of stdin.
+          ssh "${SSH_OPTIONS[@]}" "$SSH_TARGET" \
+            "umask 077; cat > '$REMOTE_SCRIPT'" \
             < scripts/deployment/remote-deploy.sh
+          ssh "${SSH_OPTIONS[@]}" "$SSH_TARGET" \
+            "trap 'rm -f \"$REMOTE_SCRIPT\"' EXIT; bash \"$REMOTE_SCRIPT\" '$GITHUB_SHA'"
 
       - name: Remove temporary SSH material
         if: always()
