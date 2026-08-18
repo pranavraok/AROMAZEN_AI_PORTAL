@@ -12,13 +12,12 @@ source "$ENV_FILE"
 set +a
 
 : "${APP_DATA_DIR:?APP_DATA_DIR is required}"
-: "${BACKUP_BUCKET:?BACKUP_BUCKET is required}"
 : "${BACKUP_ENCRYPTION_PASSWORD:?BACKUP_ENCRYPTION_PASSWORD is required}"
 
-command -v aws >/dev/null || { echo "AWS CLI is required." >&2; exit 1; }
 command -v openssl >/dev/null || { echo "OpenSSL is required." >&2; exit 1; }
 
-BACKUP_DIR="${BACKUP_DIR:-/var/backups/aromazen}"
+BACKUP_BUCKET="${BACKUP_BUCKET:-}"
+BACKUP_DIR="${BACKUP_DIR:-$APP_DATA_DIR/backups}"
 LOCAL_BACKUP_DAYS="${LOCAL_BACKUP_DAYS:-7}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RAW_FILE="$BACKUP_DIR/aromazen-$STAMP.dump"
@@ -35,8 +34,15 @@ openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
   -pass env:BACKUP_ENCRYPTION_PASSWORD
 test -s "$ENCRYPTED_FILE"
 
-aws s3 cp "$ENCRYPTED_FILE" "s3://$BACKUP_BUCKET/database/$(basename "$ENCRYPTED_FILE")" --only-show-errors
-aws s3 sync "$APP_DATA_DIR/uploads" "s3://$BACKUP_BUCKET/uploads/current" --only-show-errors
+if [[ -n "$BACKUP_BUCKET" ]]; then
+  command -v aws >/dev/null || { echo "AWS CLI is required when BACKUP_BUCKET is configured." >&2; exit 1; }
+  aws s3 cp "$ENCRYPTED_FILE" "s3://$BACKUP_BUCKET/database/$(basename "$ENCRYPTED_FILE")" --only-show-errors
+  aws s3 sync "$APP_DATA_DIR/uploads" "s3://$BACKUP_BUCKET/uploads/current" --only-show-errors
+  echo "Encrypted database and uploaded files copied to private object storage."
+else
+  echo "WARNING: BACKUP_BUCKET is empty; this backup exists only on the application server." >&2
+  echo "Configure private object storage later to protect against complete server or disk loss." >&2
+fi
 
 find "$BACKUP_DIR" -type f -name 'aromazen-*.dump.enc' -mtime "+$LOCAL_BACKUP_DAYS" -delete
-echo "Encrypted database and uploaded files backed up successfully at $STAMP."
+echo "Encrypted database backup created successfully at $STAMP: $ENCRYPTED_FILE"

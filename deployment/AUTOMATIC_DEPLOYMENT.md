@@ -34,16 +34,23 @@ Require https://ai.aromazenind.com/api/v1/health to return status ok
 
 Only one production deployment can run at a time. A dirty server checkout, failed backup, unexpected Git commit, failed build, failed migration or failed health check stops the workflow.
 
-## 1. Complete backup configuration first
+## 1. Verify backup configuration first
 
-Do not enable automatic deployment until the private object-storage bucket and AWS CLI credentials are configured on the server and this command succeeds:
+Before enabling automatic deployment, run this command successfully:
 
 ```bash
 cd /opt/aromazen-portal
 ./scripts/deployment/backup.sh
 ```
 
-Confirm that the encrypted database backup and uploaded files appear in the private bucket.
+When `BACKUP_BUCKET` is empty, the script retains encrypted database backups under
+`$APP_DATA_DIR/backups` on the application server. This is sufficient for recovering
+from a deployment mistake during low-cost testing, but it does not protect against
+complete server or disk loss.
+
+For production disaster recovery, configure a private S3-compatible bucket and AWS
+CLI credentials. The same script will then copy encrypted database backups and the
+current uploaded files to private object storage automatically.
 
 ## 2. Create a dedicated GitHub Actions SSH key
 
