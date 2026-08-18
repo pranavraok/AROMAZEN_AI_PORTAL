@@ -17,7 +17,9 @@ chmod 700 "$APP_DATA_DIR" "$APP_DATA_DIR/uploads"
 chmod 600 "$ENV_FILE"
 
 "${COMPOSE[@]}" build --pull
-"${COMPOSE[@]}" up -d --remove-orphans
+# Recreate containers after a successful build so Docker cannot leave an older
+# image running merely because the Compose service configuration is unchanged.
+"${COMPOSE[@]}" up -d --remove-orphans --force-recreate
 "${COMPOSE[@]}" ps
 
 echo
