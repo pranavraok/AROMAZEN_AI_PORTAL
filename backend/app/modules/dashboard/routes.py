@@ -28,9 +28,6 @@ from app.modules.identity.models import (
 from app.modules.identity.routes import get_current_user
 from app.modules.identity.authorization import department_matches
 from app.modules.identity.service import role_keys_for_user
-from app.modules.assets.models import ITAsset
-from app.modules.assets.routes import maintenance_status
-
 router = APIRouter()
 
 ROLE_ORDER = ("owner", "super_admin", "department_admin", "employee")
@@ -185,9 +182,6 @@ async def dashboard_overview(
             PayrollBatch.organization_id == user.organization_id,
             PayrollBatch.status.in_(["draft", "partial", "failed"]),
         )) or 0
-        asset_items = list(await session.scalars(select(ITAsset).where(ITAsset.organization_id == user.organization_id)))
-        asset_attention = sum(maintenance_status(item)[0] in {"due", "overdue"} or item.status in {"Repair needed", "Recovery required", "Scrap proposed", "Approved for scrap"} for item in asset_items)
-        asset_overdue = sum(maintenance_status(item)[0] == "overdue" for item in asset_items)
         hr_action_center = HRActionCenter(
             due_reminders=due_reminders,
             overdue_documents=overdue_documents,
@@ -198,8 +192,7 @@ async def dashboard_overview(
                 HRActionItem(key="leaves", title="Employee leave calculator", description="Merge attendance into the final salary Excel.", href="/hr/leave-calculator", tone="primary"),
                 HRActionItem(key="letters", title="HR letters & templates", description="View, replace and use approved employee-letter templates.", href="/department-tools/hr-letters"),
                 HRActionItem(key="payroll", title="Salary slips & templates", description="Manage unit templates, drafts and failed deliveries.", href="/hr/salary-slips", count=open_payroll_batches, tone="warning" if open_payroll_batches else "default"),
-                HRActionItem(key="knowledge", title="Rules and reminders", description="Open HR documents, licences and renewal dates.", href="/knowledge/hr", count=due_reminders, tone="danger" if overdue_documents else "warning" if due_reminders else "default"),
-                HRActionItem(key="assets", title="Asset Management", description="Add devices, schedule maintenance and manage scrap decisions.", href="/hr/assets", count=asset_attention, tone="danger" if asset_overdue else "warning" if asset_attention else "default"),
+                HRActionItem(key="knowledge", title="Rules and reminders", description="Open HR documents, licences and renewal dates.", href="/knowledge/test?categories=license,attendance_rule,leave_rule,hr_policy", count=due_reminders, tone="danger" if overdue_documents else "warning" if due_reminders else "default"),
             ],
         )
 

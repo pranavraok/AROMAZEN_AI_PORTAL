@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowRight, BellRing, Boxes, CalendarCheck2, FileText, RefreshCw, WalletCards } from 'lucide-react'
+import { ArrowRight, BellRing, CalendarCheck2, FileText, RefreshCw, WalletCards } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { DataTable } from '@/components/ui/data-table'
@@ -17,7 +17,7 @@ function money(value: number) { return new Intl.NumberFormat('en-IN', { style: '
 function dateTime(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
 function actionLabel(value: string) { return value.split('.').pop()?.replaceAll('_', ' ') ?? value }
 function documentStatus(value: string): 'Indexed' | 'Processing' | 'Failed' { return value === 'ready' ? 'Indexed' : value === 'failed' ? 'Failed' : 'Processing' }
-const hrIcons = { attendance: CalendarCheck2, leaves: CalendarCheck2, letters: FileText, payroll: WalletCards, knowledge: BellRing, assets: Boxes }
+const hrIcons = { attendance: CalendarCheck2, leaves: CalendarCheck2, letters: FileText, payroll: WalletCards, knowledge: BellRing }
 
 export default function DashboardPage() {
   const { accessToken, user } = useAuth()
