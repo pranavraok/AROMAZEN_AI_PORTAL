@@ -11,3 +11,9 @@ __pycache__/
 .codex-qa/
 tmp/
 *.log
+
+# JavaScript dependencies
+node_modules/
+
+# Generated reports and inspection artifacts
+/outputs/
