@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import hash_password, hash_refresh_token
-from app.modules.identity.models import AuditEvent, Organization, Permission, RefreshSession, Role, User, role_permissions, user_roles
+from app.modules.identity.models import AuditEvent, Department, Organization, Permission, RefreshSession, Role, User, role_permissions, user_roles
 
 DEFAULT_PERMISSIONS = [
     ("platform.manage", "Manage platform"),
@@ -72,6 +72,22 @@ async def bootstrap_owner(session: AsyncSession) -> None:
 
     organization = Organization(name="AROMAZEN INDIA", slug="aromazen-india")
     session.add(organization)
+    await session.flush()
+
+    # Seed the ten canonical departments for this organization.
+    for name, slug in [
+        ("AI Labs", "ai-labs"),
+        ("Production", "production"),
+        ("Creation Labs", "creation-labs"),
+        ("R&D", "r-d"),
+        ("Inventory", "inventory"),
+        ("Sourcing", "sourcing"),
+        ("Marketing", "marketing"),
+        ("Accounts", "accounts"),
+        ("Human Resources", "human-resources"),
+        ("Graphics", "graphics"),
+    ]:
+        session.add(Department(organization_id=organization.id, name=name, slug=slug))
     await session.flush()
 
     permission_keys = [key for key, _ in DEFAULT_PERMISSIONS]

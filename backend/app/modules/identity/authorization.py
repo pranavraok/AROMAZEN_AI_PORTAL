@@ -10,7 +10,7 @@ from app.modules.identity.service import permission_keys_for_user, role_keys_for
 
 
 DEPARTMENT_ALIASES = {
-    "hr": {"HR", "Human Resources"},
+    "hr": {"hr", "HR", "human-resources", "Human Resources"},
 }
 
 

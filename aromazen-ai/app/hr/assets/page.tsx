@@ -89,7 +89,7 @@ export default function AssetManagementPage() {
   const [serviceForm, setServiceForm] = useState({ service_date: new Date().toISOString().slice(0, 10), vendor: '', cost: '', notes: '', next_due_date: '' })
   const [history, setHistory] = useState<AssetMaintenanceEvent[]>([])
   const isTopAdmin = user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
-  const canUse = hasPermission('users.manage') && (['Inventory', 'HR', 'Accounts'].includes(user?.department_name ?? '') || isTopAdmin)
+  const canUse = hasPermission('users.manage') && (['Inventory', 'HR', 'Human Resources', 'Accounts'].includes(user?.department_name ?? '') || isTopAdmin)
 
   const load = useCallback(async (quiet = false) => {
     if (!accessToken || !canUse) return

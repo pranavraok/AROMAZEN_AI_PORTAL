@@ -14,7 +14,7 @@ def upgrade() -> None:
     op.execute("UPDATE departments SET name = 'AI Labs', slug = 'ai-labs' WHERE slug = 'ai-lab'")
     op.execute("UPDATE departments SET name = 'Creation Labs', slug = 'creation-labs' WHERE slug = 'creation-lab'")
     op.execute("UPDATE departments SET name = 'Inventory', slug = 'inventory' WHERE slug = 'stores'")
-    op.execute("UPDATE departments SET name = 'HR', slug = 'hr' WHERE slug = 'accounts-hr'")
+    op.execute("UPDATE departments SET name = 'Human Resources', slug = 'human-resources' WHERE slug = 'accounts-hr'")
 
     # Every organization receives the complete ten-department structure.
     for name, slug in [
@@ -26,7 +26,7 @@ def upgrade() -> None:
         ("Sourcing", "sourcing"),
         ("Marketing", "marketing"),
         ("Accounts", "accounts"),
-        ("HR", "hr"),
+        ("Human Resources", "human-resources"),
         ("Graphics", "graphics"),
     ]:
         op.execute(
@@ -69,7 +69,7 @@ def upgrade() -> None:
             is_shared = false, status = 'active'
         WHERE slug = 'marketing-assets'""")
     op.execute("""UPDATE knowledge_collections
-        SET name = 'HR', slug = 'hr',
+        SET name = 'Human Resources', slug = 'human-resources',
             description = 'Employee records, HR policies, payroll references, compliance, and people operations.',
             is_shared = false, status = 'active'
         WHERE slug = 'hr-policies'""")
@@ -92,7 +92,7 @@ def upgrade() -> None:
 
     canonical_collection_slugs = (
         "'ai-labs-graphics', 'production-inventory-sourcing', 'creation-labs', "
-        "'r-d', 'marketing', 'accounts', 'hr'"
+        "'r-d', 'marketing', 'accounts', 'human-resources'"
     )
     op.execute(
         f"""DELETE FROM collection_departments cd
@@ -107,7 +107,7 @@ def upgrade() -> None:
         "r-d": ("r-d",),
         "marketing": ("marketing",),
         "accounts": ("accounts",),
-        "hr": ("hr",),
+        "human-resources": ("human-resources",),
     }
     for collection_slug, department_slugs in mappings.items():
         slug_list = ", ".join(f"'{slug}'" for slug in department_slugs)

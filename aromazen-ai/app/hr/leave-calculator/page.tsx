@@ -33,7 +33,7 @@ export default function LeaveCalculatorPage() {
   const [hrRules, setHrRules] = useState<{ collection: KnowledgeCollection; document: KnowledgeDocument }[]>([])
   const [busy, setBusy] = useState<'analyze' | 'download' | 'template' | null>(null); const [downloaded, setDownloaded] = useState(false)
   const [showReview, setShowReview] = useState(false)
-  const canUse = hasPermission('users.manage') && (['HR', 'Human Resources'].includes(user?.department_name ?? '') || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin'))
+  const canUse = hasPermission('users.manage') && (user?.department_name === 'Human Resources' || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin'))
 
   const reviewedRows = useMemo(() => result?.rows.map((row) => {
     const adjustment = adjustments[row.row_number] ?? { paid_leave_days: 0, lop_override: '' }

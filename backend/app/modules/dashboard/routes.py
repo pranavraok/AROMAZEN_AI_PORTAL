@@ -164,7 +164,7 @@ async def dashboard_overview(
     ) for event, actor, department_name in activity_rows]
 
     hr_action_center = None
-    is_hr_admin = role_key in {"owner", "super_admin"} or bool(
+    is_hr_admin = role_key == "super_admin" or bool(
         department_matches(department, "hr") and role_key == "department_admin"
     )
     if is_hr_admin:

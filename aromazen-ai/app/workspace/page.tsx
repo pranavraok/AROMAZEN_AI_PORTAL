@@ -33,7 +33,7 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
     { icon: 'Scale', text: 'Raw Material Evaluation Report', description: 'Evaluate a raw material against technical, quality and supplier requirements.', href: '/department-tools/rnd-raw-material' },
     { icon: 'BookOpenCheck', text: "SOP's to be Followed", description: 'Find and open approved procedures from the R&D knowledge collection.', href: '/department-tools/rnd-sops' },
   ]
-  if (department === 'HR') return [
+  if (department === 'HR' || department === 'Human Resources') return [
     { icon: 'Attendance', text: 'Review monthly attendance', description: 'Upload fingerprint attendance, apply shift rules, and work through exceptions.', href: '/department-tools/hr-attendance' },
     { icon: 'ListChecks', text: 'Calculate leave and LOP', description: 'Merge attendance with the salary workbook and prepare payroll-ready data.', href: '/hr/leave-calculator' },
     { icon: 'FileOutput', text: 'Create an HR letter', description: 'Prepare approved offer, appointment, appreciation, or increment letters.', href: '/department-tools/hr-letters' },

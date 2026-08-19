@@ -32,7 +32,7 @@ export default function SalarySlipsPage() {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState<'upload' | 'save' | 'send' | 'retry' | null>(null)
   const [templateUploadUnit, setTemplateUploadUnit] = useState<number | null>(null)
-  const canUse = ['HR', 'Human Resources'].includes(user?.department_name ?? '') || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
+  const canUse = user?.department_name === 'Human Resources' || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
   const recipients = useMemo(() => batch?.recipients ?? [], [batch?.recipients])
   const finished = (batch?.sent_count ?? 0) + (batch?.failed_count ?? 0)
   const progress = batch?.total_count ? Math.round((finished / batch.total_count) * 100) : 0
