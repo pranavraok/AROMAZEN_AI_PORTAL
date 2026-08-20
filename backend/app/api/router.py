@@ -11,6 +11,8 @@ from app.modules.settings.routes import router as settings_router
 from app.modules.payroll.routes import router as payroll_router
 from app.modules.hr_letters.routes import router as hr_letters_router
 from app.modules.assets.routes import router as assets_router
+from app.modules.cash_flow.routes import router as cash_flow_router
+from app.modules.gst_reconciliation.routes import router as gst_reconciliation_router
 
 api_router = APIRouter()
 api_router.include_router(health_router, prefix="/health", tags=["health"])
@@ -24,3 +26,5 @@ api_router.include_router(settings_router, prefix="/settings", tags=["settings"]
 api_router.include_router(payroll_router, prefix="/payroll", tags=["HR payroll"])
 api_router.include_router(hr_letters_router, prefix="/hr-letters", tags=["HR letters"])
 api_router.include_router(assets_router, prefix="/assets", tags=["IT assets"])
+api_router.include_router(cash_flow_router, prefix="/cash-flow", tags=["Accounts cash flow"])
+api_router.include_router(gst_reconciliation_router, prefix="/gst-reconciliation", tags=["Accounts GST reconciliation"])

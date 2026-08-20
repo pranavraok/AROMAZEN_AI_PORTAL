@@ -300,3 +300,21 @@ class AuditEvent(Base):
     target_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class CashFlowReportSnapshot(Base):
+    __tablename__ = "cash_flow_report_snapshots"
+    __table_args__ = (UniqueConstraint("organization_id", "report_month", name="uq_cash_flow_snapshot_org_month"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    report_month: Mapped[str] = mapped_column(String(7), index=True)
+    receipts_json: Mapped[list] = mapped_column(JSON, default=list)
+    payments_json: Mapped[list] = mapped_column(JSON, default=list)
+    banks_json: Mapped[list] = mapped_column(JSON, default=list)
+    total_receipts: Mapped[float] = mapped_column(Numeric(18, 2))
+    total_payments: Mapped[float] = mapped_column(Numeric(18, 2))
+    net_movement: Mapped[float] = mapped_column(Numeric(18, 2))
+    assets_included: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -37,9 +37,30 @@ import type {
   ITAsset,
   AssetMaintenanceEvent,
   AssetNotificationSettings,
+  GstReconciliationResult,
 } from './types'
 
 export const api = {
+  gstReconciliation: {
+    analyze: (accessToken: string, payload: { purchaseRegister: File; journalRegister: File; gstr2bPortal: File }) => {
+      const form = new FormData()
+      form.append('purchase_register', payload.purchaseRegister)
+      form.append('journal_register', payload.journalRegister)
+      form.append('gstr2b_portal', payload.gstr2bPortal)
+      return apiRequest<GstReconciliationResult>('/gst-reconciliation/analyze', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+  },
+  cashFlow: {
+    cashFlowTemplate: (accessToken: string) => apiFileRequest('/cash-flow/templates/cash-flow', accessToken),
+    fixedAssetsTemplate: (accessToken: string) => apiFileRequest('/cash-flow/templates/fixed-assets', accessToken),
+    generate: (accessToken: string, payload: { reportMonth: string; password: string; bob: File; axis: File; indusind: File; cashFlow: File; fixedAssets?: File | null; includePreviousComparison: boolean }) => {
+      const form = new FormData()
+      form.append('report_month', payload.reportMonth); form.append('pdf_password', payload.password); form.append('include_previous_comparison', String(payload.includePreviousComparison))
+      form.append('bob_statement', payload.bob); form.append('axis_statement', payload.axis); form.append('indusind_statement', payload.indusind)
+      form.append('cash_flow_excel', payload.cashFlow); if (payload.fixedAssets) form.append('fixed_assets_excel', payload.fixedAssets)
+      return apiFileRequest('/cash-flow/generate', accessToken, { method: 'POST', body: form })
+    },
+  },
   auth: {
     login: (payload: LoginRequest) => apiRequest<LoginResponse>('/auth/login', { method: 'POST', body: payload }),
     logout: () => apiRequest<void>('/auth/logout', { method: 'POST' }),

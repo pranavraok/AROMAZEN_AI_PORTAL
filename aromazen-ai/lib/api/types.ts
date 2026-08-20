@@ -515,3 +515,52 @@ export interface OrganizationSettings {
   max_excel_upload_size_mb: number
   updated_at: string | null
 }
+
+export type GstReconciliationStatus = 'matched' | 'mismatch' | 'books_only' | 'portal_only' | 'incomplete_books' | 'duplicate'
+
+export interface GstReconciliationRow {
+  id: string
+  status: GstReconciliationStatus
+  issues: string[]
+  supplier: string
+  gstin: string
+  invoice_number: string
+  books_source: string
+  books_row: string
+  books_date: string | null
+  portal_date: string | null
+  books_invoice_value: number | null
+  portal_invoice_value: number | null
+  difference: number | null
+  portal_taxable_value: number | null
+  igst: number | null
+  cgst: number | null
+  sgst: number | null
+  cess: number | null
+  itc_availability: string
+  portal_reason: string
+}
+
+export interface GstReconciliationResult {
+  period: string
+  company_gstin: string
+  company_name: string
+  summary: {
+    book_invoices: number
+    portal_invoices: number
+    matched: number
+    mismatched: number
+    books_only: number
+    portal_only: number
+    incomplete_books: number
+    duplicates: number
+    portal_credit_notes: number
+    portal_imports: number
+    book_invoice_value: number
+    portal_invoice_value: number
+  }
+  rows: GstReconciliationRow[]
+  warnings: string[]
+  ignored_non_invoice_rows: number
+  amount_tolerance: number
+}

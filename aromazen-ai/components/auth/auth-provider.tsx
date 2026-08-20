@@ -77,6 +77,8 @@ const routePermissions: Array<[route: string, permission: string]> = [
   ['/hr/salary-slips', 'users.manage'],
   ['/hr/leave-calculator', 'users.manage'],
   ['/hr/assets', 'users.manage'],
+  ['/accounts/cash-flow', 'users.manage'],
+  ['/accounts/gst-reconciliation', 'ai.workspace.use'],
   ['/rnd/documents', 'ai.workspace.use'],
   ['/department-tools', 'ai.workspace.use'],
   ['/workspace', 'ai.workspace.use'],
@@ -104,7 +106,11 @@ export function RequireAuthenticatedApp({ children }: { children: React.ReactNod
     || matchesRoute(pathname, '/department-tools/hr-attendance')
   const isRndOnlyRoute = matchesRoute(pathname, '/rnd/documents')
     || pathname.startsWith('/department-tools/rnd-')
+  const isAccountsCashFlow = matchesRoute(pathname, '/accounts/cash-flow')
+  const isAccountsGst = matchesRoute(pathname, '/accounts/gst-reconciliation')
   if (isHrOnlyRoute && !isPlatformAdmin && !['HR', 'Human Resources'].includes(user.department_name ?? '')) return <main className="min-h-screen bg-background grid place-items-center p-6"><div className="max-w-md text-center space-y-3"><h1 className="text-2xl font-semibold text-foreground">Access restricted</h1><p className="text-muted-foreground">This tool is available only to the Human Resources department.</p></div></main>
   if (isRndOnlyRoute && !isPlatformAdmin && user.department_name !== 'R&D') return <main className="min-h-screen bg-background grid place-items-center p-6"><div className="max-w-md text-center space-y-3"><h1 className="text-2xl font-semibold text-foreground">Access restricted</h1><p className="text-muted-foreground">This tool is available only to the R&amp;D department.</p></div></main>
+  if (isAccountsCashFlow && !isPlatformAdmin && !(user.department_name === 'Accounts' && user.role_names.includes('Department Admin'))) return <main className="min-h-screen bg-background grid place-items-center p-6"><div className="max-w-md text-center space-y-3"><h1 className="text-2xl font-semibold text-foreground">Access restricted</h1><p className="text-muted-foreground">This tool is available only to the Accounts Department Admin, Admin and Super Admin.</p></div></main>
+  if (isAccountsGst && !(user.department_name === 'Accounts' && user.role_names.some((role) => role === 'Department Admin' || role === 'Employee'))) return <main className="min-h-screen bg-background grid place-items-center p-6"><div className="max-w-md text-center space-y-3"><h1 className="text-2xl font-semibold text-foreground">Access restricted</h1><p className="text-muted-foreground">GST Reconciliation is available only to Accounts Department Admin and Accounts Department Employee.</p></div></main>
   return <>{children}</>
 }
