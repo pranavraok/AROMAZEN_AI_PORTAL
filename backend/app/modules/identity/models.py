@@ -141,6 +141,7 @@ class KnowledgeDocument(Base):
     expiry_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     reminder_days_before: Mapped[int] = mapped_column(default=30)
     reminder_owner: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    is_company_wide: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 

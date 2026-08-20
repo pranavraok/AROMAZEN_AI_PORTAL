@@ -104,7 +104,23 @@ async def create_department(payload: CreateDepartmentRequest, user: User = Depen
         raise HTTPException(status_code=409, detail="A department with this name already exists.")
     department = Department(organization_id=user.organization_id, name=payload.name.strip(), slug=slug)
     session.add(department)
-    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="identity.department_created", target_type="department", metadata_json={"name": department.name}))
+    await session.flush()
+
+    # Auto-create a knowledge collection for this department with default category folders.
+    collection = KnowledgeCollection(
+        organization_id=user.organization_id,
+        name=payload.name.strip(),
+        slug=slug,
+        description=f"Knowledge base for the {payload.name.strip()} department.",
+        is_shared=False,
+        created_by_user_id=user.id,
+        status="active",
+    )
+    session.add(collection)
+    await session.flush()
+    await session.execute(collection_departments.insert(), [{"collection_id": collection.id, "department_id": department.id}])
+
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="identity.department_created", target_type="department", metadata_json={"name": department.name, "collection_id": str(collection.id)}))
     await session.commit()
     return DepartmentResponse(id=str(department.id), name=department.name, slug=department.slug)
 
@@ -225,7 +241,7 @@ async def delete_knowledge_collection(collection_id: str, user: User = Depends(r
 @router.get("/knowledge/documents", response_model=list[AdminKnowledgeDocumentResponse])
 async def list_knowledge_documents(user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> list[AdminKnowledgeDocumentResponse]:
     rows = await session.execute(select(KnowledgeDocument, KnowledgeCollection.name).join(KnowledgeCollection, KnowledgeDocument.collection_id == KnowledgeCollection.id).where(KnowledgeDocument.organization_id == user.organization_id).order_by(KnowledgeDocument.created_at.desc()))
-    return [AdminKnowledgeDocumentResponse(id=str(document.id), collection_id=str(document.collection_id), collection_name=collection_name, name=document.original_filename, status=document.status, size_bytes=document.size_bytes, extracted_characters=document.extracted_characters, version=document.version, created_at=document.created_at) for document, collection_name in rows]
+    return [AdminKnowledgeDocumentResponse(id=str(document.id), collection_id=str(document.collection_id), collection_name=collection_name, name=document.original_filename, status=document.status, size_bytes=document.size_bytes, extracted_characters=document.extracted_characters, version=document.version, created_at=document.created_at, document_category=document.document_category, is_company_wide=document.is_company_wide) for document, collection_name in rows]
 
 
 @router.delete("/knowledge/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)

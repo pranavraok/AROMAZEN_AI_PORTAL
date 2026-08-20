@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
@@ -17,6 +17,7 @@ from app.modules.knowledge.extraction import ExtractionError, extract_text
 
 router = APIRouter()
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".pptx"}
+RULE_DOCUMENT_CATEGORIES = ["attendance_rule", "leave_rule", "hr_policy"]
 
 
 class DocumentReminderUpdate(BaseModel):
@@ -24,6 +25,7 @@ class DocumentReminderUpdate(BaseModel):
     expiry_date: datetime | None = None
     reminder_days_before: int = Field(default=30, ge=0, le=365)
     reminder_owner: str | None = Field(default=None, max_length=160)
+    is_company_wide: bool | None = Field(default=None)
 
 
 def _document_response(item: KnowledgeDocument) -> dict:
@@ -35,6 +37,7 @@ def _document_response(item: KnowledgeDocument) -> dict:
         "expiry_date": item.expiry_date.isoformat() if item.expiry_date else None,
         "reminder_days_before": item.reminder_days_before,
         "reminder_owner": item.reminder_owner,
+        "is_company_wide": item.is_company_wide,
         "created_at": item.created_at.isoformat(),
         "processed_at": item.processed_at.isoformat() if item.processed_at else None,
     }
@@ -63,7 +66,14 @@ async def list_collections(user: User = Depends(require_permissions("knowledge.r
     for collection in collections.unique():
         departments = await session.scalars(select(Department.name).join(collection_departments, Department.id == collection_departments.c.department_id).where(collection_departments.c.collection_id == collection.id))
         document_count = await session.scalar(select(func.count(KnowledgeDocument.id)).where(KnowledgeDocument.collection_id == collection.id))
-        result.append({"id": str(collection.id), "slug": collection.slug, "name": collection.name, "description": collection.description, "is_shared": collection.is_shared, "department_names": list(departments), "document_count": document_count or 0, "updated_at": collection.updated_at.isoformat()})
+        # Per-category document counts for this collection.
+        cat_rows = (await session.execute(
+            select(KnowledgeDocument.document_category, func.count(KnowledgeDocument.id))
+            .where(KnowledgeDocument.collection_id == collection.id)
+            .group_by(KnowledgeDocument.document_category)
+        )).all()
+        category_counts = {row[0] or 'general': row[1] for row in cat_rows}
+        result.append({"id": str(collection.id), "slug": collection.slug, "name": collection.name, "description": collection.description, "is_shared": collection.is_shared, "department_names": list(departments), "document_count": document_count or 0, "category_counts": category_counts, "updated_at": collection.updated_at.isoformat()})
     return result
 
 
@@ -96,6 +106,8 @@ async def update_document_reminder(
     document.expiry_date = payload.expiry_date
     document.reminder_days_before = payload.reminder_days_before
     document.reminder_owner = payload.reminder_owner.strip() if payload.reminder_owner else None
+    if payload.is_company_wide is not None:
+        document.is_company_wide = payload.is_company_wide
     await session.commit()
     return _document_response(document)
 
@@ -137,6 +149,60 @@ async def process_existing_document(collection_id: str, document_id: str, user: 
     return {"id": str(document.id), "status": document.status, "extracted_characters": document.extracted_characters}
 
 
+@router.get("/rules-and-reminders")
+async def rules_and_reminders(user: User = Depends(require_permissions("knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> list[dict]:
+    """Return rule/HR documents visible to the current user.
+
+    A document is visible when:
+    1. Its collection is accessible to the user (shared or department-matched), AND
+    2. Its document_category is in the rules set (attendance_rule, leave_rule, hr_policy), AND
+    3. Either it is NOT company-wide, or it IS company-wide (company-wide overrides department restrictions).
+    """
+    role_keys = await role_keys_for_user(session, user.id)
+    is_admin = bool(role_keys.intersection({"owner", "super_admin", "department_admin"}))
+
+    # Base query: documents with rule categories in active collections for this org.
+    base_filters = [
+        KnowledgeDocument.organization_id == user.organization_id,
+        KnowledgeDocument.status == "ready",
+        KnowledgeDocument.document_category.in_(RULE_DOCUMENT_CATEGORIES),
+        KnowledgeCollection.status == "active",
+    ]
+
+    if is_admin:
+        # Admins see all rule documents in the org.
+        query = (
+            select(KnowledgeDocument, KnowledgeCollection.name.label("collection_name"))
+            .join(KnowledgeCollection, KnowledgeDocument.collection_id == KnowledgeCollection.id)
+            .where(*base_filters)
+        )
+    elif user.department_id:
+        # Non-admin: see company-wide docs, shared collection docs, or docs in own department's collection.
+        dept_collection_ids = select(collection_departments.c.collection_id).where(
+            collection_departments.c.department_id == user.department_id
+        )
+        access_filter = or_(
+            KnowledgeDocument.is_company_wide.is_(True),
+            KnowledgeCollection.is_shared.is_(True),
+            KnowledgeCollection.id.in_(dept_collection_ids),
+        )
+        query = (
+            select(KnowledgeDocument, KnowledgeCollection.name.label("collection_name"))
+            .join(KnowledgeCollection, KnowledgeDocument.collection_id == KnowledgeCollection.id)
+            .where(*base_filters, access_filter)
+        )
+    else:
+        # No department: only company-wide or shared collection docs.
+        query = (
+            select(KnowledgeDocument, KnowledgeCollection.name.label("collection_name"))
+            .join(KnowledgeCollection, KnowledgeDocument.collection_id == KnowledgeCollection.id)
+            .where(*base_filters, or_(KnowledgeDocument.is_company_wide.is_(True), KnowledgeCollection.is_shared.is_(True)))
+        )
+
+    rows = (await session.execute(query.order_by(KnowledgeDocument.created_at.desc()))).all()
+    return [_document_response(doc) | {"collection_name": col_name} for doc, col_name in rows]
+
+
 @router.post("/collections/{collection_id}/documents", status_code=status.HTTP_201_CREATED)
 async def upload_document(
     collection_id: str,
@@ -145,6 +211,7 @@ async def upload_document(
     expiry_date: str = Form(""),
     reminder_days_before: int = Form(30),
     reminder_owner: str = Form(""),
+    is_company_wide: bool = Form(False),
     user: User = Depends(require_permissions("knowledge.write")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
@@ -189,6 +256,7 @@ async def upload_document(
         size_bytes=size_bytes, version=(previous_version or 0) + 1, status="processing",
         document_category=document_category.strip() or None, expiry_date=parsed_expiry,
         reminder_days_before=reminder_days_before, reminder_owner=reminder_owner.strip() or None,
+        is_company_wide=is_company_wide,
     )
     session.add(document)
     await session.commit()
