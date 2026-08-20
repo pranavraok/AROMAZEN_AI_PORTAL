@@ -1,6 +1,6 @@
 'use client'
 
-import { ChangeEvent, useEffect, useState } from 'react'
+import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, Lock, Settings2, Upload, Users } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
@@ -19,14 +19,33 @@ const DOCUMENT_CATEGORIES = [
   ['hr_policy', 'HR policy'], ['other', 'Other'],
 ] as const
 
+type AccessFilter = 'all' | 'company-wide' | 'my-department'
+const ACCESS_FILTER_OPTIONS: { value: AccessFilter; label: string }[] = [
+  { value: 'all', label: 'All collections' },
+  { value: 'company-wide', label: 'Company-wide access' },
+  { value: 'my-department', label: 'My department' },
+]
+const ADMIN_ROLES = new Set(['Super Admin', 'Admin'])
+
 export default function KnowledgePage() {
-  const { accessToken, hasPermission } = useAuth()
+  const { accessToken, hasPermission, user } = useAuth()
   const { notify } = useToast()
   const [collections, setCollections] = useState<KnowledgeCollection[]>([])
   const [loading, setLoading] = useState(true)
   const [isUploading, setIsUploading] = useState(false)
   const [pendingUpload, setPendingUpload] = useState<{ file: File; collectionId: string; collectionName: string } | null>(null)
   const [metadata, setMetadata] = useState({ document_category: 'general', expiry_date: '', reminder_days_before: '30', reminder_owner: '' })
+  const [accessFilter, setAccessFilter] = useState<AccessFilter>('all')
+  const isAdmin = (user?.role_names.some((r) => ADMIN_ROLES.has(r)) ?? false) || hasPermission('settings.manage')
+  const filterOptions = useMemo(() => isAdmin ? ACCESS_FILTER_OPTIONS.filter((o) => o.value !== 'my-department') : ACCESS_FILTER_OPTIONS, [isAdmin])
+
+  const filteredCollections = useMemo(() => {
+    if (accessFilter === 'all') return collections
+    if (accessFilter === 'company-wide') return collections.filter((c) => c.is_shared)
+    const dept = user?.department_name
+    if (!dept) return collections.filter((c) => c.is_shared)
+    return collections.filter((c) => !c.is_shared && c.department_names.includes(dept))
+  }, [collections, accessFilter, user?.department_name])
 
   useEffect(() => {
     if (!accessToken) return
@@ -55,11 +74,19 @@ export default function KnowledgePage() {
 
   return <AppLayout><div className="space-y-6 p-6">
     <PageHeader title="Knowledge Base" description="Collections are automatically filtered to the knowledge you are allowed to access." actions={hasPermission('settings.manage') ? <Link href="/knowledge/manage" className={buttonVariants({ variant: 'outline' })}><Settings2 className="mr-2 h-4 w-4" />Manage knowledge</Link> : undefined} />
-    {loading ? <p className="text-sm text-muted-foreground">Loading collections…</p> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{collections.map((collection) => <div key={collection.id} className="rounded-2xl border border-border bg-card p-5">
+    {loading ? <p className="text-sm text-muted-foreground">Loading collections…</p> : <>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="mr-1 text-xs font-medium text-muted-foreground">Access:</span>
+        {filterOptions.map((option) => (
+          <button type="button" key={option.value} onClick={() => setAccessFilter(option.value)} className={`rounded-full px-3 py-1.5 text-xs transition ${accessFilter === option.value ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>{option.label}</button>
+        ))}
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{filteredCollections.map((collection) => <div key={collection.id} className="rounded-2xl border border-border bg-card p-5">
       <Link href={`/knowledge/${collection.slug}`} className="block transition hover:text-primary"><div className="mb-5 flex items-start justify-between"><div className="rounded-xl bg-primary/10 p-2.5 text-primary"><BookOpen className="h-5 w-5" /></div>{collection.is_shared ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><Users className="h-3 w-3" />Shared</span> : <span className="flex items-center gap-1 text-xs text-muted-foreground"><Lock className="h-3 w-3" />Restricted</span>}</div><h2 className="font-semibold text-foreground">{collection.name}</h2><div className="mt-4 border-t border-border pt-3 text-xs text-muted-foreground">{collection.is_shared ? 'Company-wide' : collection.department_names.join(' · ')} · {collection.document_count} documents</div></Link>
       {hasPermission('knowledge.write') && <label className="mt-4 block"><span className="sr-only">Upload to {collection.name}</span><input onChange={(event) => chooseUpload(event, collection)} disabled={isUploading} type="file" accept=".pdf,.docx,.xlsx,.pptx" className="hidden" /><span className="flex cursor-pointer items-center justify-center rounded-xl border border-border px-3 py-2.5 text-xs hover:bg-muted"><Upload className="mr-2 h-3 w-3" />Upload document</span></label>}
-    </div>)}</div>}
-    {!loading && collections.length === 0 && <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">No knowledge collections are available for your role yet.</div>}
+    </div>)}</div></>}
+    {!loading && filteredCollections.length === 0 && accessFilter === 'all' && collections.length === 0 && <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">No knowledge collections are available for your role yet.</div>}
+    {!loading && filteredCollections.length === 0 && collections.length > 0 && <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">No collections match this access filter.</div>}
     {pendingUpload && <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4"><div className="w-full max-w-lg rounded-2xl border border-border bg-card p-5 shadow-2xl"><h2 className="text-lg font-semibold">Add Knowledge document</h2><p className="mt-1 text-sm text-muted-foreground">{pendingUpload.file.name} · {pendingUpload.collectionName}</p><div className="mt-5 grid gap-4 sm:grid-cols-2">
       <label className="sm:col-span-2"><span className="mb-1.5 block text-xs text-muted-foreground">Document type</span><select value={metadata.document_category} onChange={(event) => setMetadata((current) => ({ ...current, document_category: event.target.value }))} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm">{DOCUMENT_CATEGORIES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label><span className="mb-1.5 block text-xs text-muted-foreground">Expiry / renewal date (optional)</span><input type="date" value={metadata.expiry_date} onChange={(event) => setMetadata((current) => ({ ...current, expiry_date: event.target.value }))} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" /></label>
