@@ -208,6 +208,20 @@ async def archive_knowledge_collection(collection_id: str, user: User = Depends(
     return await serialize_collection(session, collection)
 
 
+@router.delete("/knowledge/collections/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_knowledge_collection(collection_id: str, user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> None:
+    collection = await session.get(KnowledgeCollection, collection_id)
+    if not collection or collection.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Collection not found.")
+    documents = await session.scalars(select(KnowledgeDocument).where(KnowledgeDocument.collection_id == collection.id))
+    storage_path = Path(get_settings().upload_storage_path)
+    for doc in documents:
+        (storage_path / doc.stored_filename).unlink(missing_ok=True)
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="knowledge.collection_deleted", target_type="knowledge_collection", target_id=str(collection.id), metadata_json={"name": collection.name}))
+    await session.delete(collection)
+    await session.commit()
+
+
 @router.get("/knowledge/documents", response_model=list[AdminKnowledgeDocumentResponse])
 async def list_knowledge_documents(user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> list[AdminKnowledgeDocumentResponse]:
     rows = await session.execute(select(KnowledgeDocument, KnowledgeCollection.name).join(KnowledgeCollection, KnowledgeDocument.collection_id == KnowledgeCollection.id).where(KnowledgeDocument.organization_id == user.organization_id).order_by(KnowledgeDocument.created_at.desc()))

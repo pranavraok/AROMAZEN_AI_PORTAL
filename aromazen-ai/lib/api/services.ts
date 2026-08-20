@@ -168,6 +168,7 @@ export const api = {
     createKnowledgeCollection: (accessToken: string, payload: { name: string; description: string | null; is_shared: boolean; department_ids: string[] }) => apiRequest<AdminKnowledgeCollection>('/admin/knowledge/collections', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
     updateKnowledgeCollection: (accessToken: string, id: string, payload: { name: string; description: string | null; is_shared: boolean; department_ids: string[] }) => apiRequest<AdminKnowledgeCollection>(`/admin/knowledge/collections/${id}`, { method: 'PATCH', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
     archiveKnowledgeCollection: (accessToken: string, id: string) => apiRequest<AdminKnowledgeCollection>(`/admin/knowledge/collections/${id}/archive`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    deleteKnowledgeCollection: (accessToken: string, id: string) => apiRequest<void>(`/admin/knowledge/collections/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }),
     knowledgeDocuments: (accessToken: string) => apiRequest<AdminKnowledgeDocument[]>('/admin/knowledge/documents', { headers: { Authorization: `Bearer ${accessToken}` } }),
     deleteKnowledgeDocument: (accessToken: string, id: string) => apiRequest<void>(`/admin/knowledge/documents/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }),
   },

@@ -42,7 +42,7 @@ def _document_response(item: KnowledgeDocument) -> dict:
 
 async def can_access_collection(session: AsyncSession, user: User, collection: KnowledgeCollection) -> bool:
     role_keys = await role_keys_for_user(session, user.id)
-    if role_keys.intersection({"owner", "super_admin"}) or collection.is_shared:
+    if role_keys.intersection({"owner", "super_admin", "department_admin"}) or collection.is_shared:
         return True
     if not user.department_id:
         return False
@@ -53,7 +53,7 @@ async def can_access_collection(session: AsyncSession, user: User, collection: K
 async def list_collections(user: User = Depends(require_permissions("knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> list[dict]:
     role_keys = await role_keys_for_user(session, user.id)
     query = select(KnowledgeCollection).where(KnowledgeCollection.organization_id == user.organization_id, KnowledgeCollection.status == "active")
-    if not role_keys.intersection({"owner", "super_admin"}):
+    if not role_keys.intersection({"owner", "super_admin", "department_admin"}):
         if user.department_id:
             query = query.outerjoin(collection_departments, KnowledgeCollection.id == collection_departments.c.collection_id).where(or_(KnowledgeCollection.is_shared.is_(True), collection_departments.c.department_id == user.department_id))
         else:
