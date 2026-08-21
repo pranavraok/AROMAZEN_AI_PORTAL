@@ -37,6 +37,7 @@ export interface KnowledgeCollection {
   updated_at: string
   is_shared: boolean
   department_names: string[]
+  category_counts: Record<string, number>
 }
 
 export interface KnowledgeDocument {
@@ -55,6 +56,7 @@ export interface KnowledgeDocument {
   expiry_date: string | null
   reminder_days_before: number
   reminder_owner: string | null
+  is_company_wide: boolean
 }
 
 export interface ChatCitation {

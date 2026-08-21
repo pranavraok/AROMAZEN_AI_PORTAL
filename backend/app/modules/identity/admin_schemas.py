@@ -101,3 +101,5 @@ class AdminKnowledgeDocumentResponse(BaseModel):
     extracted_characters: int
     version: int
     created_at: datetime
+    document_category: str | None = None
+    is_company_wide: bool = False
