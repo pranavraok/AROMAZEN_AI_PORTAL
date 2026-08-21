@@ -13,9 +13,11 @@ router = APIRouter()
 
 async def ensure_accounts_team(user: User, session: AsyncSession) -> None:
     roles = await role_keys_for_user(session, user.id)
+    if "super_admin" in roles:
+        return
     department = await session.get(Department, user.department_id) if user.department_id else None
     if not department or department.slug != "accounts" or not roles.intersection({"department_admin", "employee"}):
-        raise HTTPException(status_code=403, detail="GST Reconciliation is available only to Accounts Department Admin and Accounts Department Employee.")
+        raise HTTPException(status_code=403, detail="GST Reconciliation is available to Admin and the Accounts team.")
 
 
 async def _read_excel(file: UploadFile, label: str, limit: int = 20 * 1024 * 1024) -> bytes:

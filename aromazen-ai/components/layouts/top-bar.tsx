@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Bell, BookOpen, Boxes, LayoutDashboard, Menu, MessageSquare, Search, Settings, Shield, TrendingUp, Wrench, X } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { AlertTriangle, ArrowLeft, Bell, BookOpen, Boxes, LayoutDashboard, Menu, MessageSquare, Search, Settings, Shield, TrendingUp, Wrench, X } from 'lucide-react'
+import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/components/auth/auth-provider'
 import { api } from '@/lib/api/services'
 import type { ChatConversation, KnowledgeCollection, UsageNotification } from '@/lib/api/types'
@@ -12,7 +12,8 @@ type SearchItem = { title: string; subtitle: string; href: string; icon: React.R
 
 export function TopBar({ sidebarOpen, onSidebarToggle }: TopBarProps) {
   const router = useRouter()
-  const { accessToken, hasPermission } = useAuth()
+  const pathname = usePathname()
+  const { accessToken, hasPermission, user } = useAuth()
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
@@ -20,6 +21,8 @@ export function TopBar({ sidebarOpen, onSidebarToggle }: TopBarProps) {
   const [collections, setCollections] = useState<KnowledgeCollection[]>([])
   const [notifications, setNotifications] = useState<UsageNotification[]>([])
   const shellRef = useRef<HTMLDivElement>(null)
+  const isDepartmentFeature = pathname.startsWith('/department-tools/') || pathname.startsWith('/departments/') || pathname.startsWith('/hr/') || pathname.startsWith('/accounts/') || pathname === '/knowledge/rules-reminders'
+  const showDepartmentBack = user?.role_names.includes('Department Admin') && isDepartmentFeature
 
   useEffect(() => {
     if (!accessToken) return
@@ -44,18 +47,19 @@ export function TopBar({ sidebarOpen, onSidebarToggle }: TopBarProps) {
       ...(hasPermission('knowledge.read') ? [{ title: 'Knowledge', subtitle: 'Company collections', href: '/knowledge', icon: <BookOpen /> }] : []),
       ...(hasPermission('usage.read') ? [{ title: 'Analytics', subtitle: 'Usage trends and costs', href: '/admin/usage', icon: <TrendingUp /> }] : []),
       ...(hasPermission('users.manage') ? [{ title: 'Administration', subtitle: 'People and access', href: '/admin/users', icon: <Shield /> }] : []),
-      ...(hasPermission('users.manage') ? [{ title: 'Asset Management', subtitle: 'Devices, maintenance and scrap decisions', href: '/hr/assets', icon: <Boxes /> }] : []),
+      ...(user?.role_names.includes('Department Admin') && ['HR', 'Human Resources', 'Accounts'].includes(user.department_name ?? '') ? [{ title: 'Asset Management', subtitle: 'Devices, maintenance and scrap decisions', href: '/hr/assets', icon: <Boxes /> }] : []),
       ...(hasPermission('settings.manage') ? [{ title: 'Settings', subtitle: 'Organization controls', href: '/settings', icon: <Settings /> }] : []),
     ]
     const items = [...navigation, ...conversations.map((item) => ({ title: item.title, subtitle: 'Conversation', href: `/workspace?conversation=${item.id}`, icon: <MessageSquare /> })), ...collections.map((item) => ({ title: item.name, subtitle: `${item.document_count} documents`, href: `/knowledge/${item.slug}`, icon: <BookOpen /> }))]
     const needle = query.trim().toLowerCase()
     return (needle ? items.filter((item) => `${item.title} ${item.subtitle}`.toLowerCase().includes(needle)) : navigation).slice(0, 8)
-  }, [collections, conversations, hasPermission, query])
+  }, [collections, conversations, hasPermission, query, user])
 
   function go(href: string) { setQuery(''); setSearchOpen(false); setNotificationsOpen(false); router.push(href) }
 
   return <header className="top-bar relative z-20 flex h-[68px] items-center gap-4 border-b border-border bg-background/80 px-4 backdrop-blur-xl md:px-7" ref={shellRef}>
     <button onClick={() => onSidebarToggle(!sidebarOpen)} className="text-foreground transition-colors hover:text-primary lg:hidden" aria-label="Toggle navigation"><Menu className="h-5 w-5" /></button>
+    {showDepartmentBack ? <button type="button" onClick={() => router.push('/dashboard')} className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-medium text-foreground shadow-sm hover:bg-muted"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Back to Dashboard</span></button> : null}
     <div className="hidden min-w-0 md:block"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Aromazen Workspace</p><p className="mt-0.5 truncate text-sm font-medium text-foreground">Secure company intelligence</p></div>
     <div className="relative ml-auto w-full max-w-md">
       <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
