@@ -24,7 +24,7 @@ from app.core.config import get_settings
 from app.core.currency import usd_to_inr, usd_to_inr_rate
 from app.db.session import SessionLocal, get_db_session
 from app.modules.ai.providers import AIProviderRouter, OpenAIImageGenerator, ProviderError, estimate_cost
-from app.modules.ai.rag import apply_structured_employee_filter, retrieve_complete_documents
+from app.modules.ai.rag import apply_structured_employee_filter, retrieve_complete_documents, structured_employee_answer
 from app.modules.ai.schemas import ConversationUpdateRequest, EmailSendRequest, StreamChatRequest
 from app.modules.identity.authorization import department_matches, require_permissions
 from app.modules.identity.models import AIChatAttachment, AIConversation, AIMessage, AIUsageEvent, AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PortalNotification, User
@@ -1059,6 +1059,51 @@ async def stream_message(
                     chunks = apply_structured_employee_filter(content, chunks)
                 citations = [{key: chunk[key] for key in ("document_id", "document_name", "collection_id", "collection_name", "page", "chunk_index", "relevance")} for chunk in chunks]
                 yield _event("citations", citations=citations)
+                deterministic_answer = structured_employee_answer(chunks)
+                if deterministic_answer is not None:
+                    answer = deterministic_answer
+                    latency_ms = int((time.perf_counter() - started) * 1000)
+                    provider = "internal"
+                    model = "verified-employee-filter"
+                    assistant = AIMessage(
+                        conversation_id=conversation_id,
+                        user_id=user_id,
+                        role="assistant",
+                        content=answer,
+                        citations_json=citations,
+                        web_sources_json=[],
+                        provider=provider,
+                        model=model,
+                    )
+                    stream_session.add(assistant)
+                    conversation_for_update = await stream_session.get(AIConversation, conversation_id)
+                    if conversation_for_update:
+                        conversation_for_update.updated_at = datetime.now(timezone.utc)
+                    stream_session.add(AIUsageEvent(
+                        organization_id=organization_id,
+                        user_id=user_id,
+                        department_id=department_id,
+                        conversation_id=conversation_id,
+                        operation="chat",
+                        provider=provider,
+                        model=model,
+                        input_tokens=0,
+                        output_tokens=0,
+                        cost_usd=0,
+                        latency_ms=latency_ms,
+                        status="completed",
+                    ))
+                    await stream_session.commit()
+                    for offset in range(0, len(answer), 8000):
+                        yield _event("delta", text=answer[offset:offset + 8000])
+                    logger.info(
+                        "ai.chat.deterministic_employee_result",
+                        user_id=str(user_id),
+                        matching_records=sum(chunk.get("matching_record_count", 0) for chunk in chunks),
+                        latency_ms=latency_ms,
+                    )
+                    yield _event("done", message_id=assistant.id, provider=provider, model=model, latency_ms=latency_ms)
+                    return
                 prompt = _build_prompt(content, history, chunks, stream_attachments, plan)
                 provider_images = []
                 storage_root = Path(runtime_settings.upload_storage_path)

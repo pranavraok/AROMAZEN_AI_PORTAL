@@ -396,12 +396,9 @@ def apply_structured_employee_filter(question: str, chunks: list[dict], *, as_of
         for line in lines:
             if not line.lstrip().lower().startswith("record "):
                 continue
-            join_match = re.search(
-                r"(?:date of joining|joining date|join date|date joined|date of join|joining dt|doj)\s*:\s*([^|]+)",
-                line,
-                flags=re.IGNORECASE,
-            )
-            joined = _parse_record_date(join_match.group(1)) if join_match else None
+            fields = _employee_record_fields(line)
+            joining_value = _employee_joining_date(fields)
+            joined = _parse_record_date(joining_value) if joining_value else None
             if joined:
                 records.append((line, joined))
         if not records:
@@ -419,7 +416,138 @@ def apply_structured_employee_filter(question: str, chunks: list[dict], *, as_of
         chunk["filter_as_of"] = today.isoformat()
         chunk["after_date"] = after_date.isoformat() if after_date else None
         chunk["tenure_cutoff"] = tenure_cutoff.isoformat() if tenure_cutoff else None
+        chunk["requested_year"] = int(requested_year.group(1)) if requested_year else None
     return chunks
+
+
+def _normalized_field_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def _employee_record_fields(line: str) -> dict[str, str]:
+    content = re.sub(r"^\s*Record\s+\d+\s*:\s*", "", line, flags=re.IGNORECASE)
+    fields: dict[str, str] = {}
+    for part in content.split("|"):
+        if ":" not in part:
+            continue
+        label, value = part.split(":", 1)
+        normalized = _normalized_field_name(label)
+        if normalized and value.strip():
+            fields[normalized] = value.strip()
+    return fields
+
+
+def _first_employee_field(fields: dict[str, str], aliases: tuple[str, ...]) -> str:
+    for alias in aliases:
+        if value := fields.get(alias):
+            return value
+    return ""
+
+
+def _employee_joining_date(fields: dict[str, str]) -> str:
+    exact = _first_employee_field(fields, (
+        "date of joining", "joining date", "join date", "date joined", "date of join", "joining dt", "doj",
+    ))
+    if exact:
+        return exact
+    for label, value in fields.items():
+        if "date of joining" in label or "joining date" in label or re.search(r"\bdoj\b", label):
+            return value
+    return ""
+
+
+def _employee_name(fields: dict[str, str]) -> str:
+    exact = _first_employee_field(fields, (
+        "employee name", "name of employee", "name of the employee", "emp name", "full name",
+        "employee name as per aadhaar", "name as per aadhaar", "name",
+    ))
+    if exact:
+        return exact
+    for label, value in fields.items():
+        if "employee" in label and "name" in label:
+            return value
+    return ""
+
+
+def structured_employee_answer(chunks: list[dict]) -> str | None:
+    """Render verified employee-filter results without asking a model to rewrite rows."""
+    structured = [chunk for chunk in chunks if chunk.get("structured_filter")]
+    if not structured:
+        return None
+
+    records: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for chunk in structured:
+        content = chunk.get("content") or ""
+        for line in content.splitlines():
+            if not line.lstrip().lower().startswith("record "):
+                continue
+            fields = _employee_record_fields(line)
+            employee_id = _first_employee_field(fields, (
+                "employee id", "employee code", "emp id", "emp code", "employee no", "employee number", "id",
+            ))
+            name = _employee_name(fields)
+            joining_date = _employee_joining_date(fields)
+            designation = _first_employee_field(fields, ("designation", "job title", "role", "position"))
+            department = _first_employee_field(fields, ("department", "dept", "division", "function"))
+            if not employee_id and not name:
+                continue
+            identity = (employee_id.lower(), name.lower(), joining_date.lower())
+            if identity in seen:
+                continue
+            seen.add(identity)
+            records.append({
+                "employee_id": employee_id,
+                "name": name,
+                "joining_date": joining_date,
+                "designation": designation,
+                "department": department,
+            })
+
+    metadata = structured[0]
+    filter_parts = []
+    if metadata.get("after_date"):
+        filter_parts.append(f"joined after {metadata['after_date']}")
+    if metadata.get("requested_year"):
+        filter_parts.append(f"joining year {metadata['requested_year']}")
+    if metadata.get("tenure_cutoff"):
+        filter_parts.append(f"joined on or before {metadata['tenure_cutoff']} to satisfy tenure")
+    if metadata.get("filter_as_of"):
+        filter_parts.append(f"evaluated as of {metadata['filter_as_of']}")
+
+    lines = ["Verified employee results"]
+    if filter_parts:
+        lines.append("Filters applied: " + "; ".join(filter_parts) + ".")
+    lines.append("")
+    if not records:
+        lines.append("No employee records matched all requested conditions.")
+        lines.append("")
+        lines.append("Total matching employees: 0")
+        return "\n".join(lines)
+
+    columns = [
+        ("#", "number"),
+        ("Employee ID", "employee_id"),
+        ("Employee", "name"),
+        ("Joining Date", "joining_date"),
+        ("Designation", "designation"),
+        ("Department", "department"),
+    ]
+    visible_columns = [
+        column for column in columns
+        if column[1] == "number" or any(record[column[1]] for record in records)
+    ]
+    lines.append("| " + " | ".join(label for label, _ in visible_columns) + " |")
+    lines.append("| " + " | ".join("---" for _ in visible_columns) + " |")
+    for index, record in enumerate(records, start=1):
+        values = []
+        for _, key in visible_columns:
+            value = str(index) if key == "number" else record[key] or "—"
+            values.append(value.replace("|", "\\|").replace("\n", " "))
+        lines.append("| " + " | ".join(values) + " |")
+    lines.append("")
+    lines.append(f"Total matching employees: {len(records)}")
+    return "\n".join(lines)
 
 
 async def retrieve_complete_documents(
