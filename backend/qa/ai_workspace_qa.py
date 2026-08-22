@@ -187,7 +187,7 @@ async def main() -> None:
                         done = True
                     if block.startswith("event: citations"):
                         citations = len(data.get("citations") or [])
-                return elapsed, response.status_code == 200 and done and citations == settings.ai_retrieval_limit, conversation
+                return elapsed, response.status_code == 200 and done and citations == 1, conversation
 
             results = await asyncio.gather(*(one_request(index) for index in range(25)))
             latencies = [result[0] for result in results]
@@ -211,7 +211,7 @@ async def main() -> None:
             if exhaustive_conversation:
                 conversation_ids.append(uuid.UUID(exhaustive_conversation))
             exhaustive_citations = next((item.get("citations") for item in exhaustive_events if "citations" in item), [])
-            print(f"EXHAUSTIVE_FULL_DOCUMENT_OK={exhaustive.status_code == 200 and len(exhaustive_citations) == 1 and 'Synthetic safe chunk 199' in FakeRouter.last_prompt}")
+            print(f"EXHAUSTIVE_FULL_DOCUMENT_OK={exhaustive.status_code == 200 and len(exhaustive_citations) == 1 and 'Synthetic non-confidential load-test content.' in FakeRouter.last_prompt and 'complete_document=true' in FakeRouter.last_prompt}")
 
             general = await client.post(
                 "/api/v1/workspace/messages/stream",

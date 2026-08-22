@@ -1,6 +1,8 @@
+import calendar
 import re
 import time
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -25,6 +27,12 @@ from app.modules.knowledge.extraction import ExtractionError, extract_text
 logger = structlog.get_logger(__name__)
 KNOWLEDGE_INDEX_VERSION = "v2"
 MIN_RETRIEVAL_RELEVANCE = 0.35
+LEXICAL_STOP_WORDS = {
+    "a", "after", "all", "along", "and", "are", "as", "at", "before", "by",
+    "company", "complete", "details", "explain", "for", "from", "give", "have", "how",
+    "in", "information", "is", "joined", "list", "me", "of", "on", "or", "our",
+    "please", "tell", "the", "their", "to", "what", "who", "why", "with", "year",
+}
 
 
 def _index_model_name(embedding_model: str) -> str:
@@ -145,7 +153,14 @@ async def index_document(session: AsyncSession, document: KnowledgeDocument, use
     return len(units)
 
 
-async def ensure_permitted_documents_indexed(session: AsyncSession, user: User, collection_ids: list[UUID], max_documents: int = 20) -> int:
+async def ensure_permitted_documents_indexed(
+    session: AsyncSession,
+    user: User,
+    collection_ids: list[UUID],
+    max_documents: int = 20,
+    *,
+    question: str = "",
+) -> int:
     settings = get_settings()
     index_model = _index_model_name(settings.openai_embedding_model)
     query = select(KnowledgeDocument).join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id).where(
@@ -162,7 +177,13 @@ async def ensure_permitted_documents_indexed(session: AsyncSession, user: User, 
         query = query.where(access)
     if collection_ids:
         query = query.where(KnowledgeDocument.collection_id.in_(collection_ids))
-    documents = list(await session.scalars(query.order_by(KnowledgeDocument.created_at).limit(max_documents)))
+    documents = list(await session.scalars(query.order_by(KnowledgeDocument.created_at)))
+    if question:
+        documents.sort(
+            key=lambda document: (_document_lexical_score(question, document), document.created_at),
+            reverse=True,
+        )
+    documents = documents[:max_documents]
     total = 0
     for document in documents:
         total += await index_document(session, document, user)
@@ -289,3 +310,181 @@ async def expand_relevant_documents(
         remaining -= len(item["content"])
         expanded.append(item)
     return expanded
+
+
+def _lexical_terms(question: str) -> set[str]:
+    """Return useful, normalized terms for ranking whole internal documents."""
+    return {
+        term
+        for term in re.findall(r"[a-z0-9]+", question.lower())
+        if len(term) > 1 and term not in LEXICAL_STOP_WORDS
+    }
+
+
+def _document_lexical_score(question: str, document: KnowledgeDocument) -> tuple[int, int, float]:
+    """Rank likely source documents without requiring an embedding index.
+
+    The filename/category are strong signals while content frequency separates a
+    roster containing hundreds of employee records from a document that mentions
+    an employee only once.
+    """
+    terms = _lexical_terms(question)
+    filename = document.original_filename.lower()
+    category = (document.document_category or "").lower()
+    content = (document.extracted_text or "").lower()
+    matched_terms = sum(term in filename or term in category or term in content for term in terms)
+    strong_matches = sum(term in filename or term in category for term in terms)
+    frequency = sum(min(content.count(term), 100) for term in terms)
+    return strong_matches, matched_terms, float(frequency)
+
+
+MONTH_NUMBERS = {
+    name.lower(): month
+    for month, name in enumerate(
+        ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"),
+        start=1,
+    )
+}
+
+
+def _parse_record_date(value: str) -> date | None:
+    cleaned = value.strip().split(" 00:00:00", 1)[0]
+    for pattern in (
+        "%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y",
+        "%d %B %Y", "%d %b %Y", "%d-%B-%Y", "%d-%b-%Y",
+    ):
+        try:
+            return datetime.strptime(cleaned, pattern).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _minus_years(value: date, years: int) -> date:
+    try:
+        return value.replace(year=value.year - years)
+    except ValueError:
+        return value.replace(year=value.year - years, day=28)
+
+
+def apply_structured_employee_filter(question: str, chunks: list[dict], *, as_of: date | None = None) -> list[dict]:
+    """Deterministically filter spreadsheet employee records for date/tenure queries."""
+    lowered = " ".join(question.lower().split())
+    if not re.search(r"\bemployees?\b|\bstaff\b", lowered):
+        return chunks
+    after_match = re.search(
+        r"\bafter\s+(?:(?P<day>\d{1,2})[ /-])?(?P<month>january|february|march|april|may|june|july|august|september|october|november|december)(?:[ ,/-]+(?P<year>20\d{2}))?",
+        lowered,
+    )
+    requested_year = re.search(r"\b(?:in|during|joined in)\s+(20\d{2})\b", lowered)
+    tenure = re.search(r"\b(?:completed|complete|served|worked)\s+(?:at least\s+)?(\d+)\s+years?\b", lowered)
+    if not after_match and not tenure:
+        return chunks
+    today = as_of or date.today()
+    after_date: date | None = None
+    if after_match:
+        year = int(after_match.group("year") or (requested_year.group(1) if requested_year else today.year))
+        month = MONTH_NUMBERS[after_match.group("month")]
+        day = int(after_match.group("day") or 1)
+        if not after_match.group("day"):
+            day = calendar.monthrange(year, month)[1]
+        after_date = date(year, month, day)
+    tenure_cutoff = _minus_years(today, int(tenure.group(1))) if tenure else None
+    for chunk in chunks:
+        lines = (chunk.get("content") or "").splitlines()
+        records: list[tuple[str, date]] = []
+        for line in lines:
+            if not line.lstrip().lower().startswith("record "):
+                continue
+            join_match = re.search(
+                r"(?:date of joining|joining date|join date|date joined|date of join|joining dt|doj)\s*:\s*([^|]+)",
+                line,
+                flags=re.IGNORECASE,
+            )
+            joined = _parse_record_date(join_match.group(1)) if join_match else None
+            if joined:
+                records.append((line, joined))
+        if not records:
+            continue
+        matching = [
+            line for line, joined in records
+            if (after_date is None or joined > after_date)
+            and (tenure_cutoff is None or joined <= tenure_cutoff)
+            and (requested_year is None or joined.year == int(requested_year.group(1)))
+        ]
+        chunk["content"] = "\n".join(matching) if matching else "(No employee records matched all requested conditions.)"
+        chunk["structured_filter"] = True
+        chunk["source_record_count"] = len(records)
+        chunk["matching_record_count"] = len(matching)
+        chunk["filter_as_of"] = today.isoformat()
+        chunk["after_date"] = after_date.isoformat() if after_date else None
+        chunk["tenure_cutoff"] = tenure_cutoff.isoformat() if tenure_cutoff else None
+    return chunks
+
+
+async def retrieve_complete_documents(
+    session: AsyncSession,
+    user: User,
+    question: str,
+    collection_ids: list[UUID],
+    *,
+    max_documents: int = 20,
+    max_characters: int = 350_000,
+) -> list[dict]:
+    """Return complete authorized documents for list/filter/aggregate questions.
+
+    Exhaustive questions must not depend on top-k vector chunks: a low-scoring row
+    near the end of a spreadsheet is still part of the answer. This path also
+    works on the first query immediately after upload, before embeddings exist.
+    """
+    query = select(KnowledgeDocument, KnowledgeCollection).join(
+        KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id,
+    ).where(
+        KnowledgeDocument.organization_id == user.organization_id,
+        KnowledgeDocument.status == "ready",
+        KnowledgeCollection.status == "active",
+    )
+    access = await _access_filter(session, user)
+    if access is not None:
+        query = query.where(access)
+    if collection_ids:
+        query = query.where(KnowledgeDocument.collection_id.in_(collection_ids))
+    rows = (await session.execute(query)).all()
+    ranked = sorted(
+        rows,
+        key=lambda row: (_document_lexical_score(question, row[0]), row[0].created_at),
+        reverse=True,
+    )
+    positive = [row for row in ranked if _document_lexical_score(question, row[0])[1] > 0]
+    candidates = positive or ranked
+    selected = candidates[:max_documents]
+    results: list[dict] = []
+    remaining = max_characters
+    for document, collection in selected:
+        if remaining <= 0:
+            break
+        content = document.extracted_text or ""
+        excerpt = content[:remaining]
+        results.append({
+            "chunk_id": f"complete:{document.id}",
+            "chunk_index": 0,
+            "page": None,
+            "content": excerpt,
+            "document_id": str(document.id),
+            "document_name": document.original_filename,
+            "collection_id": str(collection.id),
+            "collection_name": collection.name,
+            "relevance": 1.0,
+            "complete_document": len(excerpt) == len(content),
+            "source_characters": len(content),
+            "truncated": len(excerpt) != len(content),
+        })
+        remaining -= len(excerpt)
+    included_documents = len(results)
+    omitted_documents = max(0, len(candidates) - included_documents)
+    for item in results:
+        item["relevant_document_candidates"] = len(candidates)
+        item["included_documents"] = included_documents
+        item["omitted_documents"] = omitted_documents
+        item["corpus_truncated"] = omitted_documents > 0 or bool(item["truncated"])
+    return results

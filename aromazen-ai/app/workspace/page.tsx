@@ -156,7 +156,7 @@ function WorkspaceContent() {
   const pendingKey = user ? `aromazen:pending-ai:${user.id}` : ''
   const progressMessages = ['Understanding your request', 'Planning a thorough answer', 'Checking the most relevant information', 'Reading and organizing the details', 'Verifying completeness and accuracy', 'Still working carefully on this detailed request']
   const progressIndex = Math.min(progressMessages.length - 1, Math.floor(elapsedSeconds / 10))
-  const stage = isSending ? `${elapsedSeconds < 8 && stageDetail ? stageDetail : progressMessages[progressIndex]} · ${elapsedSeconds}s` : null
+  const stage = isSending ? `${stageDetail || progressMessages[progressIndex]} · ${elapsedSeconds}s` : null
 
   useEffect(() => {
     if (!isSending) { setElapsedSeconds(0); return }
