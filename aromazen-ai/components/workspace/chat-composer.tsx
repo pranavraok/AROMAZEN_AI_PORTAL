@@ -27,11 +27,16 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
   async function handleSend() {
     const value = message.trim()
     if (!value || disabled || busy || uploading) return
-    const sent = await onSend(value, attachments, mode)
-    if (sent) {
-      setMessage('')
-      setAttachments([])
-      setMode('chat')
+    const submittedAttachments = attachments
+    const submittedMode = mode
+    setMessage('')
+    setAttachments([])
+    setMode('chat')
+    const sent = await onSend(value, submittedAttachments, submittedMode)
+    if (!sent) {
+      setMessage(value)
+      setAttachments(submittedAttachments)
+      setMode(submittedMode)
     }
   }
 

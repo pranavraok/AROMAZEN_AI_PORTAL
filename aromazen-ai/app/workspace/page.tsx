@@ -238,6 +238,22 @@ function WorkspaceContent() {
     catch (error) { notify('error', error instanceof ApiError ? error.message : `Unable to upload ${file.name}.`); return null }
   }
 
+  async function editMessage(messageId: string, revisedContent: string): Promise<boolean> {
+    if (!accessToken || !conversationId || isSending) return false
+    try {
+      await api.workspace.editMessage(accessToken, conversationId, messageId, revisedContent)
+      setMessages((current) => {
+        const editedIndex = current.findIndex((message) => message.id === messageId)
+        if (editedIndex < 0) return current
+        return current.slice(0, editedIndex + 1).map((message, index) => index === editedIndex ? { ...message, content: revisedContent } : message)
+      })
+      return await sendMessage(revisedContent, [], 'chat', { resume: true, conversationOverride: conversationId })
+    } catch (error) {
+      notify('error', error instanceof ApiError ? error.message : 'Unable to edit and regenerate this prompt.')
+      return false
+    }
+  }
+
   async function confirmEmailSend() {
     if (!accessToken || !pendingEmail || sendingEmail) return
     setSendingEmail(true)
@@ -256,6 +272,8 @@ function WorkspaceContent() {
     abortControllerRef.current = controller
     stoppedRef.current = false
     activeAnswerRef.current = ''
+    // Timestamp is captured in this user-triggered event, never during render.
+    // eslint-disable-next-line react-hooks/purity
     requestStartedAtRef.current = Date.now()
     setIsSending(true)
     setStage(mode === 'image' ? 'Creating your image...' : mode === 'email' ? 'Preparing email draft...' : attachments.length ? 'Reading attached files...' : 'Preparing answer...')
@@ -269,6 +287,8 @@ function WorkspaceContent() {
       const collectionIds = options.collectionIdsOverride ?? (knowledgeScope === 'all' ? collections.map((collection) => collection.id) : knowledgeScope === 'auto' ? [] : [knowledgeScope])
       const requestConversationId = options.conversationOverride ?? conversationId
       activeConversationRef.current = requestConversationId
+      // Timestamp is captured while handling a send, never during render.
+      // eslint-disable-next-line react-hooks/purity
       const pendingRequest: PendingRequest = { content, conversationId: requestConversationId, collectionIds, attachmentIds: attachments.map((attachment) => attachment.id), mode, startedAt: Date.now() }
       if (pendingKey) localStorage.setItem(pendingKey, JSON.stringify(pendingRequest))
       const response = await api.workspace.streamMessage(accessToken, { content, conversation_id: requestConversationId, collection_ids: collectionIds, attachment_ids: pendingRequest.attachmentIds, mode }, controller.signal)
@@ -342,6 +362,8 @@ function WorkspaceContent() {
     if (!raw) return
     let pending: PendingRequest
     try { pending = JSON.parse(raw) as PendingRequest } catch { localStorage.removeItem(pendingKey); return }
+    // Recovery age is evaluated inside an effect, never during render.
+    // eslint-disable-next-line react-hooks/purity
     if (!pending.conversationId || Date.now() - pending.startedAt > 30 * 60 * 1000) { localStorage.removeItem(pendingKey); return }
     void (async () => {
       const restored = await loadConversation(pending.conversationId as string)
@@ -357,7 +379,7 @@ function WorkspaceContent() {
   }, [accessToken, pendingKey])
 
   return <AppLayout><div className="flex h-full min-w-0 flex-col overflow-hidden bg-background">
-    <div className="flex-1 overflow-y-auto px-4 py-7 md:px-8">{isLoadingChat ? <div className="mx-auto max-w-3xl space-y-4 py-20"><div className="h-4 w-32 animate-pulse rounded bg-muted" /><div className="h-4 w-full animate-pulse rounded bg-muted/80" /><div className="h-4 w-4/5 animate-pulse rounded bg-muted/60" /></div> : messages.length === 0 ? <div className="mx-auto max-w-[760px] space-y-9 pt-8 md:pt-[9vh]"><div className="space-y-4 text-center"><BrandMark size="lg" className="mx-auto" /><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Aromazen AI</p><h1 className="text-3xl font-medium tracking-[-0.045em] text-foreground md:text-[38px]">How can I help, {firstName}?</h1><p className="mx-auto max-w-xl text-sm leading-6 text-muted-foreground">Ask a question, work with a file, create an image, send a Zoho email, or explore company knowledge available to your team.</p><p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70"><LockKeyhole className="h-3 w-3" />Your workspace follows Aromazen access controls</p></div><PromptSuggestions suggestions={suggestions} onSelect={(text, mode) => void sendMessage(text, [], mode)} /></div> : <div className="mx-auto max-w-3xl space-y-9 pb-4">{messages.map((message, index) => <ChatMessage key={message.id} role={message.role} content={message.content} attachments={message.attachments} artifacts={message.artifacts} emailBusy={sendingEmail && pendingEmail?.messageId === message.id} timestamp={new Date(message.created_at)} status={message.role === 'assistant' && index === messages.length - 1 ? stage : null} webSources={message.web_sources} sources={message.citations.map((citation) => ({ documentId: citation.document_id, collectionId: citation.collection_id, name: citation.document_name, collection: citation.collection_name, page: citation.page ?? undefined, chunk: citation.chunk_index, relevance: citation.relevance ?? 0 }))} onOpenSource={(source) => void openCitation(source)} onOpenAttachment={(attachment) => void openAttachment(attachment)} onSendEmail={(draft) => setPendingEmail({ messageId: message.id, draft })} />)}<div ref={messagesEndRef} /></div>}</div>
+    <div className="flex-1 overflow-y-auto px-4 py-7 md:px-8">{isLoadingChat ? <div className="mx-auto max-w-3xl space-y-4 py-20"><div className="h-4 w-32 animate-pulse rounded bg-muted" /><div className="h-4 w-full animate-pulse rounded bg-muted/80" /><div className="h-4 w-4/5 animate-pulse rounded bg-muted/60" /></div> : messages.length === 0 ? <div className="mx-auto max-w-[760px] space-y-9 pt-8 md:pt-[9vh]"><div className="space-y-4 text-center"><BrandMark size="lg" className="mx-auto" /><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Aromazen AI</p><h1 className="text-3xl font-medium tracking-[-0.045em] text-foreground md:text-[38px]">How can I help, {firstName}?</h1><p className="mx-auto max-w-xl text-sm leading-6 text-muted-foreground">Ask a question, work with a file, create an image, send a Zoho email, or explore company knowledge available to your team.</p><p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70"><LockKeyhole className="h-3 w-3" />Your workspace follows Aromazen access controls</p></div><PromptSuggestions suggestions={suggestions} onSelect={(text, mode) => void sendMessage(text, [], mode)} /></div> : <div className="mx-auto max-w-3xl space-y-9 pb-4">{messages.map((message, index) => <ChatMessage key={message.id} role={message.role} content={message.content} attachments={message.attachments} artifacts={message.artifacts} emailBusy={sendingEmail && pendingEmail?.messageId === message.id} timestamp={new Date(message.created_at)} status={message.role === 'assistant' && index === messages.length - 1 ? stage : null} webSources={message.web_sources} sources={message.citations.map((citation) => ({ documentId: citation.document_id, collectionId: citation.collection_id, name: citation.document_name, collection: citation.collection_name, page: citation.page ?? undefined, chunk: citation.chunk_index, relevance: citation.relevance ?? 0 }))} editable={!isSending} onEdit={(revisedContent) => editMessage(message.id, revisedContent)} onOpenSource={(source) => void openCitation(source)} onOpenAttachment={(attachment) => void openAttachment(attachment)} onSendEmail={(draft) => setPendingEmail({ messageId: message.id, draft })} />)}<div ref={messagesEndRef} /></div>}</div>
     <ChatComposer busy={isSending} onStop={() => void stopGenerating()} onSend={sendMessage} onUpload={uploadAttachment} collections={collections} knowledgeScope={knowledgeScope} onKnowledgeScopeChange={setKnowledgeScope} />
     {pendingEmail && <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Confirm email"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start justify-between gap-4"><span className="grid h-10 w-10 place-items-center rounded-full bg-amber-500/10"><AlertTriangle className="h-5 w-5 text-amber-500" /></span><button type="button" onClick={() => setPendingEmail(null)} disabled={sendingEmail} className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Cancel sending"><X className="h-4 w-4" /></button></div><h2 className="mt-4 text-lg font-semibold">Send this email through Zoho?</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">This will send the email to <span className="font-medium text-foreground">{pendingEmail.draft.to.join(', ')}</span>. Please confirm the recipient and subject are correct.</p><div className="mt-3 rounded-xl bg-muted/50 px-3 py-2 text-sm"><span className="text-muted-foreground">Subject: </span>{pendingEmail.draft.subject}</div><div className="mt-5 flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setPendingEmail(null)} disabled={sendingEmail}>Cancel</Button><Button type="button" onClick={() => void confirmEmailSend()} disabled={sendingEmail}><Mail className="mr-2 h-4 w-4" />{sendingEmail ? 'Sending…' : 'Send email'}</Button></div></div></div>}
   </div></AppLayout>

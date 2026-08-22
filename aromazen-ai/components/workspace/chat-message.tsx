@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import Image from 'next/image'
-import { Check, ChevronDown, Copy, Download, ExternalLink, FileText, Globe2, Library, Sparkles } from 'lucide-react'
-import { MarkdownContent } from '@/components/workspace/markdown-content'
+import { Check, ChevronDown, Copy, Download, ExternalLink, FileText, Globe2, Library, Pencil, Sparkles, X } from 'lucide-react'
+import { MarkdownContent, markdownToPlainText } from '@/components/workspace/markdown-content'
 import type { ChatAttachment } from '@/lib/api/types'
 import { BrandMark } from '@/components/brand-mark'
 import { EmailDraftCard, UsageChart } from '@/components/workspace/chat-artifacts'
@@ -32,11 +32,16 @@ interface ChatMessageProps {
   artifacts?: ChatArtifacts
   emailBusy?: boolean
   onSendEmail?: (draft: EmailDraft) => void
+  editable?: boolean
+  onEdit?: (content: string) => Promise<boolean>
 }
 
-export function ChatMessage({ role, content, sources = [], webSources = [], status, onOpenSource, attachments = [], onOpenAttachment, artifacts = {}, emailBusy = false, onSendEmail }: ChatMessageProps) {
+export function ChatMessage({ role, content, sources = [], webSources = [], status, onOpenSource, attachments = [], onOpenAttachment, artifacts = {}, emailBusy = false, onSendEmail, editable = false, onEdit }: ChatMessageProps) {
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editValue, setEditValue] = useState(content)
+  const [savingEdit, setSavingEdit] = useState(false)
   const usedSources = useMemo(() => {
     const indexes = [...content.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1]) - 1)
     const seen = new Set<string>()
@@ -57,13 +62,24 @@ export function ChatMessage({ role, content, sources = [], webSources = [], stat
   }
 
   async function copyAnswer() {
-    await navigator.clipboard.writeText(content)
+    await navigator.clipboard.writeText(markdownToPlainText(content))
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1600)
   }
 
+  async function saveEdit() {
+    const revised = editValue.trim()
+    if (!revised || revised === content || !onEdit) { setEditing(false); return }
+    setSavingEdit(true)
+    try {
+      if (await onEdit(revised)) setEditing(false)
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   if (role === 'user') {
-    return <div className="flex justify-end"><div className="max-w-[82%] space-y-2"><div className="flex flex-wrap justify-end gap-2">{attachments.map((attachment) => <button type="button" key={attachment.id} onClick={() => onOpenAttachment?.(attachment)} className="flex max-w-56 items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-left text-xs text-foreground hover:bg-muted"><FileText className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{attachment.name}</span></button>)}</div><div className="rounded-[22px] rounded-br-md border border-white/[0.035] bg-muted px-4 py-3 text-[15px] leading-6 text-foreground shadow-sm">{content}</div></div></div>
+    return <div className="flex justify-end"><div className="group max-w-[82%] space-y-2"><div className="flex flex-wrap justify-end gap-2">{attachments.map((attachment) => <button type="button" key={attachment.id} onClick={() => onOpenAttachment?.(attachment)} className="flex max-w-56 items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-left text-xs text-foreground hover:bg-muted"><FileText className="h-4 w-4 shrink-0 text-primary" /><span className="truncate">{attachment.name}</span></button>)}</div>{editing ? <div className="w-[min(42rem,78vw)] rounded-[22px] rounded-br-md border border-border bg-muted p-3 shadow-sm"><textarea value={editValue} onChange={(event) => setEditValue(event.target.value)} disabled={savingEdit} rows={Math.min(8, Math.max(2, editValue.split('\n').length))} autoFocus className="max-h-52 w-full resize-y bg-transparent px-1 text-[15px] leading-6 text-foreground outline-none" onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void saveEdit() } if (event.key === 'Escape') { setEditValue(content); setEditing(false) } }} /><div className="mt-2 flex justify-end gap-2"><button type="button" onClick={() => { setEditValue(content); setEditing(false) }} disabled={savingEdit} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground hover:bg-background hover:text-foreground"><X className="h-3.5 w-3.5" />Cancel</button><button type="button" onClick={() => void saveEdit()} disabled={savingEdit || !editValue.trim()} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-foreground px-3 text-xs text-background disabled:opacity-50"><Check className="h-3.5 w-3.5" />{savingEdit ? 'Saving…' : 'Save & regenerate'}</button></div></div> : <><div className="rounded-[22px] rounded-br-md border border-white/[0.035] bg-muted px-4 py-3 text-[15px] leading-6 text-foreground shadow-sm">{content}</div>{editable && onEdit && <div className="flex justify-end opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"><button type="button" onClick={() => { setEditValue(content); setEditing(true) }} className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Edit this prompt"><Pencil className="h-3.5 w-3.5" />Edit</button></div>}</>}</div></div>
   }
 
   return <div className="flex w-full gap-3.5">

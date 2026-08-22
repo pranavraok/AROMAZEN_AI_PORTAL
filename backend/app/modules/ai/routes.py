@@ -47,6 +47,10 @@ IMAGE_MIME_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/j
 class StoppedResponseRequest(BaseModel):
     content: str = Field(default="", max_length=100000)
 
+
+class EditMessageRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=100000)
+
 SYSTEM_PROMPT = """You are AROMAZEN AI, a careful general-purpose assistant and permission-aware internal company assistant. Accuracy and completeness take priority over speed or brevity.
 Answer ordinary general questions directly from your broad knowledge. Never mention a database, knowledge base, missing internal documents, retrieval, or excerpts unless the user's question is specifically about AROMAZEN or supplied files and the absence of a fact materially affects the answer. Do not preface normal answers with disclaimers about sources.
 When the user asks about AROMAZEN, its internal operations, policies, people, products, or documents, use the supplied permission-filtered company evidence as the authoritative source. Use bracket citations such as [1] and [2] only for claims supported by that evidence, and never invent a citation. If some requested company-specific fields are genuinely absent, answer everything supported first and identify only the specific missing fields at the end.
@@ -575,6 +579,44 @@ async def conversation_messages(
     } for message in messages]
 
 
+@router.patch("/conversations/{conversation_id}/messages/{message_id}")
+async def edit_conversation_message(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    payload: EditMessageRequest,
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    conversation = await _conversation_for_user(session, conversation_id, user)
+    messages = list(await session.scalars(
+        select(AIMessage).where(AIMessage.conversation_id == conversation.id).order_by(AIMessage.created_at, AIMessage.id)
+    ))
+    edited_index = next((index for index, message in enumerate(messages) if message.id == message_id), None)
+    if edited_index is None or messages[edited_index].role != "user":
+        raise HTTPException(status_code=404, detail="Editable prompt not found.")
+    revised_content = payload.content.strip()
+    if not revised_content:
+        raise HTTPException(status_code=422, detail="Please enter a message.")
+    edited_message = messages[edited_index]
+    downstream_ids = [message.id for message in messages[edited_index + 1:]]
+    stored_files = list(await session.scalars(
+        select(AIChatAttachment.stored_filename).where(AIChatAttachment.message_id.in_(downstream_ids))
+    )) if downstream_ids else []
+    if downstream_ids:
+        await session.execute(delete(AIMessage).where(AIMessage.id.in_(downstream_ids)))
+    edited_message.content = revised_content
+    if edited_index == 0:
+        conversation.title = revised_content[:197] + ("..." if len(revised_content) > 197 else "")
+    conversation.updated_at = datetime.now(timezone.utc)
+    await session.commit()
+    storage_root = Path(get_settings().upload_storage_path).resolve()
+    for stored_filename in stored_files:
+        candidate = (storage_root / stored_filename).resolve()
+        if storage_root in candidate.parents:
+            candidate.unlink(missing_ok=True)
+    return {"id": str(edited_message.id), "content": edited_message.content}
+
+
 @router.patch("/conversations/{conversation_id}")
 async def update_conversation(
     conversation_id: uuid.UUID,
@@ -792,6 +834,8 @@ async def stream_message(
         for attachment in attachments:
             attachment.conversation_id = conversation.id
             attachment.message_id = user_message.id
+    elif not attachments:
+        attachments = list(await session.scalars(select(AIChatAttachment).where(AIChatAttachment.message_id == user_message.id)))
     conversation.updated_at = datetime.now(timezone.utc)
     await session.commit()
     conversation_id = conversation.id
@@ -800,7 +844,7 @@ async def stream_message(
     organization_id = user.organization_id
     department_id = user.department_id
     collection_ids = list(payload.collection_ids)
-    attachment_ids = list(payload.attachment_ids)
+    attachment_ids = [attachment.id for attachment in attachments]
     request_mode = payload.mode
 
     async def generate() -> AsyncIterator[str]:

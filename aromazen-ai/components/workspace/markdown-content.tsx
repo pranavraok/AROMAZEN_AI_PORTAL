@@ -1,4 +1,7 @@
-import type { ReactNode } from 'react'
+'use client'
+
+import { useState, type ReactNode } from 'react'
+import { Check, Copy } from 'lucide-react'
 
 interface MarkdownContentProps {
   content: string
@@ -37,6 +40,41 @@ function cells(line: string) {
   return line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim())
 }
 
+export function markdownToPlainText(content: string) {
+  return content
+    .replace(/```(?:[^\n]*)\n([\s\S]*?)```/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '$1 ($2)')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*>\s?/gm, '')
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    .replace(/^\s*(\d+)[.)]\s+/gm, '$1. ')
+    .trim()
+}
+
+function TableBlock({ headers, rows, onCitation }: { headers: string[]; rows: string[][]; onCitation?: (citationNumber: number) => void }) {
+  const [copied, setCopied] = useState(false)
+
+  async function copyTable() {
+    const tableText = [headers, ...rows]
+      .map((row) => row.map((cell) => markdownToPlainText(cell)).join('\t'))
+      .join('\n')
+    await navigator.clipboard.writeText(tableText)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1600)
+  }
+
+  return <div className="overflow-hidden rounded-xl border border-border">
+    <div className="flex items-center justify-end border-b border-border bg-muted/30 px-2 py-1.5">
+      <button type="button" onClick={() => void copyTable()} className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-background hover:text-foreground" aria-label="Copy table as plain text">{copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{copied ? 'Copied' : 'Copy table'}</button>
+    </div>
+    <div className="overflow-x-auto"><table className="w-full border-collapse text-left text-sm"><thead className="bg-muted/60"><tr>{headers.map((header, cellIndex) => <th key={cellIndex} className="border-b border-border px-3 py-2 font-semibold">{inline(header, onCitation)}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={rowIndex} className="border-b border-border/70 last:border-0">{row.map((cell, cellIndex) => <td key={cellIndex} className="px-3 py-2 align-top text-foreground/90">{inline(cell, onCitation)}</td>)}</tr>)}</tbody></table></div>
+  </div>
+}
+
 export function MarkdownContent({ content, onCitation }: MarkdownContentProps) {
   const lines = content.replace(/\r\n/g, '\n').split('\n')
   const blocks: ReactNode[] = []
@@ -58,7 +96,7 @@ export function MarkdownContent({ content, onCitation }: MarkdownContentProps) {
       const rows: string[][] = []
       index += 2
       while (index < lines.length && lines[index].includes('|') && lines[index].trim()) { rows.push(cells(lines[index])); index += 1 }
-      blocks.push(<div key={`table-${index}`} className="overflow-x-auto rounded-xl border border-border"><table className="w-full border-collapse text-left text-sm"><thead className="bg-muted/60"><tr>{headers.map((header, cellIndex) => <th key={cellIndex} className="border-b border-border px-3 py-2 font-semibold">{inline(header, onCitation)}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={rowIndex} className="border-b border-border/70 last:border-0">{row.map((cell, cellIndex) => <td key={cellIndex} className="px-3 py-2 align-top text-foreground/90">{inline(cell, onCitation)}</td>)}</tr>)}</tbody></table></div>)
+      blocks.push(<TableBlock key={`table-${index}`} headers={headers} rows={rows} onCitation={onCitation} />)
       continue
     }
     const heading = line.match(/^(#{1,3})\s+(.+)$/)
