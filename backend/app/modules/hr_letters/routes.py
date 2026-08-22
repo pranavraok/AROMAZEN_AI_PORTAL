@@ -42,7 +42,7 @@ from app.modules.identity.authorization import department_matches, require_depar
 from app.db.session import get_db_session
 from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, KnowledgeDocument, User
 from app.modules.knowledge.storage import organized_storage_name
-from app.modules.knowledge.templates import ensure_template_collection
+from app.modules.knowledge.templates import department_knowledge_collection
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.settings.service import provider_runtime_settings
@@ -843,12 +843,9 @@ async def replace_letter_template(
     if len(content) > get_settings().max_upload_size_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail="The HR template is too large.")
     template_id = uuid.uuid4()
-    collection = await ensure_template_collection(
-        session,
-        user.organization_id,
-        created_by_user_id=user.id,
-        department_id=user.department_id,
-    )
+    collection = await department_knowledge_collection(session, user.organization_id, "hr")
+    if collection is None:
+        raise HTTPException(status_code=422, detail="Create the HR department first so its Knowledge Base collection is available.")
     previous_documents = list(await session.scalars(select(KnowledgeDocument).where(
         KnowledgeDocument.organization_id == user.organization_id,
         KnowledgeDocument.document_category == _template_category(template_key),

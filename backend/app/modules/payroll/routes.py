@@ -24,10 +24,10 @@ from openpyxl.utils import get_column_letter
 from app.core.config import get_settings
 from app.db.session import SessionLocal, get_db_session
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
-from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User
+from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User, collection_departments
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.storage import organized_storage_name
-from app.modules.knowledge.templates import TEMPLATE_COLLECTION_SLUG, ensure_template_collection
+from app.modules.knowledge.templates import department_knowledge_collection
 from app.modules.payroll.attendance_rules import DEFAULT_LATE_GRACE_MINUTES, apply_monthly_late_policy
 from app.modules.payroll.engine import COLUMNS, create_excel_template, generate_salary_pdf, password_for, read_salary_excel, salary_template_form_fields, validate_template_pdf
 
@@ -60,12 +60,14 @@ async def _knowledge_unit_templates(session: AsyncSession, organization_id: uuid
     documents = list(await session.scalars(
         select(KnowledgeDocument)
         .join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id)
+        .join(collection_departments, collection_departments.c.collection_id == KnowledgeCollection.id)
+        .join(Department, Department.id == collection_departments.c.department_id)
         .where(
             KnowledgeDocument.organization_id == organization_id,
             KnowledgeDocument.status == "ready",
             KnowledgeDocument.document_category == "salary_slip_template",
             KnowledgeCollection.status == "active",
-            KnowledgeCollection.slug == TEMPLATE_COLLECTION_SLUG,
+            Department.slug.in_(["hr", "human-resources"]),
         )
         .order_by(KnowledgeDocument.version.desc(), KnowledgeDocument.created_at.desc())
     ))
@@ -127,7 +129,7 @@ def _template_response(template: PayrollTemplate) -> dict:
 def _knowledge_template_response(unit: int, document: KnowledgeDocument) -> dict:
     path = Path(get_settings().upload_storage_path) / document.stored_filename
     fields = salary_template_form_fields(path) if path.is_file() else []
-    return {"id": str(document.id), "name": f"Unit {unit}", "original_filename": document.original_filename, "is_active": True, "created_at": document.created_at.isoformat(), "unit_number": unit, "source": "Portal Templates knowledge", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
+    return {"id": str(document.id), "name": f"Unit {unit}", "original_filename": document.original_filename, "is_active": True, "created_at": document.created_at.isoformat(), "unit_number": unit, "source": "Human Resources knowledge", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
 
 
 @router.get("/templates")
@@ -162,12 +164,9 @@ async def upload_template(
         validate_template_pdf(content)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    collection = await ensure_template_collection(
-        session,
-        user.organization_id,
-        created_by_user_id=user.id,
-        department_id=user.department_id,
-    )
+    collection = await department_knowledge_collection(session, user.organization_id, "hr")
+    if collection is None:
+        raise HTTPException(status_code=422, detail="Create the HR department first so its Knowledge Base collection is available.")
     template_id = uuid.uuid4()
     current_documents = list((await session.scalars(select(KnowledgeDocument).where(
         KnowledgeDocument.organization_id == user.organization_id,
@@ -286,7 +285,7 @@ async def create_batch(
     missing_units = [unit for unit in used_units if unit not in unit_templates]
     if missing_units:
         names = ", ".join(f"UNIT-{unit}_SalarySlip.pdf" for unit in missing_units)
-        raise HTTPException(status_code=422, detail=f"Upload the missing template(s) to Portal Templates: {names}.")
+        raise HTTPException(status_code=422, detail=f"Upload the missing template(s) to the HR Knowledge Base: {names}.")
     duplicate_email_count = sum(count - 1 for count in Counter(item["personal_email"] for item in employee_rows).values() if count > 1)
     batch_id = uuid.uuid4()
     workbook_name = organized_storage_name(

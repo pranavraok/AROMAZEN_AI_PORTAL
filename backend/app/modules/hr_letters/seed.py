@@ -9,10 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.modules.identity.models import Department, KnowledgeDocument, Organization, User
+from app.modules.identity.models import KnowledgeDocument, Organization, User
 from app.modules.knowledge.extraction import extract_text
 from app.modules.knowledge.storage import organized_storage_name
-from app.modules.knowledge.templates import ensure_template_collection
+from app.modules.knowledge.templates import cleanup_legacy_template_collection, department_knowledge_collection
 
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "assets" / "hr_letters"
 TEMPLATE_KEYS = {
@@ -29,18 +29,10 @@ async def seed_hr_letter_templates(session: AsyncSession) -> None:
     storage.mkdir(parents=True, exist_ok=True)
     for organization in organizations:
         owner = await session.scalar(select(User).where(User.organization_id == organization.id).order_by(User.created_at))
-        template_departments = list(await session.scalars(select(Department).where(
-            Department.organization_id == organization.id,
-            Department.slug.in_(["hr", "r-d"]),
-        )))
-        collection = await ensure_template_collection(
-            session,
-            organization.id,
-            created_by_user_id=owner.id if owner else None,
-            department_id=template_departments[0].id if template_departments else None,
-        )
-        for department in template_departments[1:]:
-            await ensure_template_collection(session, organization.id, department_id=department.id)
+        await cleanup_legacy_template_collection(session, organization.id)
+        collection = await department_knowledge_collection(session, organization.id, "hr")
+        if collection is None:
+            continue
         for asset in ASSET_ROOT.iterdir():
             display_name = asset.name.replace("-template", " Template").replace("-", " ").title().replace(".Docx", ".docx").replace(".Pdf", ".pdf")
             category = f"hr_letter_template:{TEMPLATE_KEYS[asset.name]}"

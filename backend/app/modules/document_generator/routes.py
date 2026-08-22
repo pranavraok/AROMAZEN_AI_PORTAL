@@ -19,12 +19,11 @@ from app.db.session import get_db_session
 from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_cost
 from app.modules.document_generator.engine import coa_parameter_rows, field_schema, generate_docx, normalise, read_excel
 from app.modules.identity.authorization import require_department, require_permissions
-from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, DocumentGeneration, KnowledgeCollection, KnowledgeDocument, User
+from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, DocumentGeneration, KnowledgeCollection, KnowledgeDocument, User, collection_departments
 from app.modules.settings.service import provider_runtime_settings
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.routes import can_access_collection
 from app.modules.knowledge.storage import organized_storage_name
-from app.modules.knowledge.templates import TEMPLATE_COLLECTION_SLUG
 
 router = APIRouter(dependencies=[Depends(require_department("r-d"))])
 
@@ -207,13 +206,19 @@ def _type_for(name: str) -> str:
 async def _template(session: AsyncSession, user: User, template_id: str) -> tuple[KnowledgeDocument, KnowledgeCollection]:
     document = await session.get(KnowledgeDocument, template_id)
     collection = await session.get(KnowledgeCollection, document.collection_id) if document else None
+    belongs_to_rnd = bool(await session.scalar(select(collection_departments.c.collection_id).join(
+        Department, Department.id == collection_departments.c.department_id
+    ).where(
+        collection_departments.c.collection_id == collection.id,
+        Department.slug == "r-d",
+    ))) if collection else False
     if (
         not document
         or not collection
         or document.organization_id != user.organization_id
         or document.status != "ready"
         or document.document_category != "document_template"
-        or collection.slug != TEMPLATE_COLLECTION_SLUG
+        or not belongs_to_rnd
         or Path(document.original_filename).suffix.lower() != ".docx"
     ):
         raise HTTPException(status_code=404, detail="Word template not found.")
@@ -225,13 +230,15 @@ async def _template(session: AsyncSession, user: User, template_id: str) -> tupl
 @router.get("/templates")
 async def list_templates(user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> list[dict]:
     await _require_rnd(session, user)
-    query = select(KnowledgeDocument, KnowledgeCollection).join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id).where(
+    query = select(KnowledgeDocument, KnowledgeCollection).join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id).join(
+        collection_departments, collection_departments.c.collection_id == KnowledgeCollection.id
+    ).join(Department, Department.id == collection_departments.c.department_id).where(
         KnowledgeDocument.organization_id == user.organization_id,
         KnowledgeDocument.status == "ready",
         KnowledgeDocument.document_category == "document_template",
         KnowledgeDocument.original_filename.ilike("%.docx"),
         KnowledgeCollection.status == "active",
-        KnowledgeCollection.slug == TEMPLATE_COLLECTION_SLUG,
+        Department.slug == "r-d",
     ).order_by(KnowledgeDocument.created_at.desc())
     result = []
     for document, collection in (await session.execute(query)).all():

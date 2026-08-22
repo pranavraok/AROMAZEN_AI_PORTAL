@@ -15,7 +15,6 @@ from app.modules.identity.models import Department, KnowledgeCollection, Knowled
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.knowledge.storage import organized_storage_name, safe_storage_segment
-from app.modules.knowledge.templates import ensure_template_collection
 
 router = APIRouter()
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".pptx"}
@@ -230,12 +229,6 @@ async def upload_document(
     if normalized_category == "document_template":
         if extension != ".docx":
             raise HTTPException(status_code=422, detail="Document templates must be uploaded as DOCX files.")
-        collection = await ensure_template_collection(
-            session,
-            user.organization_id,
-            created_by_user_id=user.id,
-            department_id=user.department_id,
-        )
     settings = get_settings()
     destination_root = Path(settings.upload_storage_path)
     destination_root.mkdir(parents=True, exist_ok=True)

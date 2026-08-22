@@ -118,7 +118,7 @@ curl -fsS https://ai.aromazenind.com/api/v1/health
 
 Open `https://ai.aromazenind.com`, sign in as the first Super Admin and immediately change/secure the temporary credentials. Then clear `BOOTSTRAP_OWNER_PASSWORD` in `.env.production` and run `deploy.sh` again. Existing data is preserved.
 
-New files in `/srv/aromazen/uploads` use readable, collision-safe paths organized by purpose, organization, category and version. For example, an HR template is stored as `templates/<organization-id>/hr-letters/<template-key>/<readable-name>--v003--<short-id>.docx`. Keep the database `stored_filename` value as the authoritative relative path; do not rename files directly on the server. Template uploads are indexed in the protected `Portal Templates` Knowledge Base collection, and replacements remain available there as superseded versions for audit history.
+New files in `/srv/aromazen/uploads` use readable, collision-safe paths organized by purpose, organization, category and version. For example, an HR template is stored as `templates/<organization-id>/hr-letters/<template-key>/<readable-name>--v003--<short-id>.docx`. Keep the database `stored_filename` value as the authoritative relative path; do not rename files directly on the server. Template records remain inside the automatically-created Knowledge Base collection for their department (for example, HR or R&D), and replacements remain available there as superseded versions for audit history.
 
 ## 7. Create pilot access
 

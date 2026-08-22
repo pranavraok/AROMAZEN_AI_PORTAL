@@ -33,6 +33,9 @@ function formatSize(bytes: number) {
 function folderLabel(doc: KnowledgeDocument) {
   const cat = doc.document_category ?? 'general'
   if (cat.startsWith('other:')) return cat.slice(6)
+  if (cat.startsWith('hr_letter_template:')) return `HR letter template · ${cat.slice('hr_letter_template:'.length).replaceAll('_', ' ')}`
+  if (cat === 'salary_slip_template') return 'Salary-slip template'
+  if (cat === 'document_template') return 'Document template'
   return FOLDER_DEFINITIONS.find((f) => f.key === cat)?.label ?? cat
 }
 

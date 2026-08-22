@@ -29,7 +29,7 @@ const DEFAULT_FOLDERS = [
   { key: 'leave_rule', label: 'Leave rule / letter', icon: Shield },
   { key: 'hr_policy', label: 'HR policy', icon: Shield },
   { key: 'other', label: 'Other', icon: Folder },
-  { key: 'document_template', label: 'Document template', icon: FileText },
+  { key: 'templates', label: 'Templates', icon: FileText, categories: ['document_template', 'salary_slip_template', 'hr_letter_template:offer', 'hr_letter_template:appointment', 'hr_letter_template:spot_appreciation', 'hr_letter_template:special_increment'] },
 ] as const
 
 type AccessFilter = 'all' | 'company-wide' | 'my-department'
@@ -78,9 +78,7 @@ export default function KnowledgePage() {
     setIsUploading(true)
     try {
       const category = metadata.document_category
-      const templateCollection = category === 'document_template' ? collections.find((item) => item.slug === 'portal-templates') : undefined
-      const destinationCollectionId = templateCollection?.id ?? pendingUpload.collectionId
-      const result = await api.knowledge.uploadDocument(accessToken, destinationCollectionId, pendingUpload.file, {
+      const result = await api.knowledge.uploadDocument(accessToken, pendingUpload.collectionId, pendingUpload.file, {
         document_category: category,
         expiry_date: metadata.expiry_date || undefined,
         reminder_days_before: Number(metadata.reminder_days_before) || 30,
@@ -88,7 +86,7 @@ export default function KnowledgePage() {
         is_company_wide: metadata.is_company_wide,
       })
       notify('success', `${result.name} is ready to use.`)
-      setCollections((current) => current.map((collection) => collection.id === destinationCollectionId ? { ...collection, document_count: collection.document_count + 1 } : collection))
+      setCollections((current) => current.map((collection) => collection.id === pendingUpload.collectionId ? { ...collection, document_count: collection.document_count + 1 } : collection))
       setPendingUpload(null)
     } catch (reason) { notify('error', reason instanceof ApiError ? reason.message : 'Unable to upload document.') }
     finally { setIsUploading(false) }
@@ -117,8 +115,9 @@ export default function KnowledgePage() {
       <div className="mt-3 grid grid-cols-2 gap-1.5">
         {DEFAULT_FOLDERS.map((folder) => {
           const Icon = folder.icon
-          const count = collection.category_counts?.[folder.key] ?? 0
-          return <Link key={folder.key} href={`/knowledge/${collection.slug}?categories=${folder.key}`} className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground">
+          const folderCategories = 'categories' in folder ? folder.categories : [folder.key]
+          const count = folderCategories.reduce((total, category) => total + (collection.category_counts?.[category] ?? 0), 0)
+          return <Link key={folder.key} href={`/knowledge/${collection.slug}?categories=${folderCategories.join(',')}`} className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground">
             <Icon className="h-3 w-3 shrink-0" />
             <span className="truncate">{folder.label}</span>
             <span className="ml-auto shrink-0 rounded-full bg-background/50 px-1.5 py-0.5 text-[10px] font-medium tabular-nums">{count}</span>
