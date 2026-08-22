@@ -16,7 +16,7 @@ import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -27,7 +27,7 @@ from app.modules.ai.providers import AIProviderRouter, OpenAIImageGenerator, Pro
 from app.modules.ai.rag import apply_structured_employee_filter, retrieve_complete_documents
 from app.modules.ai.schemas import ConversationUpdateRequest, EmailSendRequest, StreamChatRequest
 from app.modules.identity.authorization import department_matches, require_permissions
-from app.modules.identity.models import AIChatAttachment, AIConversation, AIMessage, AIUsageEvent, AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, User
+from app.modules.identity.models import AIChatAttachment, AIConversation, AIMessage, AIUsageEvent, AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PortalNotification, User
 from app.modules.identity.service import permission_keys_for_user, role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.knowledge.storage import organized_storage_name
@@ -35,6 +35,7 @@ from app.modules.knowledge.routes import can_access_collection
 from app.modules.settings.service import organization_settings, provider_runtime_settings
 from app.modules.assets.models import AssetNotificationSetting, ITAsset
 from app.modules.assets.routes import maintenance_status
+from app.modules.notifications.service import notification_response, sync_live_notifications
 
 router = APIRouter()
 logger = structlog.get_logger(__name__)
@@ -412,7 +413,64 @@ async def usage_notifications(
             limit = settings.daily_ai_request_limit if period == "daily" else settings.monthly_ai_request_limit
             alerts.append({"id": f"user-{row['id']}-{period}", "title": f"{row['full_name']} · {period} usage", "message": f"{value:,} of {limit:,} requests used.", "severity": "critical" if value >= limit else "warning", "created_at": datetime.now(timezone.utc).isoformat()})
 
-    return {"notifications": alerts, "unread_count": len(alerts)}
+    await sync_live_notifications(session, user=user, alerts=alerts)
+    await session.commit()
+    notifications = list(await session.scalars(
+        select(PortalNotification)
+        .where(
+            PortalNotification.organization_id == user.organization_id,
+            PortalNotification.user_id == user.id,
+        )
+        .order_by(PortalNotification.created_at.desc())
+        .limit(100)
+    ))
+    unread_count = await session.scalar(select(func.count(PortalNotification.id)).where(
+        PortalNotification.organization_id == user.organization_id,
+        PortalNotification.user_id == user.id,
+        PortalNotification.read_at.is_(None),
+    ))
+    return {
+        "notifications": [notification_response(item) for item in notifications],
+        "unread_count": unread_count or 0,
+    }
+
+
+@router.patch("/notifications/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: uuid.UUID,
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    notification = await session.scalar(select(PortalNotification).where(
+        PortalNotification.id == notification_id,
+        PortalNotification.organization_id == user.organization_id,
+        PortalNotification.user_id == user.id,
+    ))
+    if notification is None:
+        raise HTTPException(status_code=404, detail="Notification not found.")
+    if notification.read_at is None:
+        notification.read_at = datetime.now(timezone.utc)
+        await session.commit()
+        await session.refresh(notification)
+    return notification_response(notification)
+
+
+@router.post("/notifications/read-all")
+async def mark_all_notifications_read(
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    result = await session.execute(
+        update(PortalNotification)
+        .where(
+            PortalNotification.organization_id == user.organization_id,
+            PortalNotification.user_id == user.id,
+            PortalNotification.read_at.is_(None),
+        )
+        .values(read_at=datetime.now(timezone.utc))
+    )
+    await session.commit()
+    return {"updated": result.rowcount or 0}
 
 
 async def _rate_limit(request: Request, user: User) -> None:

@@ -291,10 +291,12 @@ export interface UsageNotification {
   id: string
   title: string
   message: string
-  severity: 'warning' | 'critical'
+  severity: 'info' | 'warning' | 'critical'
   created_at: string
-  kind?: 'usage' | 'document_reminder' | 'asset_maintenance'
+  kind?: 'usage' | 'document_reminder' | 'asset_maintenance' | 'knowledge_document_added'
   href?: string
+  is_read: boolean
+  read_at: string | null
 }
 
 export type AssetStatus = 'Active' | 'Spare' | 'Under maintenance' | 'Repair needed' | 'Recovery required' | 'Lost' | 'Scrap proposed' | 'Approved for scrap' | 'Scrapped' | 'Disposed'

@@ -70,6 +70,25 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class PortalNotification(Base):
+    __tablename__ = "portal_notifications"
+    __table_args__ = (
+        UniqueConstraint("user_id", "dedupe_key", name="uq_portal_notifications_user_dedupe"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(60), index=True)
+    title: Mapped[str] = mapped_column(String(240))
+    message: Mapped[str] = mapped_column(Text())
+    severity: Mapped[str] = mapped_column(String(24), default="info")
+    href: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    dedupe_key: Mapped[str] = mapped_column(String(500))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Role(Base):
     __tablename__ = "roles"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

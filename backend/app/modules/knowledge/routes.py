@@ -15,6 +15,7 @@ from app.modules.identity.models import Department, KnowledgeCollection, Knowled
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.knowledge.storage import organized_storage_name, safe_storage_segment
+from app.modules.notifications.service import create_knowledge_upload_notifications
 
 router = APIRouter()
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".pptx"}
@@ -295,6 +296,12 @@ async def upload_document(
         for previous in previous_template_documents:
             if previous.status == "ready":
                 previous.status = "superseded"
+        await create_knowledge_upload_notifications(
+            session,
+            document=document,
+            collection=collection,
+            actor=user,
+        )
         await session.commit()
     except ExtractionError:
         document.status = "failed"
