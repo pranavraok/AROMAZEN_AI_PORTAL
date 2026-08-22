@@ -23,6 +23,8 @@ from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, Do
 from app.modules.settings.service import provider_runtime_settings
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.routes import can_access_collection
+from app.modules.knowledge.storage import organized_storage_name
+from app.modules.knowledge.templates import TEMPLATE_COLLECTION_SLUG
 
 router = APIRouter(dependencies=[Depends(require_department("r-d"))])
 
@@ -205,7 +207,15 @@ def _type_for(name: str) -> str:
 async def _template(session: AsyncSession, user: User, template_id: str) -> tuple[KnowledgeDocument, KnowledgeCollection]:
     document = await session.get(KnowledgeDocument, template_id)
     collection = await session.get(KnowledgeCollection, document.collection_id) if document else None
-    if not document or not collection or document.organization_id != user.organization_id or Path(document.original_filename).suffix.lower() != ".docx":
+    if (
+        not document
+        or not collection
+        or document.organization_id != user.organization_id
+        or document.status != "ready"
+        or document.document_category != "document_template"
+        or collection.slug != TEMPLATE_COLLECTION_SLUG
+        or Path(document.original_filename).suffix.lower() != ".docx"
+    ):
         raise HTTPException(status_code=404, detail="Word template not found.")
     if not await can_access_collection(session, user, collection):
         raise HTTPException(status_code=403, detail="You do not have access to this template.")
@@ -218,9 +228,10 @@ async def list_templates(user: User = Depends(require_permissions("ai.workspace.
     query = select(KnowledgeDocument, KnowledgeCollection).join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id).where(
         KnowledgeDocument.organization_id == user.organization_id,
         KnowledgeDocument.status == "ready",
+        KnowledgeDocument.document_category == "document_template",
         KnowledgeDocument.original_filename.ilike("%.docx"),
         KnowledgeCollection.status == "active",
-        KnowledgeCollection.name.ilike("%R&D%"),
+        KnowledgeCollection.slug == TEMPLATE_COLLECTION_SLUG,
     ).order_by(KnowledgeDocument.created_at.desc())
     result = []
     for document, collection in (await session.execute(query)).all():
@@ -438,7 +449,6 @@ async def generate(
     if not template_path.is_file():
         raise HTTPException(status_code=404, detail="The stored Word template is unavailable.")
     generated_id = uuid.uuid4()
-    output_stored = f"generated/{generated_id}.docx"
     product = fields.get("product_name") or fields.get("product_identifier") or document_type.upper()
     safe_product = re.sub(r"[^A-Za-z0-9_-]+", "-", product).strip("-")[:80] or document_type.upper()
     roles = await role_keys_for_user(session, user.id)
@@ -448,6 +458,14 @@ async def generate(
     requested_name = Path(output_filename or "").stem
     safe_requested_name = re.sub(r"[^A-Za-z0-9 _-]+", "", requested_name).strip()[:120]
     output_name = f"{safe_requested_name}.docx" if safe_requested_name else f"{safe_product}-{document_type.upper()}-DRAFT.docx"
+    output_stored = organized_storage_name(
+        "generated-documents",
+        user.organization_id,
+        output_name,
+        category=document_type,
+        identifier=generated_id,
+    )
+    (storage / output_stored).parent.mkdir(parents=True, exist_ok=True)
     warnings = generate_docx(template_path, storage / output_stored, document_type, fields, rows)
     if document_type == "coa" and fields.get("manufacturing_date") and fields.get("expiry_date"):
         try:

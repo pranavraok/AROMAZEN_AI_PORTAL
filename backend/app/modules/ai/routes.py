@@ -30,6 +30,7 @@ from app.modules.identity.authorization import department_matches, require_permi
 from app.modules.identity.models import AIChatAttachment, AIConversation, AIMessage, AIUsageEvent, AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, User
 from app.modules.identity.service import permission_keys_for_user, role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
+from app.modules.knowledge.storage import organized_storage_name
 from app.modules.knowledge.routes import can_access_collection
 from app.modules.settings.service import organization_settings, provider_runtime_settings
 from app.modules.assets.models import AssetNotificationSetting, ITAsset
@@ -592,7 +593,14 @@ async def upload_chat_attachment(
         raise HTTPException(status_code=422, detail="This file is empty.")
     if len(content) > settings.max_upload_size_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail=f"Files must be {settings.max_upload_size_mb} MB or smaller.")
-    relative_name = f"chat/{uuid.uuid4()}{extension}"
+    attachment_id = uuid.uuid4()
+    relative_name = organized_storage_name(
+        "chat-attachments",
+        user.organization_id,
+        filename,
+        category=str(user.id),
+        identifier=attachment_id,
+    )
     storage_path = Path(settings.upload_storage_path) / relative_name
     storage_path.parent.mkdir(parents=True, exist_ok=True)
     storage_path.write_bytes(content)
@@ -611,6 +619,7 @@ async def upload_chat_attachment(
         raise HTTPException(status_code=422, detail=str(error)) from error
     mime_type = IMAGE_MIME_TYPES.get(extension) or file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
     attachment = AIChatAttachment(
+        id=attachment_id,
         organization_id=user.organization_id,
         user_id=user.id,
         original_filename=filename,
@@ -811,7 +820,14 @@ async def stream_message(
                 if request_mode == "image":
                     yield _event("status", message="Creating your image...")
                     image_result = await OpenAIImageGenerator(runtime_settings).generate(content)
-                    relative_name = f"generated-images/{uuid.uuid4()}.png"
+                    generated_id = uuid.uuid4()
+                    relative_name = organized_storage_name(
+                        "generated-images",
+                        organization_id,
+                        "AROMAZEN-generated-image.png",
+                        category=str(user_id),
+                        identifier=generated_id,
+                    )
                     image_path = Path(runtime_settings.upload_storage_path) / relative_name
                     image_path.parent.mkdir(parents=True, exist_ok=True)
                     image_path.write_bytes(image_result.image_bytes)
@@ -831,6 +847,7 @@ async def stream_message(
                     stream_session.add(assistant)
                     await stream_session.flush()
                     generated = AIChatAttachment(
+                        id=generated_id,
                         organization_id=organization_id,
                         user_id=user_id,
                         conversation_id=conversation_id,

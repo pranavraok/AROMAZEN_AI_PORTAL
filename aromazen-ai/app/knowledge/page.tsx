@@ -17,6 +17,7 @@ const DOCUMENT_CATEGORIES = [
   ['license', 'Licence'], ['compliance_certificate', 'Compliance certificate'],
   ['attendance_rule', 'Attendance rule / letter'], ['leave_rule', 'Leave rule / letter'],
   ['hr_policy', 'HR policy'], ['other', 'Other'],
+  ['document_template', 'Document template'],
 ] as const
 
 const DEFAULT_FOLDERS = [
@@ -28,6 +29,7 @@ const DEFAULT_FOLDERS = [
   { key: 'leave_rule', label: 'Leave rule / letter', icon: Shield },
   { key: 'hr_policy', label: 'HR policy', icon: Shield },
   { key: 'other', label: 'Other', icon: Folder },
+  { key: 'document_template', label: 'Document template', icon: FileText },
 ] as const
 
 type AccessFilter = 'all' | 'company-wide' | 'my-department'
@@ -76,7 +78,9 @@ export default function KnowledgePage() {
     setIsUploading(true)
     try {
       const category = metadata.document_category
-      const result = await api.knowledge.uploadDocument(accessToken, pendingUpload.collectionId, pendingUpload.file, {
+      const templateCollection = category === 'document_template' ? collections.find((item) => item.slug === 'portal-templates') : undefined
+      const destinationCollectionId = templateCollection?.id ?? pendingUpload.collectionId
+      const result = await api.knowledge.uploadDocument(accessToken, destinationCollectionId, pendingUpload.file, {
         document_category: category,
         expiry_date: metadata.expiry_date || undefined,
         reminder_days_before: Number(metadata.reminder_days_before) || 30,
@@ -84,7 +88,7 @@ export default function KnowledgePage() {
         is_company_wide: metadata.is_company_wide,
       })
       notify('success', `${result.name} is ready to use.`)
-      setCollections((current) => current.map((collection) => collection.id === pendingUpload.collectionId ? { ...collection, document_count: collection.document_count + 1 } : collection))
+      setCollections((current) => current.map((collection) => collection.id === destinationCollectionId ? { ...collection, document_count: collection.document_count + 1 } : collection))
       setPendingUpload(null)
     } catch (reason) { notify('error', reason instanceof ApiError ? reason.message : 'Unable to upload document.') }
     finally { setIsUploading(false) }

@@ -16,6 +16,7 @@ from app.modules.identity.models import AuditEvent, Department, Invitation, Know
 from app.core.config import get_settings
 from pathlib import Path
 from app.modules.identity.service import permission_keys_for_user, role_keys_for_user
+from app.modules.knowledge.templates import TEMPLATE_COLLECTION_SLUG
 
 router = APIRouter()
 ROLE_RANK = {"employee": 1, "department_admin": 2, "super_admin": 3, "owner": 4}
@@ -196,6 +197,8 @@ async def update_knowledge_collection(collection_id: str, payload: ManageKnowled
     collection = await session.get(KnowledgeCollection, collection_id)
     if not collection or collection.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Collection not found.")
+    if collection.slug == TEMPLATE_COLLECTION_SLUG:
+        raise HTTPException(status_code=409, detail="Portal Templates is a system-managed collection and cannot be renamed or reconfigured.")
     slug = slugify(payload.name)
     duplicate = await session.scalar(select(KnowledgeCollection.id).where(KnowledgeCollection.organization_id == user.organization_id, KnowledgeCollection.slug == slug, KnowledgeCollection.id != collection.id))
     if duplicate:
@@ -218,6 +221,8 @@ async def archive_knowledge_collection(collection_id: str, user: User = Depends(
     collection = await session.get(KnowledgeCollection, collection_id)
     if not collection or collection.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Collection not found.")
+    if collection.slug == TEMPLATE_COLLECTION_SLUG:
+        raise HTTPException(status_code=409, detail="Portal Templates is required by the portal and cannot be archived.")
     collection.status, collection.archived_at = "archived", datetime.now(timezone.utc)
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="knowledge.collection_archived", target_type="knowledge_collection", target_id=str(collection.id), metadata_json={"name": collection.name}))
     await session.commit()
@@ -229,6 +234,8 @@ async def delete_knowledge_collection(collection_id: str, user: User = Depends(r
     collection = await session.get(KnowledgeCollection, collection_id)
     if not collection or collection.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Collection not found.")
+    if collection.slug == TEMPLATE_COLLECTION_SLUG:
+        raise HTTPException(status_code=409, detail="Portal Templates is required by the portal and cannot be deleted.")
     documents = await session.scalars(select(KnowledgeDocument).where(KnowledgeDocument.collection_id == collection.id))
     storage_path = Path(get_settings().upload_storage_path)
     for doc in documents:

@@ -40,7 +40,9 @@ from app.core.config import get_settings
 from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_cost
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.db.session import get_db_session
-from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, User
+from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, KnowledgeDocument, User
+from app.modules.knowledge.storage import organized_storage_name
+from app.modules.knowledge.templates import ensure_template_collection
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.settings.service import provider_runtime_settings
@@ -840,15 +842,26 @@ async def replace_letter_template(
     content = await template_file.read()
     if len(content) > get_settings().max_upload_size_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail="The HR template is too large.")
-    collection = await session.scalar(select(KnowledgeCollection).where(
-        KnowledgeCollection.organization_id == user.organization_id,
-        KnowledgeCollection.slug == "hr",
-        KnowledgeCollection.status == "active",
-    ))
-    if not collection:
-        raise HTTPException(status_code=422, detail="The Human Resources knowledge collection is unavailable.")
     template_id = uuid.uuid4()
-    stored_filename = f"hr-templates/{user.organization_id}/{template_key}/{template_id}.docx"
+    collection = await ensure_template_collection(
+        session,
+        user.organization_id,
+        created_by_user_id=user.id,
+        department_id=user.department_id,
+    )
+    previous_documents = list(await session.scalars(select(KnowledgeDocument).where(
+        KnowledgeDocument.organization_id == user.organization_id,
+        KnowledgeDocument.document_category == _template_category(template_key),
+    )))
+    version = max((item.version for item in previous_documents), default=0) + 1
+    stored_filename = organized_storage_name(
+        "templates",
+        user.organization_id,
+        original_filename,
+        category=f"hr-letters/{template_key}",
+        identifier=template_id,
+        version=version,
+    )
     destination = Path(get_settings().upload_storage_path) / stored_filename
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(content)
@@ -860,14 +873,9 @@ async def replace_letter_template(
     except (ValueError, ExtractionError) as error:
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail="No usable {{field_name}} placeholders were found in this DOCX template.") from error
-    previous_documents = list(await session.scalars(select(KnowledgeDocument).where(
-        KnowledgeDocument.organization_id == user.organization_id,
-        KnowledgeDocument.document_category == _template_category(template_key),
-    )))
     for previous in previous_documents:
         if previous.status == "ready":
             previous.status = "superseded"
-    version = max((item.version for item in previous_documents), default=0) + 1
     document = KnowledgeDocument(
         id=template_id,
         organization_id=user.organization_id,

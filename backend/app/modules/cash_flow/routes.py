@@ -16,6 +16,7 @@ from app.modules.cash_flow.service import ASSET_TEMPLATE, CASH_FLOW_TEMPLATE, bu
 from app.modules.identity.authorization import require_permissions
 from app.modules.identity.models import AuditEvent, CashFlowReportSnapshot, Department, KnowledgeCollection, KnowledgeDocument, User
 from app.modules.identity.service import role_keys_for_user
+from app.modules.knowledge.storage import organized_storage_name
 
 router = APIRouter()
 
@@ -139,15 +140,24 @@ async def generate(
     )
     settings = get_settings()
     storage_root = Path(settings.upload_storage_path)
-    stored_filename = f"{uuid.uuid4()}.pdf"
+    document_id = uuid.uuid4()
+    stored_filename = organized_storage_name(
+        "knowledge",
+        user.organization_id,
+        filename,
+        category=f"{getattr(accounts_collection, 'slug', 'accounts')}/cash-flow-reports/{report_month}",
+        identifier=document_id,
+        version=(previous_version or 0) + 1,
+    )
     destination = storage_root / stored_filename
     try:
-        await run_in_threadpool(storage_root.mkdir, parents=True, exist_ok=True)
+        await run_in_threadpool(destination.parent.mkdir, parents=True, exist_ok=True)
         await run_in_threadpool(destination.write_bytes, output)
     except OSError as exc:
         raise HTTPException(status_code=500, detail="The protected report could not be saved to the Accounts Knowledge Base, so the download was stopped.") from exc
 
     knowledge_document = KnowledgeDocument(
+        id=document_id,
         organization_id=user.organization_id,
         collection_id=accounts_collection.id,
         uploaded_by_user_id=user.id,

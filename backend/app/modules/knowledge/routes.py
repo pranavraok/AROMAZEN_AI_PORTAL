@@ -14,6 +14,8 @@ from app.core.config import get_settings
 from app.modules.identity.models import Department, KnowledgeCollection, KnowledgeDocument, User, collection_departments
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
+from app.modules.knowledge.storage import organized_storage_name, safe_storage_segment
+from app.modules.knowledge.templates import ensure_template_collection
 
 router = APIRouter()
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".pptx"}
@@ -224,11 +226,43 @@ async def upload_document(
     extension = Path(original_filename).suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=422, detail="Only PDF, DOCX, XLSX, and PPTX files are allowed.")
+    normalized_category = document_category.strip() or "general"
+    if normalized_category == "document_template":
+        if extension != ".docx":
+            raise HTTPException(status_code=422, detail="Document templates must be uploaded as DOCX files.")
+        collection = await ensure_template_collection(
+            session,
+            user.organization_id,
+            created_by_user_id=user.id,
+            department_id=user.department_id,
+        )
     settings = get_settings()
     destination_root = Path(settings.upload_storage_path)
     destination_root.mkdir(parents=True, exist_ok=True)
-    stored_filename = f"{uuid.uuid4()}{extension}"
+    previous_template_documents: list[KnowledgeDocument] = []
+    if normalized_category == "document_template":
+        previous_template_documents = list(await session.scalars(select(KnowledgeDocument).where(
+            KnowledgeDocument.organization_id == user.organization_id,
+            KnowledgeDocument.collection_id == collection.id,
+            KnowledgeDocument.document_category == "document_template",
+            KnowledgeDocument.original_filename == original_filename,
+        )))
+    previous_version = await session.scalar(select(func.max(KnowledgeDocument.version)).where(KnowledgeDocument.collection_id == collection.id, KnowledgeDocument.original_filename == original_filename))
+    document_id = uuid.uuid4()
+    stored_filename = organized_storage_name(
+        "templates" if normalized_category == "document_template" else "knowledge",
+        user.organization_id,
+        original_filename,
+        category=(
+            "document-generator"
+            if normalized_category == "document_template"
+            else f"{collection.slug}/{safe_storage_segment(normalized_category, 'general')}"
+        ),
+        identifier=document_id,
+        version=(previous_version or 0) + 1,
+    )
     destination = destination_root / stored_filename
+    destination.parent.mkdir(parents=True, exist_ok=True)
     size_bytes = 0
     try:
         with destination.open("wb") as output:
@@ -240,7 +274,6 @@ async def upload_document(
     except Exception:
         destination.unlink(missing_ok=True)
         raise
-    previous_version = await session.scalar(select(func.max(KnowledgeDocument.version)).where(KnowledgeDocument.collection_id == collection.id, KnowledgeDocument.original_filename == original_filename))
     try:
         parsed_expiry = datetime.fromisoformat(expiry_date).replace(tzinfo=timezone.utc) if expiry_date else None
     except ValueError as error:
@@ -250,11 +283,12 @@ async def upload_document(
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail="Reminder notice must be between 0 and 365 days.")
     document = KnowledgeDocument(
+        id=document_id,
         organization_id=user.organization_id, collection_id=collection.id,
         uploaded_by_user_id=user.id, original_filename=original_filename,
         stored_filename=stored_filename, mime_type=file.content_type,
         size_bytes=size_bytes, version=(previous_version or 0) + 1, status="processing",
-        document_category=document_category.strip() or None, expiry_date=parsed_expiry,
+        document_category=normalized_category, expiry_date=parsed_expiry,
         reminder_days_before=reminder_days_before, reminder_owner=reminder_owner.strip() or None,
         is_company_wide=is_company_wide,
     )
@@ -265,6 +299,9 @@ async def upload_document(
         document.extracted_characters = len(document.extracted_text)
         document.status = "ready"
         document.processed_at = datetime.now(timezone.utc)
+        for previous in previous_template_documents:
+            if previous.status == "ready":
+                previous.status = "superseded"
         await session.commit()
     except ExtractionError:
         document.status = "failed"

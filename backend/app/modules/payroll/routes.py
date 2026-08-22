@@ -26,6 +26,8 @@ from app.db.session import SessionLocal, get_db_session
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User
 from app.modules.identity.service import role_keys_for_user
+from app.modules.knowledge.storage import organized_storage_name
+from app.modules.knowledge.templates import TEMPLATE_COLLECTION_SLUG, ensure_template_collection
 from app.modules.payroll.attendance_rules import DEFAULT_LATE_GRACE_MINUTES, apply_monthly_late_policy
 from app.modules.payroll.engine import COLUMNS, create_excel_template, generate_salary_pdf, password_for, read_salary_excel, salary_template_form_fields, validate_template_pdf
 
@@ -61,8 +63,9 @@ async def _knowledge_unit_templates(session: AsyncSession, organization_id: uuid
         .where(
             KnowledgeDocument.organization_id == organization_id,
             KnowledgeDocument.status == "ready",
+            KnowledgeDocument.document_category == "salary_slip_template",
             KnowledgeCollection.status == "active",
-            KnowledgeCollection.slug == "hr",
+            KnowledgeCollection.slug == TEMPLATE_COLLECTION_SLUG,
         )
         .order_by(KnowledgeDocument.version.desc(), KnowledgeDocument.created_at.desc())
     ))
@@ -124,7 +127,7 @@ def _template_response(template: PayrollTemplate) -> dict:
 def _knowledge_template_response(unit: int, document: KnowledgeDocument) -> dict:
     path = Path(get_settings().upload_storage_path) / document.stored_filename
     fields = salary_template_form_fields(path) if path.is_file() else []
-    return {"id": str(document.id), "name": f"Unit {unit}", "original_filename": document.original_filename, "is_active": True, "created_at": document.created_at.isoformat(), "unit_number": unit, "source": "Human Resources knowledge", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
+    return {"id": str(document.id), "name": f"Unit {unit}", "original_filename": document.original_filename, "is_active": True, "created_at": document.created_at.isoformat(), "unit_number": unit, "source": "Portal Templates knowledge", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
 
 
 @router.get("/templates")
@@ -159,27 +162,34 @@ async def upload_template(
         validate_template_pdf(content)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    collection = await session.scalar(select(KnowledgeCollection).where(
-        KnowledgeCollection.organization_id == user.organization_id,
-        KnowledgeCollection.slug == "hr",
-        KnowledgeCollection.status == "active",
-    ))
-    if not collection:
-        raise HTTPException(status_code=422, detail="The Human Resources knowledge collection is unavailable.")
+    collection = await ensure_template_collection(
+        session,
+        user.organization_id,
+        created_by_user_id=user.id,
+        department_id=user.department_id,
+    )
     template_id = uuid.uuid4()
-    stored_name = f"payroll-templates/{user.organization_id}/unit-{inferred_unit}/{template_id}.pdf"
+    current_documents = list((await session.scalars(select(KnowledgeDocument).where(
+        KnowledgeDocument.organization_id == user.organization_id,
+        KnowledgeDocument.document_category == "salary_slip_template",
+    ))))
+    previous = [item for item in current_documents if _unit_from_template_name(item.original_filename) == inferred_unit]
+    version = max((item.version for item in previous), default=0) + 1
+    canonical_name = f"UNIT-{inferred_unit}_SalarySlip.pdf"
+    stored_name = organized_storage_name(
+        "templates",
+        user.organization_id,
+        canonical_name,
+        category=f"salary-slips/unit-{inferred_unit}",
+        identifier=template_id,
+        version=version,
+    )
     path = Path(get_settings().upload_storage_path) / stored_name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
-    current_documents = list((await session.scalars(select(KnowledgeDocument).where(
-        KnowledgeDocument.organization_id == user.organization_id,
-        KnowledgeDocument.collection_id == collection.id,
-        KnowledgeDocument.status == "ready",
-    ))))
-    previous = [item for item in current_documents if _unit_from_template_name(item.original_filename) == inferred_unit]
     for item in previous:
-        item.status = "superseded"
-    canonical_name = f"UNIT-{inferred_unit}_SalarySlip.pdf"
+        if item.status == "ready":
+            item.status = "superseded"
     template = KnowledgeDocument(
         id=template_id,
         organization_id=user.organization_id,
@@ -189,7 +199,7 @@ async def upload_template(
         stored_filename=stored_name,
         mime_type="application/pdf",
         size_bytes=len(content),
-        version=max((item.version for item in previous), default=0) + 1,
+        version=version,
         status="ready",
         extracted_text="",
         extracted_characters=0,
@@ -276,24 +286,38 @@ async def create_batch(
     missing_units = [unit for unit in used_units if unit not in unit_templates]
     if missing_units:
         names = ", ".join(f"UNIT-{unit}_SalarySlip.pdf" for unit in missing_units)
-        raise HTTPException(status_code=422, detail=f"Upload the missing template(s) to HR Policies: {names}.")
+        raise HTTPException(status_code=422, detail=f"Upload the missing template(s) to Portal Templates: {names}.")
     duplicate_email_count = sum(count - 1 for count in Counter(item["personal_email"] for item in employee_rows).values() if count > 1)
     batch_id = uuid.uuid4()
-    folder = Path(get_settings().upload_storage_path) / "payroll" / str(user.organization_id) / str(batch_id)
-    folder.mkdir(parents=True, exist_ok=True)
-    workbook_name = f"payroll/{user.organization_id}/{batch_id}/source.xlsx"
-    (Path(get_settings().upload_storage_path) / workbook_name).write_bytes(content)
+    workbook_name = organized_storage_name(
+        "payroll",
+        user.organization_id,
+        excel_file.filename or "salary.xlsx",
+        category=f"{payroll_month}/batches/{batch_id}/source",
+        identifier=batch_id,
+    )
+    workbook_path = Path(get_settings().upload_storage_path) / workbook_name
+    workbook_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook_path.write_bytes(content)
     batch = PayrollBatch(id=batch_id, organization_id=user.organization_id, created_by_user_id=user.id, template_id=None, payroll_month=payroll_month, original_filename=excel_file.filename or "salary.xlsx", stored_filename=workbook_name, email_subject=DEFAULT_EMAIL_SUBJECT, email_body=DEFAULT_EMAIL_BODY, duplicate_email_count=duplicate_email_count, total_count=len(employee_rows), status="draft")
     session.add(batch)
     for item in employee_rows:
         recipient_id = uuid.uuid4()
-        pdf_name = f"payroll/{user.organization_id}/{batch_id}/{recipient_id}.pdf"
         original_name = f"Salary_Slip_{payroll_month}_{re.sub(r'[^A-Za-z0-9_-]', '_', item['employee_code'])}.pdf"
+        pdf_name = organized_storage_name(
+            "payroll",
+            user.organization_id,
+            original_name,
+            category=f"{payroll_month}/batches/{batch_id}/salary-slips",
+            identifier=recipient_id,
+        )
         unit = int(item["details"]["unit"])
         template = unit_templates[unit]
         item["details"]["template_name"] = template.original_filename
         template_path = Path(get_settings().upload_storage_path) / template.stored_filename
-        generate_salary_pdf(item["details"], payroll_month, Path(get_settings().upload_storage_path) / pdf_name, password_for(item["employee_name"], item["birth_year"]), template_path)
+        pdf_path = Path(get_settings().upload_storage_path) / pdf_name
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        generate_salary_pdf(item["details"], payroll_month, pdf_path, password_for(item["employee_name"], item["birth_year"]), template_path)
         session.add(PayrollRecipient(id=recipient_id, batch_id=batch_id, organization_id=user.organization_id, row_number=item["row_number"], employee_name=item["employee_name"], employee_code=item["employee_code"], personal_email=item["personal_email"], birth_year=item["birth_year"], details_json=item["details"], pdf_stored_filename=pdf_name, pdf_original_filename=original_name, status="pending"))
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.batch_created", target_type="payroll_batch", target_id=str(batch_id), metadata_json={"payroll_month": payroll_month, "employee_count": len(employee_rows), "units": used_units, "duplicate_emails": duplicate_email_count}))
     await session.commit()
