@@ -113,16 +113,9 @@ export default function CollectionDetailPage({ params }: Props) {
     } catch (reason) { notify('error', reason instanceof ApiError ? reason.message : 'Unable to process this document.') }
   }
 
-  async function viewDocument(item: { document: KnowledgeDocument; collection: KnowledgeCollection }) {
-    if (!accessToken) return
-    try {
-      const response = await fetch(api.knowledge.documentContentUrl(item.collection.id, item.document.id), { headers: { Authorization: `Bearer ${accessToken}` } })
-      if (!response.ok) throw new Error('Unable to open document.')
-      const contentType = response.headers.get('content-type') || 'application/octet-stream'
-      const blob = await response.blob()
-      const blobUrl = URL.createObjectURL(new Blob([blob], { type: contentType }))
-      window.open(blobUrl, '_blank', 'noopener,noreferrer')
-    } catch { notify('error', 'Unable to open document.') }
+  function viewDocument(item: { document: KnowledgeDocument; collection: KnowledgeCollection }) {
+    const params = new URLSearchParams({ collectionId: item.collection.id, documentId: item.document.id, name: item.document.name })
+    window.location.href = `/knowledge/viewer?${params.toString()}`
   }
 
   async function downloadDocument(item: { document: KnowledgeDocument; collection: KnowledgeCollection }) {

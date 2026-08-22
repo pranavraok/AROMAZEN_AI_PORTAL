@@ -59,13 +59,9 @@ export default function RulesRemindersPage() {
     companyWide: documents.filter((d) => d.is_company_wide).length,
   }), [documents])
 
-  async function viewDocument(doc: RuleDocument) {
-    if (!accessToken) return
-    try {
-      const response = await fetch(api.knowledge.documentContentUrl(doc.collection_id, doc.id), { headers: { Authorization: `Bearer ${accessToken}` } })
-      if (!response.ok) throw new Error('Unable to open document.')
-      window.open(URL.createObjectURL(await response.blob()), '_blank', 'noopener,noreferrer')
-    } catch { notify('error', 'Unable to open document.') }
+  function viewDocument(doc: RuleDocument) {
+    const params = new URLSearchParams({ collectionId: doc.collection_id, documentId: doc.id, name: doc.name })
+    window.location.href = `/knowledge/viewer?${params.toString()}`
   }
 
   return <AppLayout><div className="space-y-6 p-6">

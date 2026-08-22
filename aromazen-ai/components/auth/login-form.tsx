@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/components/auth/auth-provider'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/components/ui/toast-provider'
+import { ForgotPasswordFlow } from '@/components/auth/forgot-password-flow'
 
 export function LoginForm() {
   const router = useRouter()
@@ -13,6 +14,8 @@ export function LoginForm() {
   const { notify } = useToast()
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [forgotOpen, setForgotOpen] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
 
   async function onSubmit(formData: FormData) {
     setError(null)
@@ -40,7 +43,12 @@ export function LoginForm() {
     <div><label htmlFor="phone_number" className="mb-2 block text-xs font-medium text-foreground">Phone number <span className="font-normal text-muted-foreground">— for shared emails only</span></label><input id="phone_number" name="phone_number" type="tel" autoComplete="tel" placeholder="Country code and phone number" className="h-12 w-full rounded-xl border border-input bg-muted/55 px-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/30 focus:bg-muted focus:outline-none" /></div>
     <label className="flex cursor-pointer items-center gap-2.5 text-xs text-muted-foreground"><input name="remember_me" type="checkbox" className="h-4 w-4 rounded border-input focus:ring-2 focus:ring-primary/20" />Keep me signed in for 30 days</label>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    <div className="flex justify-end">
+      <button type="button" onClick={() => { setForgotEmail(''); setForgotOpen(true) }} className="text-xs font-medium text-primary hover:text-primary/80">Forgot Password?</button>
+    </div>
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     <Button type="submit" disabled={isSubmitting} className="h-12 w-full rounded-xl bg-primary text-sm font-semibold text-primary-foreground hover:bg-primary/90">{isSubmitting ? 'Signing in…' : 'Continue to workspace'}</Button>
     <p className="border-t border-border pt-5 text-center text-[11px] text-muted-foreground">Protected access for Aromazen employees</p>
+    <ForgotPasswordFlow open={forgotOpen} onClose={() => setForgotOpen(false)} defaultEmail={forgotEmail} />
   </form>
 }

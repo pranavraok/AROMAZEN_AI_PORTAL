@@ -3,7 +3,7 @@ WORKDIR /app
 
 FROM base AS dependencies
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile --ignore-scripts
+RUN corepack enable && pnpm install --no-frozen-lockfile --ignore-scripts
 
 FROM base AS build
 ARG BACKEND_API_ORIGIN=http://localhost:8000

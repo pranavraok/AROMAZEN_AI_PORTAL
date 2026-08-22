@@ -445,3 +445,26 @@ html:root.dark section.border.bg-card {
 
 html:root.dark table tbody tr:hover { background: rgba(120,185,165,.035); }
 html:root.dark ::selection { background: rgba(120,185,165,.22); color: #ffffff; }
+
+/* Document viewer — white paper on warm gray background */
+.docx-paper {
+  width: 100%;
+  background: #fff;
+  color: #000;
+  padding: 40px 48px;
+  font-family: 'Times New Roman', Times, Georgia, serif;
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100%;
+  overflow: visible;
+}
+.docx-paper table { min-width: 100%; }
+.docx-paper h1 { font-size: 22px; margin: 20px 0 10px; }
+.docx-paper h2 { font-size: 18px; margin: 16px 0 8px; }
+.docx-paper h3 { font-size: 15px; margin: 14px 0 6px; }
+.docx-paper p { margin: 6px 0; }
+.docx-paper table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 13px; }
+.docx-paper table td,
+.docx-paper table th { border: 1px solid #666; padding: 6px 10px; vertical-align: top; }
+.docx-paper table th { font-weight: 700; background: #f5f5f5; }
+.docx-paper img { max-width: 100%; height: auto; }
