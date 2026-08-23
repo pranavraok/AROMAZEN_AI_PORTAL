@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from app.modules.ai.providers import AIProviderRouter
 from app.modules.ai.routes import _build_prompt, _query_plan
-from app.modules.ai.rag import _document_lexical_score, apply_structured_employee_filter, structured_employee_answer
+from app.modules.ai.rag import _document_lexical_score, _parse_record_date, apply_structured_employee_filter, structured_employee_answer
 
 
 def message(role: str, content: str):
@@ -69,15 +69,17 @@ def main() -> None:
         "tenure_cutoff": None,
         "filter_as_of": "2026-08-22",
         "content": "\n".join([
-            "Record 46: Employee ID: 46 | Employee Name: DHANYASHRI | Date of Joining: 26-May-2025 | Designation: Production Helper",
-            "Record 48: Employee ID: 48 | Employee Name: DION HUBERT | Date of Joining: 02-Jun-2025 | Designation: Production Helper",
-            "Record 54: Employee ID: 54 | Employee Name: KARTHIK | Date of Joining (DOJ): 16-Jun-2025 | Designation: Production Helper",
+            "Record 46: Employee ID: 46 | Employee Name: DHANYASHRI | Date of Joining: 26/05/25 | Designation: Production Helper",
+            "Record 48: Employee ID: 48 | Employee Name: DION HUBERT | Date of Joining: 02.06.2025 | Designation: Production Helper",
+            "Record 54: Employee ID: 54 | Employee Name: KARTHIK | Date of Joining (DOJ): 16-Jun-25 | Designation: Production Helper",
         ]),
     }]
     deterministic = structured_employee_answer(omission_regression)
     assert deterministic is not None
     assert all(name in deterministic for name in ("KARTHIK", "DHANYASHRI", "DION HUBERT"))
     assert "Total matching employees: 3" in deterministic
+    assert all(value in deterministic for value in ("26-May-2025", "02-Jun-2025", "16-Jun-2025"))
+    assert _parse_record_date("45803") is not None
 
     follow_up = _query_plan("What about the remaining employees?", [message("user", "List our employee records")], [], False)
     assert follow_up.mode == "internal_exhaustive" and follow_up.exhaustive

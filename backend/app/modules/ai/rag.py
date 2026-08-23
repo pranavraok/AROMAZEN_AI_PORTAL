@@ -2,7 +2,7 @@ import calendar
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -348,10 +348,21 @@ MONTH_NUMBERS = {
 
 
 def _parse_record_date(value: str) -> date | None:
-    cleaned = value.strip().split(" 00:00:00", 1)[0]
+    cleaned = " ".join(value.strip().replace(",", " ").split())
+    cleaned = re.sub(r"[ T]00:00:00(?:\.0+)?(?:Z|[+-]00:00)?$", "", cleaned)
+    try:
+        numeric = float(cleaned)
+        if 20_000 <= numeric <= 80_000:
+            return date(1899, 12, 30) + timedelta(days=int(numeric))
+    except ValueError:
+        pass
     for pattern in (
-        "%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y",
+        "%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d",
+        "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%m/%d/%Y",
+        "%d-%m-%y", "%d/%m/%y", "%d.%m.%y", "%m/%d/%y",
         "%d %B %Y", "%d %b %Y", "%d-%B-%Y", "%d-%b-%Y",
+        "%d %B %y", "%d %b %y", "%d-%B-%y", "%d-%b-%y",
+        "%B %d %Y", "%b %d %Y", "%B %d %y", "%b %d %y",
     ):
         try:
             return datetime.strptime(cleaned, pattern).date()
@@ -393,6 +404,7 @@ def apply_structured_employee_filter(question: str, chunks: list[dict], *, as_of
     for chunk in chunks:
         lines = (chunk.get("content") or "").splitlines()
         records: list[tuple[str, date]] = []
+        unparsed_records: list[str] = []
         for line in lines:
             if not line.lstrip().lower().startswith("record "):
                 continue
@@ -401,7 +413,9 @@ def apply_structured_employee_filter(question: str, chunks: list[dict], *, as_of
             joined = _parse_record_date(joining_value) if joining_value else None
             if joined:
                 records.append((line, joined))
-        if not records:
+            elif joining_value:
+                unparsed_records.append(line)
+        if not records and not unparsed_records:
             continue
         matching = [
             line for line, joined in records
@@ -411,7 +425,10 @@ def apply_structured_employee_filter(question: str, chunks: list[dict], *, as_of
         ]
         chunk["content"] = "\n".join(matching) if matching else "(No employee records matched all requested conditions.)"
         chunk["structured_filter"] = True
-        chunk["source_record_count"] = len(records)
+        chunk["source_record_count"] = len(records) + len(unparsed_records)
+        chunk["parsed_date_record_count"] = len(records)
+        chunk["unparsed_date_record_count"] = len(unparsed_records)
+        chunk["unparsed_date_records"] = unparsed_records
         chunk["matching_record_count"] = len(matching)
         chunk["filter_as_of"] = today.isoformat()
         chunk["after_date"] = after_date.isoformat() if after_date else None
@@ -488,6 +505,9 @@ def structured_employee_answer(chunks: list[dict]) -> str | None:
             ))
             name = _employee_name(fields)
             joining_date = _employee_joining_date(fields)
+            parsed_joining_date = _parse_record_date(joining_date) if joining_date else None
+            if parsed_joining_date:
+                joining_date = parsed_joining_date.strftime("%d-%b-%Y")
             designation = _first_employee_field(fields, ("designation", "job title", "role", "position"))
             department = _first_employee_field(fields, ("department", "dept", "division", "function"))
             if not employee_id and not name:
@@ -519,10 +539,23 @@ def structured_employee_answer(chunks: list[dict]) -> str | None:
     if filter_parts:
         lines.append("Filters applied: " + "; ".join(filter_parts) + ".")
     lines.append("")
+    unparsed_records = [
+        line
+        for chunk in structured
+        for line in chunk.get("unparsed_date_records", [])
+    ]
     if not records:
-        lines.append("No employee records matched all requested conditions.")
+        lines.append(
+            "No employee records matched all requested conditions."
+            if not unparsed_records
+            else "No employee total can be finalized because some joining dates could not be interpreted."
+        )
         lines.append("")
         lines.append("Total matching employees: 0")
+        if unparsed_records:
+            lines.append("")
+            lines.append(f"Warning: {len(unparsed_records)} source record(s) require date correction:")
+            lines.extend(f"- {line}" for line in unparsed_records)
         return "\n".join(lines)
 
     columns = [
@@ -547,6 +580,13 @@ def structured_employee_answer(chunks: list[dict]) -> str | None:
         lines.append("| " + " | ".join(values) + " |")
     lines.append("")
     lines.append(f"Total matching employees: {len(records)}")
+    if unparsed_records:
+        lines.extend([
+            "",
+            f"Warning: {len(unparsed_records)} employee record(s) had a joining date that could not be interpreted and were not silently counted or excluded.",
+            "Please correct these source dates before treating the total as final:",
+        ])
+        lines.extend(f"- {line}" for line in unparsed_records)
     return "\n".join(lines)
 
 
