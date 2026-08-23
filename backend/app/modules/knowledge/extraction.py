@@ -16,7 +16,7 @@ def _clean(parts: list[str]) -> str:
 
 
 def _cell_text(value) -> str:
-    return "" if value is None else str(value).strip()
+    return "" if value is None else " ".join(str(value).split())
 
 
 def _spreadsheet_text(workbook) -> str:

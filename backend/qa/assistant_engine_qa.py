@@ -81,6 +81,30 @@ def main() -> None:
     assert all(value in deterministic for value in ("26-May-2025", "02-Jun-2025", "16-Jun-2025"))
     assert _parse_record_date("45803") is not None
 
+    multiline_records = [{"content": "\n".join([
+        "Record 46: Employee ID: 46 | Name: DHANYASHRI | Address: First line",
+        "second line | DOJ: 26-May-2025 | Aadhaar Number: 1111-2222-3333 | Designation: Production Helper",
+        "Record 48: Employee ID: 48 | Name: DION HUBERT | Phone No.: 9999999999",
+        "| DOJ: 02-Jun-2025 | Designation: Production Helper",
+        "Record 54: Employee ID: 54 | Name: KARTHIK | Address: Multiline",
+        "address | DOJ: 16-Jun-2025 | Designation: Production Helper",
+        "Record 3: Employee ID: 2 | Name: Deeksha | DOJ: 01-12-2016 / [15/08/2015] | Aadhaar Number: 2876-6110-2281",
+        "Record 72: Employee ID: 71 | Name: MOHANISH NAIR | DOJ: JULY | Aadhaar Number: 9999-9999-9999",
+        "Record 76: Employee ID: Employee ID | Name: Name | DOJ: DOJ | Designation: Designation",
+    ])}]
+    multiline_filtered = apply_structured_employee_filter(
+        "Give me list of employees joined after March 2025 along with their joining date",
+        multiline_records,
+        as_of=date(2026, 8, 23),
+    )
+    multiline_answer = structured_employee_answer(multiline_filtered)
+    assert multiline_answer is not None
+    assert all(name in multiline_answer for name in ("KARTHIK", "DHANYASHRI", "DION HUBERT"))
+    assert "Total matching employees: 3" in multiline_answer
+    assert "MOHANISH NAIR (Employee ID: 71) — joining date: JULY" in multiline_answer
+    assert all(secret not in multiline_answer for secret in ("Aadhaar", "2876-6110-2281", "9999999999"))
+    assert "Employee ID: Employee ID" not in multiline_answer
+
     follow_up = _query_plan("What about the remaining employees?", [message("user", "List our employee records")], [], False)
     assert follow_up.mode == "internal_exhaustive" and follow_up.exhaustive
 

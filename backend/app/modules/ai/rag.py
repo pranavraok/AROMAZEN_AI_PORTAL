@@ -368,6 +368,14 @@ def _parse_record_date(value: str) -> date | None:
             return datetime.strptime(cleaned, pattern).date()
         except ValueError:
             continue
+    candidates = re.findall(
+        r"\b(?:20\d{2}[./-]\d{1,2}[./-]\d{1,2}|\d{1,2}[./-]\d{1,2}[./-](?:20)?\d{2}|\d{1,2}[ ./-](?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[ ./-](?:20)?\d{2})\b",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    for candidate in candidates:
+        if candidate != cleaned and (parsed := _parse_record_date(candidate)):
+            return parsed
     return None
 
 
@@ -402,19 +410,23 @@ def apply_structured_employee_filter(question: str, chunks: list[dict], *, as_of
         after_date = date(year, month, day)
     tenure_cutoff = _minus_years(today, int(tenure.group(1))) if tenure else None
     for chunk in chunks:
-        lines = (chunk.get("content") or "").splitlines()
+        lines = _spreadsheet_record_lines(chunk.get("content") or "")
         records: list[tuple[str, date]] = []
-        unparsed_records: list[str] = []
+        unparsed_records: list[dict[str, str]] = []
         for line in lines:
-            if not line.lstrip().lower().startswith("record "):
-                continue
             fields = _employee_record_fields(line)
+            if _is_repeated_header_record(fields):
+                continue
             joining_value = _employee_joining_date(fields)
             joined = _parse_record_date(joining_value) if joining_value else None
             if joined:
                 records.append((line, joined))
-            elif joining_value:
-                unparsed_records.append(line)
+            elif _employee_name(fields) or _employee_id(fields):
+                unparsed_records.append({
+                    "employee_id": _employee_id(fields),
+                    "name": _employee_name(fields),
+                    "joining_date": joining_value or "Missing",
+                })
         if not records and not unparsed_records:
             continue
         matching = [
@@ -441,6 +453,29 @@ def _normalized_field_name(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
 
+def _spreadsheet_record_lines(content: str) -> list[str]:
+    """Rebuild spreadsheet records split by embedded newlines in cell values."""
+    records: list[str] = []
+    current: list[str] = []
+    for raw_line in content.splitlines():
+        line = " ".join(raw_line.split())
+        if not line:
+            continue
+        if re.match(r"^Record\s+\d+\s*:", line, flags=re.IGNORECASE):
+            if current:
+                records.append(" ".join(current))
+            current = [line]
+        elif line.lower().startswith("worksheet:"):
+            if current:
+                records.append(" ".join(current))
+                current = []
+        elif current:
+            current.append(line)
+    if current:
+        records.append(" ".join(current))
+    return records
+
+
 def _employee_record_fields(line: str) -> dict[str, str]:
     content = re.sub(r"^\s*Record\s+\d+\s*:\s*", "", line, flags=re.IGNORECASE)
     fields: dict[str, str] = {}
@@ -459,6 +494,22 @@ def _first_employee_field(fields: dict[str, str], aliases: tuple[str, ...]) -> s
         if value := fields.get(alias):
             return value
     return ""
+
+
+def _employee_id(fields: dict[str, str]) -> str:
+    return _first_employee_field(fields, (
+        "employee id", "employee code", "emp id", "emp code", "employee no", "employee number", "id",
+    ))
+
+
+def _is_repeated_header_record(fields: dict[str, str]) -> bool:
+    if len(fields) < 3:
+        return False
+    repeated = sum(
+        _normalized_field_name(value) == label
+        for label, value in fields.items()
+    )
+    return repeated >= 3
 
 
 def _employee_joining_date(fields: dict[str, str]) -> str:
@@ -500,9 +551,7 @@ def structured_employee_answer(chunks: list[dict]) -> str | None:
             if not line.lstrip().lower().startswith("record "):
                 continue
             fields = _employee_record_fields(line)
-            employee_id = _first_employee_field(fields, (
-                "employee id", "employee code", "emp id", "emp code", "employee no", "employee number", "id",
-            ))
+            employee_id = _employee_id(fields)
             name = _employee_name(fields)
             joining_date = _employee_joining_date(fields)
             parsed_joining_date = _parse_record_date(joining_date) if joining_date else None
@@ -540,9 +589,9 @@ def structured_employee_answer(chunks: list[dict]) -> str | None:
         lines.append("Filters applied: " + "; ".join(filter_parts) + ".")
     lines.append("")
     unparsed_records = [
-        line
+        record
         for chunk in structured
-        for line in chunk.get("unparsed_date_records", [])
+        for record in chunk.get("unparsed_date_records", [])
     ]
     if not records:
         lines.append(
@@ -555,7 +604,7 @@ def structured_employee_answer(chunks: list[dict]) -> str | None:
         if unparsed_records:
             lines.append("")
             lines.append(f"Warning: {len(unparsed_records)} source record(s) require date correction:")
-            lines.extend(f"- {line}" for line in unparsed_records)
+            lines.extend(_unparsed_employee_warning(record) for record in unparsed_records)
         return "\n".join(lines)
 
     columns = [
@@ -586,8 +635,16 @@ def structured_employee_answer(chunks: list[dict]) -> str | None:
             f"Warning: {len(unparsed_records)} employee record(s) had a joining date that could not be interpreted and were not silently counted or excluded.",
             "Please correct these source dates before treating the total as final:",
         ])
-        lines.extend(f"- {line}" for line in unparsed_records)
+        lines.extend(_unparsed_employee_warning(record) for record in unparsed_records)
     return "\n".join(lines)
+
+
+def _unparsed_employee_warning(record: dict[str, str]) -> str:
+    identity = record.get("name") or "Unnamed employee"
+    employee_id = record.get("employee_id")
+    if employee_id:
+        identity = f"{identity} (Employee ID: {employee_id})"
+    return f"- {identity} — joining date: {record.get('joining_date') or 'Missing'}"
 
 
 async def retrieve_complete_documents(
