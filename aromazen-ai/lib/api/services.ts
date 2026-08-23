@@ -66,6 +66,9 @@ export const api = {
     logout: () => apiRequest<void>('/auth/logout', { method: 'POST' }),
     refresh: () => apiRequest<LoginResponse>('/auth/refresh', { method: 'POST' }),
     me: (accessToken: string) => apiRequest<CurrentUser>('/auth/me', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    forgotPassword: (email: string) => apiRequest<{ detail: string }>('/auth/forgot-password', { method: 'POST', body: { email } }),
+    verifyOtp: (email: string, otpCode: string) => apiRequest<{ detail: string }>('/auth/verify-otp', { method: 'POST', body: { email, otp_code: otpCode } }),
+    resetPassword: (email: string, otpCode: string, newPassword: string) => apiRequest<{ detail: string }>('/auth/reset-password', { method: 'POST', body: { email, otp_code: otpCode, new_password: newPassword } }),
   },
   dashboard: {
     overview: (accessToken: string) => apiRequest<DashboardOverview>('/dashboard/overview', { headers: { Authorization: `Bearer ${accessToken}` } }),

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { ChevronLeft, Download, ExternalLink, FileText, Folder, Lock, LockKeyhole, Shield, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppLayout } from '@/components/layouts/app-layout'
@@ -40,6 +40,7 @@ function folderLabel(doc: KnowledgeDocument) {
 }
 
 export default function CollectionDetailPage({ params }: Props) {
+  const router = useRouter()
   const { accessToken, hasPermission } = useAuth()
   const { notify } = useToast()
   const searchParams = useSearchParams()
@@ -116,16 +117,9 @@ export default function CollectionDetailPage({ params }: Props) {
     } catch (reason) { notify('error', reason instanceof ApiError ? reason.message : 'Unable to process this document.') }
   }
 
-  async function viewDocument(item: { document: KnowledgeDocument; collection: KnowledgeCollection }) {
-    if (!accessToken) return
-    try {
-      const response = await fetch(api.knowledge.documentContentUrl(item.collection.id, item.document.id), { headers: { Authorization: `Bearer ${accessToken}` } })
-      if (!response.ok) throw new Error('Unable to open document.')
-      const contentType = response.headers.get('content-type') || 'application/octet-stream'
-      const blob = await response.blob()
-      const blobUrl = URL.createObjectURL(new Blob([blob], { type: contentType }))
-      window.open(blobUrl, '_blank', 'noopener,noreferrer')
-    } catch { notify('error', 'Unable to open document.') }
+  function viewDocument(item: { document: KnowledgeDocument; collection: KnowledgeCollection }) {
+    const params = new URLSearchParams({ collectionId: item.collection.id, documentId: item.document.id, name: item.document.name })
+    router.push(`/knowledge/viewer?${params.toString()}`)
   }
 
   async function downloadDocument(item: { document: KnowledgeDocument; collection: KnowledgeCollection }) {
