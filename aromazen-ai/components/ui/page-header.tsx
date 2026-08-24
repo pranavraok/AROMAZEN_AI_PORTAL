@@ -6,14 +6,14 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, description, actions }: PageHeaderProps) {
   return (
-    <div className="border-b border-border/70 pb-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-2">
+    <div className="min-w-0 border-b border-border/70 pb-5 sm:pb-6">
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
+        <div className="min-w-0 space-y-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Aromazen AI</p>
           <h1 className="text-2xl font-semibold tracking-[-0.03em] text-foreground md:text-[30px]">{title}</h1>
           {description && <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{description}</p>}
         </div>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        {actions && <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">{actions}</div>}
       </div>
     </div>
   )

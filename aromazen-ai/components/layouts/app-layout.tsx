@@ -21,7 +21,7 @@ export function AppLayout({
   return (
     <RequireAuthenticatedApp><div className="app-shell flex h-screen bg-background">
       {showSidebar && <Sidebar open={sidebarOpen} onToggle={setSidebarOpen} />}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {showTopBar && <TopBar sidebarOpen={sidebarOpen} onSidebarToggle={setSidebarOpen} />}
         <main className="app-main flex-1 overflow-auto">
           {children}

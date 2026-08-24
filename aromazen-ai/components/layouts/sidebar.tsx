@@ -104,7 +104,7 @@ export function Sidebar({ open, onToggle }: SidebarProps) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed bottom-0 left-0 top-0 z-40 flex w-[280px] flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 lg:relative lg:translate-x-0 ${
+        className={`fixed bottom-0 left-0 top-0 z-40 flex w-[min(280px,88vw)] flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 lg:relative lg:w-[280px] lg:translate-x-0 ${
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >

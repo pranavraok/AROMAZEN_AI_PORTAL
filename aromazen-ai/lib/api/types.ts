@@ -122,6 +122,7 @@ export interface CreateChatMessageRequest {
   collection_ids: string[]
   attachment_ids?: string[]
   mode?: 'chat' | 'image' | 'email'
+  response_mode?: 'quick' | 'standard' | 'deep'
 }
 
 export interface SendEmailRequest extends Omit<EmailDraft, 'status' | 'sent_at'> { message_id: string }

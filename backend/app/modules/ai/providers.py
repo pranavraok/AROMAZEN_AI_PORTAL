@@ -74,7 +74,7 @@ class OpenAIProvider:
     def available(self) -> bool:
         return bool(self.settings.openai_api_key)
 
-    async def stream(self, system: str, prompt: str, *, use_web_search: bool = False, images: list[dict[str, str]] | None = None) -> AsyncIterator[ProviderEvent]:
+    async def stream(self, system: str, prompt: str, *, use_web_search: bool = False, images: list[dict[str, str]] | None = None, response_mode: str = "deep") -> AsyncIterator[ProviderEvent]:
         if not self.settings.openai_api_key:
             raise ProviderError(self.name, "not_configured", "OpenAI is not configured.")
         headers = {"Authorization": f"Bearer {self.settings.openai_api_key}", "Content-Type": "application/json"}
@@ -84,12 +84,13 @@ class OpenAIProvider:
                 {"type": "input_image", "image_url": f"data:{image['mime_type']};base64,{image['data']}"}
                 for image in images
             ]
+        output_limits = {"quick": 300, "standard": 900, "deep": self.settings.ai_max_output_tokens}
         payload = {
             "model": self.model,
             "instructions": system,
             "input": input_content if isinstance(input_content, str) else [{"role": "user", "content": input_content}],
-            "max_output_tokens": self.settings.ai_max_output_tokens,
-            "reasoning": {"effort": "medium"},
+            "max_output_tokens": min(self.settings.ai_max_output_tokens, output_limits.get(response_mode, 300)),
+            "reasoning": {"effort": "medium" if response_mode == "deep" else "low"},
             "stream": True,
             "store": False,
         }
@@ -154,7 +155,7 @@ class AnthropicProvider:
     def available(self) -> bool:
         return bool(self.settings.anthropic_api_key)
 
-    async def stream(self, system: str, prompt: str, *, images: list[dict[str, str]] | None = None) -> AsyncIterator[ProviderEvent]:
+    async def stream(self, system: str, prompt: str, *, images: list[dict[str, str]] | None = None, response_mode: str = "deep") -> AsyncIterator[ProviderEvent]:
         if not self.settings.anthropic_api_key:
             raise ProviderError(self.name, "not_configured", "Anthropic is not configured.")
         headers = {
@@ -168,9 +169,10 @@ class AnthropicProvider:
                 {"type": "image", "source": {"type": "base64", "media_type": image["mime_type"], "data": image["data"]}}
                 for image in images
             ] + [{"type": "text", "text": prompt}]
+        output_limits = {"quick": 300, "standard": 900, "deep": self.settings.ai_max_output_tokens}
         payload = {
             "model": self.model,
-            "max_tokens": self.settings.ai_max_output_tokens,
+            "max_tokens": min(self.settings.ai_max_output_tokens, output_limits.get(response_mode, 300)),
             "system": system,
             "messages": [{"role": "user", "content": message_content}],
             "stream": True,
@@ -279,7 +281,7 @@ class AIProviderRouter:
         fallback = openai if primary.name == "anthropic" else sonnet
         return [primary] + ([fallback] if fallback.available and (fallback.name, fallback.model) != (primary.name, primary.model) else [])
 
-    async def stream(self, system: str, prompt: str, question: str, *, use_web_search: bool = False, images: list[dict[str, str]] | None = None) -> AsyncIterator[ProviderEvent]:
+    async def stream(self, system: str, prompt: str, question: str, *, use_web_search: bool = False, images: list[dict[str, str]] | None = None, response_mode: str = "deep") -> AsyncIterator[ProviderEvent]:
         providers = self._providers(question, use_web_search=use_web_search)
         if not providers:
             raise ProviderError("router", "no_provider", "No AI provider is configured.")
@@ -290,9 +292,9 @@ class AIProviderRouter:
                 emitted_text = False
                 try:
                     if isinstance(provider, OpenAIProvider):
-                        event_stream = provider.stream(system, prompt, use_web_search=use_web_search, images=images)
+                        event_stream = provider.stream(system, prompt, use_web_search=use_web_search, images=images, response_mode=response_mode)
                     else:
-                        event_stream = provider.stream(system, prompt, images=images)
+                        event_stream = provider.stream(system, prompt, images=images, response_mode=response_mode)
                     async for event in event_stream:
                         if event.kind == "delta" and event.text:
                             emitted_text = True

@@ -1,6 +1,6 @@
 'use client'
 
-import { FileText, Image as ImageIcon, Library, Loader2, Mail, Paperclip, Send, Square, X, Zap } from 'lucide-react'
+import { FileText, Gauge, Image as ImageIcon, Library, Loader2, Mail, Paperclip, Send, Square, X, Zap } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { VoiceInputButton } from '@/components/voice-input-button'
@@ -10,7 +10,7 @@ interface ChatComposerProps {
   disabled?: boolean
   busy?: boolean
   onStop?: () => void
-  onSend: (message: string, attachments: ChatAttachment[], mode: 'chat' | 'image' | 'email') => Promise<boolean>
+  onSend: (message: string, attachments: ChatAttachment[], mode: 'chat' | 'image' | 'email', responseMode: 'quick' | 'standard' | 'deep') => Promise<boolean>
   onUpload: (file: File) => Promise<ChatAttachment | null>
   collections?: KnowledgeCollection[]
   knowledgeScope?: string
@@ -22,6 +22,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [mode, setMode] = useState<'chat' | 'image' | 'email'>('chat')
+  const [responseMode, setResponseMode] = useState<'quick' | 'standard' | 'deep'>('quick')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   async function handleSend() {
@@ -32,7 +33,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
     setMessage('')
     setAttachments([])
     setMode('chat')
-    const sent = await onSend(value, submittedAttachments, submittedMode)
+    const sent = await onSend(value, submittedAttachments, submittedMode, responseMode)
     if (!sent) {
       setMessage(value)
       setAttachments(submittedAttachments)
@@ -67,12 +68,12 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
         {mode === 'image' && <div className="px-4 pt-3"><span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary"><ImageIcon className="h-3.5 w-3.5" />Create image mode<button type="button" onClick={() => setMode('chat')} aria-label="Exit image mode"><X className="h-3 w-3" /></button></span></div>}
         {mode === 'email' && <div className="px-4 pt-3"><span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary"><Mail className="h-3.5 w-3.5" />Email mode<button type="button" onClick={() => setMode('chat')} aria-label="Exit email mode"><X className="h-3 w-3" /></button></span></div>}
         <textarea value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void handleSend() } }} disabled={disabled} placeholder={mode === 'image' ? 'Describe the image you want to create…' : attachments.length ? 'Ask anything about your attached files…' : 'Message AI Assistant…'} className="max-h-40 min-h-14 w-full resize-none bg-transparent px-4 pb-2 pt-4 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60" rows={1} />
-        <div className="flex items-center justify-between gap-2 px-3 pb-3">
-          <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-3">
+          <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
             <input ref={fileInputRef} type="file" multiple className="hidden" accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.webp" onChange={(event) => void handleFiles(event.target.files)} />
             <Button type="button" size="icon" variant="ghost" onClick={() => fileInputRef.current?.click()} disabled={disabled || uploading || mode === 'image' || attachments.length >= 8} className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground" aria-label="Attach files">{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</Button>
-            <Button type="button" variant="ghost" onClick={() => { setMode((current) => current === 'image' ? 'chat' : 'image'); setAttachments([]) }} disabled={disabled || uploading} className="h-9 rounded-full px-3 text-xs text-muted-foreground hover:text-foreground"><ImageIcon className="mr-1.5 h-4 w-4" />Create image</Button>
-            <Button type="button" variant="ghost" onClick={() => setMode((current) => current === 'email' ? 'chat' : 'email')} disabled={disabled || uploading || mode === 'image'} className="h-9 rounded-full px-3 text-xs text-muted-foreground hover:text-foreground"><Mail className="mr-1.5 h-4 w-4" />Email</Button>
+            <Button type="button" variant="ghost" onClick={() => { setMode((current) => current === 'image' ? 'chat' : 'image'); setAttachments([]) }} disabled={disabled || uploading} className="h-9 rounded-full px-2 text-xs text-muted-foreground hover:text-foreground sm:px-3"><ImageIcon className="sm:mr-1.5 h-4 w-4" /><span className="sr-only sm:not-sr-only">Create image</span></Button>
+            <Button type="button" variant="ghost" onClick={() => setMode((current) => current === 'email' ? 'chat' : 'email')} disabled={disabled || uploading || mode === 'image'} className="h-9 rounded-full px-2 text-xs text-muted-foreground hover:text-foreground sm:px-3"><Mail className="sm:mr-1.5 h-4 w-4" /><span className="sr-only sm:not-sr-only">Email</span></Button>
           </div>
           <div className="flex items-center gap-1">
             <VoiceInputButton disabled={disabled || uploading} label="Speak your question" onTranscript={(text) => setMessage((current) => current.trim() ? `${current.trim()} ${text}` : text)} />
@@ -82,6 +83,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1"><Zap className="h-3 w-3 text-primary" />Permission-aware</span>
+        <label className="inline-flex items-center gap-1"><Gauge className="h-3 w-3" /><span className="sr-only">Response detail</span><select aria-label="Response detail" value={responseMode} onChange={(event) => setResponseMode(event.target.value as 'quick' | 'standard' | 'deep')} disabled={disabled || mode !== 'chat'} className="bg-transparent text-[11px] font-medium text-foreground outline-none"><option value="quick">Quick · concise</option><option value="standard">Standard · balanced</option><option value="deep">Deep · thorough</option></select></label>
         <label className="inline-flex items-center gap-1"><Library className="h-3 w-3" /><select aria-label="Knowledge source" value={knowledgeScope} onChange={(event) => onKnowledgeScopeChange?.(event.target.value)} disabled={disabled} className="max-w-44 bg-transparent text-[11px] text-muted-foreground outline-none"><option value="auto">Automatic knowledge</option><option value="all">All I can access</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select></label>
         <span>{busy ? 'You can type your next message while this answer is being prepared.' : 'AI can make mistakes. Check important information.'}</span>
       </div>
