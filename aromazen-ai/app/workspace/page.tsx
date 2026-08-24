@@ -207,23 +207,17 @@ function WorkspaceContent() {
     return () => window.removeEventListener('aromazen:conversation-deleted', handleDeleted)
   }, [conversationId, newChat])
 
-  async function openCitation(citation: { documentId: string; collectionId: string; page?: number }) {
-    if (!accessToken) return
-    try {
-      const response = await fetch(api.knowledge.documentContentUrl(citation.collectionId, citation.documentId), { headers: { Authorization: `Bearer ${accessToken}` } })
-      if (!response.ok) throw new Error('Unable to open source.')
-      const documentUrl = URL.createObjectURL(await response.blob())
-      window.open(citation.page ? `${documentUrl}#page=${citation.page}` : documentUrl, '_blank', 'noopener,noreferrer')
-    } catch { notify('error', 'Unable to open this source document.') }
+  function openCitation(citation: { documentId: string; collectionId: string; name: string; page?: number }) {
+    const params = new URLSearchParams({ collectionId: citation.collectionId, documentId: citation.documentId, name: citation.name })
+    if (citation.page) params.set('page', String(citation.page))
+    params.set('returnTo', conversationId ? `/workspace?conversation=${conversationId}` : '/workspace')
+    router.push(`/knowledge/viewer?${params.toString()}`)
   }
 
-  async function openAttachment(attachment: ChatAttachment) {
-    if (!accessToken) return
-    try {
-      const response = await fetch(api.workspace.attachmentContentUrl(attachment.id), { headers: { Authorization: `Bearer ${accessToken}` } })
-      if (!response.ok) throw new Error()
-      window.open(URL.createObjectURL(await response.blob()), '_blank', 'noopener,noreferrer')
-    } catch { notify('error', 'Unable to open this attachment.') }
+  function openAttachment(attachment: ChatAttachment) {
+    const params = new URLSearchParams({ attachmentId: attachment.id, name: attachment.name })
+    params.set('returnTo', conversationId ? `/workspace?conversation=${conversationId}` : '/workspace')
+    router.push(`/knowledge/viewer?${params.toString()}`)
   }
 
   async function uploadAttachment(file: File): Promise<ChatAttachment | null> {

@@ -4,17 +4,29 @@ import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { ArrowLeft, Download, ExternalLink, FileText, LoaderCircle } from 'lucide-react'
+import { ArrowLeft, Download, ExternalLink, FileText, LoaderCircle, Table2 } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/components/auth/auth-provider'
 import { api } from '@/lib/api/services'
 import mammoth from 'mammoth'
+import { SpreadsheetPreview, type SpreadsheetWorkbook } from '@/components/document-viewer/spreadsheet-preview'
 
 const DOCX_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/msword',
 ]
+
+const EXCEL_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel.sheet.macroenabled.12',
+  'application/vnd.ms-excel',
+]
+
+function isExcel(filename: string, ct: string): boolean {
+  if (EXCEL_TYPES.includes(ct.toLowerCase())) return true
+  return /\.(xlsx|xlsm|xls)$/i.test(filename)
+}
 
 function isDocx(filename: string, ct: string): boolean {
   if (DOCX_TYPES.includes(ct)) return true
@@ -42,7 +54,14 @@ function DocumentViewer() {
 
   const collectionId = searchParams.get('collectionId')
   const documentId = searchParams.get('documentId')
+  const attachmentId = searchParams.get('attachmentId')
   const docName = searchParams.get('name') || 'Document'
+  const fromWorkspace = Boolean(attachmentId)
+  const requestedPage = searchParams.get('page')
+  const requestedReturnTo = searchParams.get('returnTo')
+  const returnTo = requestedReturnTo?.startsWith('/workspace') || requestedReturnTo?.startsWith('/knowledge')
+    ? requestedReturnTo
+    : fromWorkspace ? '/workspace' : '/knowledge'
 
   const [url, setUrl] = useState<string | null>(null)
   const [contentType, setContentType] = useState<string>('')
@@ -50,16 +69,27 @@ function DocumentViewer() {
   const [error, setError] = useState(false)
   const [docxHtml, setDocxHtml] = useState<string | null>(null)
   const [docxLoading, setDocxLoading] = useState(false)
+  const [spreadsheet, setSpreadsheet] = useState<SpreadsheetWorkbook | null>(null)
+  const [spreadsheetLoading, setSpreadsheetLoading] = useState(false)
 
   useEffect(() => {
-    if (!accessToken || !collectionId || !documentId) return
+    if (!accessToken || (!attachmentId && (!collectionId || !documentId))) return
     let revoked = false
     let createdUrl: string | null = null
     setLoading(true)
     setError(false)
+    setUrl(null)
+    setContentType('')
     setDocxHtml(null)
+    setDocxLoading(false)
+    setSpreadsheet(null)
+    setSpreadsheetLoading(false)
 
-    void fetch(api.knowledge.documentContentUrl(collectionId, documentId), {
+    const contentUrl = attachmentId
+      ? api.workspace.attachmentContentUrl(attachmentId)
+      : api.knowledge.documentContentUrl(collectionId as string, documentId as string)
+
+    void fetch(contentUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
       .then(async (res) => {
@@ -88,6 +118,41 @@ function DocumentViewer() {
             if (!revoked) setDocxLoading(false)
           }
         }
+
+        if (isExcel(docName, ct)) {
+          setSpreadsheetLoading(true)
+          try {
+            const XLSX = await import('xlsx')
+            const workbook = XLSX.read(await blob.arrayBuffer(), { type: 'array', cellDates: true })
+            const sheets = workbook.SheetNames.flatMap((name) => {
+              const worksheet = workbook.Sheets[name]
+              if (!worksheet) return []
+              const reference = worksheet['!ref']
+              if (!reference) return [{ name, rows: [], startColumn: 0, startRow: 0, truncated: false }]
+              const fullRange = XLSX.utils.decode_range(reference)
+              const range = {
+                s: fullRange.s,
+                e: {
+                  r: Math.min(fullRange.e.r, fullRange.s.r + 1999),
+                  c: Math.min(fullRange.e.c, fullRange.s.c + 99),
+                },
+              }
+              const values = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, raw: false, defval: '', range })
+              return [{
+                name,
+                rows: values.map((row) => row.map((value) => value == null ? '' : String(value))),
+                startColumn: range.s.c,
+                startRow: range.s.r,
+                truncated: fullRange.e.r > range.e.r || fullRange.e.c > range.e.c,
+              }]
+            })
+            if (!revoked) setSpreadsheet({ sheets })
+          } catch (err) {
+            console.error('spreadsheet error:', err)
+          } finally {
+            if (!revoked) setSpreadsheetLoading(false)
+          }
+        }
       })
       .catch(() => {
         if (!revoked) {
@@ -100,7 +165,7 @@ function DocumentViewer() {
       revoked = true
       if (createdUrl) URL.revokeObjectURL(createdUrl)
     }
-  }, [accessToken, collectionId, documentId, docName])
+  }, [accessToken, attachmentId, collectionId, documentId, docName])
 
   function handleDownload() {
     if (!url) return
@@ -118,23 +183,24 @@ function DocumentViewer() {
   const isImage = contentType.startsWith('image/')
   const isPdf = contentType === 'application/pdf'
   const showDocx = isDocx(docName, contentType)
+  const showExcel = isExcel(docName, contentType)
 
   return (
     <div className="flex h-full flex-col">
       {/* Top bar */}
-      <div className="flex items-center gap-3 border-b border-border px-6 py-3">
-        <Link href="/knowledge" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" /> Back to Knowledge
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-3 sm:gap-3 sm:px-6">
+        <Link href={returnTo} className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" /> <span className="hidden sm:inline">Back to {fromWorkspace ? 'Workspace' : 'Knowledge'}</span>
         </Link>
         <div className="mx-2 h-4 w-px bg-border" />
-        <FileText className="h-4 w-4 shrink-0 text-primary" />
+        {showExcel ? <Table2 className="h-4 w-4 shrink-0 text-emerald-500" /> : <FileText className="h-4 w-4 shrink-0 text-primary" />}
         <span className="truncate text-sm font-medium">{docName}</span>
         <div className="flex-1" />
-        <Button variant="outline" size="sm" onClick={handleDownload}>
-          <Download className="mr-1.5 h-3.5 w-3.5" /> Download
+        <Button variant="outline" size="sm" onClick={handleDownload} disabled={!url}>
+          <Download className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Download</span>
         </Button>
-        <Button variant="outline" size="sm" onClick={handleOpenExternal}>
-          <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> Open in new tab
+        <Button variant="outline" size="sm" onClick={handleOpenExternal} disabled={!url}>
+          <ExternalLink className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Open in new tab</span>
         </Button>
       </div>
 
@@ -156,7 +222,7 @@ function DocumentViewer() {
 
         {url && !loading && !error && (
           <>
-            {isPdf && <iframe src={url} className="h-full w-full border-0" title={docName} />}
+            {isPdf && <iframe src={requestedPage ? `${url}#page=${requestedPage}` : url} className="h-full w-full border-0" title={docName} />}
 
             {isImage && (
               <div className="relative h-full w-full p-4">
@@ -186,7 +252,23 @@ function DocumentViewer() {
               </div>
             )}
 
-            {!isPdf && !isImage && !showDocx && (
+            {showExcel && spreadsheetLoading && (
+              <div className="flex h-full items-center justify-center gap-3 text-gray-500">
+                <LoaderCircle className="h-5 w-5 animate-spin" /> Rendering spreadsheet…
+              </div>
+            )}
+
+            {showExcel && !spreadsheetLoading && spreadsheet && <SpreadsheetPreview workbook={spreadsheet} />}
+
+            {showExcel && !spreadsheetLoading && spreadsheet === null && (
+              <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center text-gray-500">
+                <Table2 className="h-12 w-12" />
+                <p className="text-sm">Unable to render this spreadsheet.</p>
+                <Button onClick={handleDownload}><Download className="mr-1.5 h-4 w-4" /> Download to view</Button>
+              </div>
+            )}
+
+            {!isPdf && !isImage && !showDocx && !showExcel && (
               <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center text-gray-500">
                 <FileText className="h-12 w-12" />
                 <p className="text-sm">This file type ({contentType}) cannot be previewed inline.</p>
