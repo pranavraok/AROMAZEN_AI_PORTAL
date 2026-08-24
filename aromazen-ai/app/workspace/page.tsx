@@ -10,7 +10,7 @@ import { PromptSuggestions } from '@/components/workspace/prompt-suggestions'
 import { useAuth } from '@/components/auth/auth-provider'
 import { useToast } from '@/components/ui/toast-provider'
 import { api } from '@/lib/api/services'
-import type { ChatAttachment, ChatCitation, ChatMessage as ChatMessageDto, CurrentUser, EmailDraft, KnowledgeCollection, UsageSummary } from '@/lib/api/types'
+import type { ChatAttachment, ChatCitation, ChatMessage as ChatMessageDto, CurrentUser, EmailDraft, UsageSummary } from '@/lib/api/types'
 import { ApiError } from '@/lib/api/client'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
@@ -140,8 +140,6 @@ function WorkspaceContent() {
   const [isLoadingChat, setIsLoadingChat] = useState(false)
   const [stageDetail, setStage] = useState<string | null>(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
-  const [collections, setCollections] = useState<KnowledgeCollection[]>([])
-  const [knowledgeScope, setKnowledgeScope] = useState('auto')
   const [pendingEmail, setPendingEmail] = useState<{ messageId: string; draft: EmailDraft } | null>(null)
   const [sendingEmail, setSendingEmail] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -166,11 +164,6 @@ function WorkspaceContent() {
   }, [isSending])
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: isSending ? 'smooth' : 'auto', block: 'end' }) }, [isSending, messages, stage])
-  useEffect(() => {
-    if (!accessToken || !user?.permission_keys.includes('knowledge.read')) return
-    void api.knowledge.collections(accessToken).then(setCollections).catch((error) => notify('error', error instanceof ApiError ? error.message : 'Unable to load your permitted knowledge collections.'))
-  }, [accessToken, notify, user?.permission_keys])
-
   async function withImagePreview(attachment: ChatAttachment): Promise<ChatAttachment> {
     if (!accessToken || !attachment.is_image) return attachment
     try {
@@ -285,7 +278,7 @@ function WorkspaceContent() {
     setMessages((current) => [...current, ...(options.resume ? [] : [{ id: userId, role: 'user' as const, content, created_at: createdAt, citations: [], attachments }]), { id: assistantId, role: 'assistant', content: '', created_at: createdAt, citations: [], attachments: [] }])
     let accepted = false
     try {
-      const collectionIds = options.collectionIdsOverride ?? (knowledgeScope === 'all' ? collections.map((collection) => collection.id) : knowledgeScope === 'auto' ? [] : [knowledgeScope])
+      const collectionIds = options.collectionIdsOverride ?? []
       const requestConversationId = options.conversationOverride ?? conversationId
       activeConversationRef.current = requestConversationId
       // Timestamp is captured while handling a send, never during render.
@@ -381,7 +374,7 @@ function WorkspaceContent() {
 
   return <AppLayout><div className="flex h-full min-w-0 flex-col overflow-hidden bg-background">
     <div className="flex-1 overflow-y-auto px-4 py-7 md:px-8">{isLoadingChat ? <div className="mx-auto max-w-3xl space-y-4 py-20"><div className="h-4 w-32 animate-pulse rounded bg-muted" /><div className="h-4 w-full animate-pulse rounded bg-muted/80" /><div className="h-4 w-4/5 animate-pulse rounded bg-muted/60" /></div> : messages.length === 0 ? <div className="mx-auto max-w-[760px] space-y-9 pt-8 md:pt-[9vh]"><div className="space-y-4 text-center"><BrandMark size="lg" className="mx-auto" /><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Aromazen AI</p><h1 className="text-3xl font-medium tracking-[-0.045em] text-foreground md:text-[38px]">How can I help, {firstName}?</h1><p className="mx-auto max-w-xl text-sm leading-6 text-muted-foreground">Ask a question, work with a file, create an image, send a Zoho email, or explore company knowledge available to your team.</p><p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70"><LockKeyhole className="h-3 w-3" />Your workspace follows Aromazen access controls</p></div><PromptSuggestions suggestions={suggestions} onSelect={(text, mode) => void sendMessage(text, [], mode)} /></div> : <div className="mx-auto max-w-3xl space-y-9 pb-4">{messages.map((message, index) => <ChatMessage key={message.id} role={message.role} content={message.content} attachments={message.attachments} artifacts={message.artifacts} emailBusy={sendingEmail && pendingEmail?.messageId === message.id} timestamp={new Date(message.created_at)} status={message.role === 'assistant' && index === messages.length - 1 ? stage : null} webSources={message.web_sources} sources={message.citations.map((citation) => ({ documentId: citation.document_id, collectionId: citation.collection_id, name: citation.document_name, collection: citation.collection_name, page: citation.page ?? undefined, chunk: citation.chunk_index, relevance: citation.relevance ?? 0 }))} editable={!isSending} onEdit={(revisedContent) => editMessage(message.id, revisedContent)} onOpenSource={(source) => void openCitation(source)} onOpenAttachment={(attachment) => void openAttachment(attachment)} onSendEmail={(draft) => setPendingEmail({ messageId: message.id, draft })} />)}<div ref={messagesEndRef} /></div>}</div>
-    <ChatComposer busy={isSending} onStop={() => void stopGenerating()} onSend={sendMessage} onUpload={uploadAttachment} collections={collections} knowledgeScope={knowledgeScope} onKnowledgeScopeChange={setKnowledgeScope} />
+    <ChatComposer busy={isSending} onStop={() => void stopGenerating()} onSend={sendMessage} onUpload={uploadAttachment} />
     {pendingEmail && <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Confirm email"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start justify-between gap-4"><span className="grid h-10 w-10 place-items-center rounded-full bg-amber-500/10"><AlertTriangle className="h-5 w-5 text-amber-500" /></span><button type="button" onClick={() => setPendingEmail(null)} disabled={sendingEmail} className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Cancel sending"><X className="h-4 w-4" /></button></div><h2 className="mt-4 text-lg font-semibold">Send this email through Zoho?</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">This will send the email to <span className="font-medium text-foreground">{pendingEmail.draft.to.join(', ')}</span>. Please confirm the recipient and subject are correct.</p><div className="mt-3 rounded-xl bg-muted/50 px-3 py-2 text-sm"><span className="text-muted-foreground">Subject: </span>{pendingEmail.draft.subject}</div><div className="mt-5 flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setPendingEmail(null)} disabled={sendingEmail}>Cancel</Button><Button type="button" onClick={() => void confirmEmailSend()} disabled={sendingEmail}><Mail className="mr-2 h-4 w-4" />{sendingEmail ? 'Sending…' : 'Send email'}</Button></div></div></div>}
   </div></AppLayout>
 }

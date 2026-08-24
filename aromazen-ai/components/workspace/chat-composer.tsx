@@ -1,14 +1,14 @@
 'use client'
 
-import { Check, ChevronDown, FileText, FolderUp, Gauge, Image as ImageIcon, Library, Loader2, Mail, Plus, Send, Square, Upload, X } from 'lucide-react'
+import { Check, ChevronDown, FileText, FolderUp, Gauge, Image as ImageIcon, Loader2, Mail, Plus, Send, Square, Upload, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { VoiceInputButton } from '@/components/voice-input-button'
-import type { ChatAttachment, KnowledgeCollection } from '@/lib/api/types'
+import type { ChatAttachment } from '@/lib/api/types'
 
 type ChatMode = 'chat' | 'image' | 'email'
 type ResponseMode = 'quick' | 'standard' | 'deep'
-type OpenMenu = 'tools' | 'response' | 'knowledge' | null
+type OpenMenu = 'tools' | 'response' | null
 
 const RESPONSE_OPTIONS: { value: ResponseMode; label: string; description: string }[] = [
   { value: 'quick', label: 'Quick', description: 'Short and fast' },
@@ -22,12 +22,9 @@ interface ChatComposerProps {
   onStop?: () => void
   onSend: (message: string, attachments: ChatAttachment[], mode: ChatMode, responseMode: ResponseMode) => Promise<boolean>
   onUpload: (file: File) => Promise<ChatAttachment | null>
-  collections?: KnowledgeCollection[]
-  knowledgeScope?: string
-  onKnowledgeScopeChange?: (value: string) => void
 }
 
-export function ChatComposer({ disabled = false, busy = false, onStop, onSend, onUpload, collections = [], knowledgeScope = 'auto', onKnowledgeScopeChange }: ChatComposerProps) {
+export function ChatComposer({ disabled = false, busy = false, onStop, onSend, onUpload }: ChatComposerProps) {
   const [message, setMessage] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(false)
@@ -38,7 +35,6 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
   const folderInputRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
   const responseOption = RESPONSE_OPTIONS.find((option) => option.value === responseMode) ?? RESPONSE_OPTIONS[0]
-  const knowledgeLabel = knowledgeScope === 'auto' ? 'Automatic knowledge' : knowledgeScope === 'all' ? 'All accessible knowledge' : collections.find((collection) => collection.id === knowledgeScope)?.name ?? 'Knowledge source'
 
   useEffect(() => {
     function closeMenus(event: PointerEvent) {
@@ -94,11 +90,6 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
     setOpenMenu(null)
   }
 
-  function chooseKnowledge(value: string) {
-    onKnowledgeScopeChange?.(value)
-    setOpenMenu(null)
-  }
-
   return <div className="shrink-0 border-t border-transparent bg-gradient-to-t from-background via-background to-background/60 px-3 pb-4 pt-2 md:px-6">
     <div ref={composerRef} className="relative mx-auto max-w-3xl">
       <div className="rounded-[26px] border border-border bg-card shadow-[0_18px_55px_rgba(0,0,0,0.16)] transition-all focus-within:border-foreground/25 focus-within:shadow-[0_20px_65px_rgba(0,0,0,0.22)]">
@@ -124,14 +115,6 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
                 <div className="my-1 border-t border-border" />
                 <MenuButton icon={<ImageIcon />} label="Create image" description="Generate a new visual" active={mode === 'image'} onClick={() => chooseMode(mode === 'image' ? 'chat' : 'image')} />
                 <MenuButton icon={<Mail />} label="Prepare email" description="Draft and send through Zoho" active={mode === 'email'} disabled={mode === 'image'} onClick={() => chooseMode(mode === 'email' ? 'chat' : 'email')} />
-                <div className="my-1 border-t border-border" />
-                <MenuButton icon={<Library />} label="Knowledge source" description={knowledgeLabel} onClick={() => setOpenMenu('knowledge')} />
-              </div>}
-              {openMenu === 'knowledge' && <div role="menu" className="absolute bottom-[calc(100%+10px)] left-0 z-30 max-h-72 w-64 overflow-y-auto rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
-                <p className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Knowledge source</p>
-                <ChoiceButton selected={knowledgeScope === 'auto'} label="Automatic knowledge" description="Use company sources when relevant" onClick={() => chooseKnowledge('auto')} />
-                <ChoiceButton selected={knowledgeScope === 'all'} label="All I can access" description="Search every permitted collection" onClick={() => chooseKnowledge('all')} />
-                {collections.map((collection) => <ChoiceButton key={collection.id} selected={knowledgeScope === collection.id} label={collection.name} description={`${collection.document_count} ${collection.document_count === 1 ? 'document' : 'documents'}`} onClick={() => chooseKnowledge(collection.id)} />)}
               </div>}
             </div>
 
