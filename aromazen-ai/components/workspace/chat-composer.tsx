@@ -1,16 +1,26 @@
 'use client'
 
-import { FileText, Gauge, Image as ImageIcon, Library, Loader2, Mail, Paperclip, Send, Square, X, Zap } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { Check, ChevronDown, FileText, FolderUp, Gauge, Image as ImageIcon, Library, Loader2, Mail, Plus, Send, Square, Upload, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { VoiceInputButton } from '@/components/voice-input-button'
 import type { ChatAttachment, KnowledgeCollection } from '@/lib/api/types'
+
+type ChatMode = 'chat' | 'image' | 'email'
+type ResponseMode = 'quick' | 'standard' | 'deep'
+type OpenMenu = 'tools' | 'response' | 'knowledge' | null
+
+const RESPONSE_OPTIONS: { value: ResponseMode; label: string; description: string }[] = [
+  { value: 'quick', label: 'Quick', description: 'Short and fast' },
+  { value: 'standard', label: 'Standard', description: 'Balanced detail' },
+  { value: 'deep', label: 'Deep', description: 'Thorough answer' },
+]
 
 interface ChatComposerProps {
   disabled?: boolean
   busy?: boolean
   onStop?: () => void
-  onSend: (message: string, attachments: ChatAttachment[], mode: 'chat' | 'image' | 'email', responseMode: 'quick' | 'standard' | 'deep') => Promise<boolean>
+  onSend: (message: string, attachments: ChatAttachment[], mode: ChatMode, responseMode: ResponseMode) => Promise<boolean>
   onUpload: (file: File) => Promise<ChatAttachment | null>
   collections?: KnowledgeCollection[]
   knowledgeScope?: string
@@ -21,9 +31,29 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
   const [message, setMessage] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(false)
-  const [mode, setMode] = useState<'chat' | 'image' | 'email'>('chat')
-  const [responseMode, setResponseMode] = useState<'quick' | 'standard' | 'deep'>('quick')
+  const [mode, setMode] = useState<ChatMode>('chat')
+  const [responseMode, setResponseMode] = useState<ResponseMode>('quick')
+  const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
+  const responseOption = RESPONSE_OPTIONS.find((option) => option.value === responseMode) ?? RESPONSE_OPTIONS[0]
+  const knowledgeLabel = knowledgeScope === 'auto' ? 'Automatic knowledge' : knowledgeScope === 'all' ? 'All accessible knowledge' : collections.find((collection) => collection.id === knowledgeScope)?.name ?? 'Knowledge source'
+
+  useEffect(() => {
+    function closeMenus(event: PointerEvent) {
+      if (!composerRef.current?.contains(event.target as Node)) setOpenMenu(null)
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpenMenu(null)
+    }
+    document.addEventListener('pointerdown', closeMenus)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeMenus)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [])
 
   async function handleSend() {
     const value = message.trim()
@@ -33,6 +63,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
     setMessage('')
     setAttachments([])
     setMode('chat')
+    setOpenMenu(null)
     const sent = await onSend(value, submittedAttachments, submittedMode, responseMode)
     if (!sent) {
       setMessage(value)
@@ -44,6 +75,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return
     setUploading(true)
+    setOpenMenu(null)
     try {
       for (const file of Array.from(files).slice(0, Math.max(0, 8 - attachments.length))) {
         const uploaded = await onUpload(file)
@@ -52,12 +84,24 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
+      if (folderInputRef.current) folderInputRef.current.value = ''
     }
   }
 
+  function chooseMode(nextMode: ChatMode) {
+    setMode(nextMode)
+    if (nextMode === 'image') setAttachments([])
+    setOpenMenu(null)
+  }
+
+  function chooseKnowledge(value: string) {
+    onKnowledgeScopeChange?.(value)
+    setOpenMenu(null)
+  }
+
   return <div className="shrink-0 border-t border-transparent bg-gradient-to-t from-background via-background to-background/60 px-3 pb-4 pt-2 md:px-6">
-    <div className="mx-auto max-w-3xl">
-      <div className="rounded-[24px] border border-border bg-card shadow-[0_18px_55px_rgba(0,0,0,0.28)] transition-all focus-within:border-foreground/25 focus-within:shadow-[0_20px_65px_rgba(0,0,0,0.38)]">
+    <div ref={composerRef} className="relative mx-auto max-w-3xl">
+      <div className="rounded-[26px] border border-border bg-card shadow-[0_18px_55px_rgba(0,0,0,0.16)] transition-all focus-within:border-foreground/25 focus-within:shadow-[0_20px_65px_rgba(0,0,0,0.22)]">
         {attachments.length > 0 && <div className="flex gap-2 overflow-x-auto px-3 pt-3">
           {attachments.map((attachment) => <div key={attachment.id} className="flex max-w-52 shrink-0 items-center gap-2 rounded-xl border border-border bg-muted/60 px-2.5 py-2">
             {attachment.is_image ? <ImageIcon className="h-4 w-4 shrink-0 text-primary" /> : <FileText className="h-4 w-4 shrink-0 text-primary" />}
@@ -65,28 +109,56 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
             <button type="button" onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))} className="rounded-md p-0.5 text-muted-foreground hover:bg-background hover:text-foreground" aria-label={`Remove ${attachment.name}`}><X className="h-3.5 w-3.5" /></button>
           </div>)}
         </div>}
-        {mode === 'image' && <div className="px-4 pt-3"><span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary"><ImageIcon className="h-3.5 w-3.5" />Create image mode<button type="button" onClick={() => setMode('chat')} aria-label="Exit image mode"><X className="h-3 w-3" /></button></span></div>}
-        {mode === 'email' && <div className="px-4 pt-3"><span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary"><Mail className="h-3.5 w-3.5" />Email mode<button type="button" onClick={() => setMode('chat')} aria-label="Exit email mode"><X className="h-3 w-3" /></button></span></div>}
-        <textarea value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void handleSend() } }} disabled={disabled} placeholder={mode === 'image' ? 'Describe the image you want to create…' : attachments.length ? 'Ask anything about your attached files…' : 'Message AI Assistant…'} className="max-h-40 min-h-14 w-full resize-none bg-transparent px-4 pb-2 pt-4 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60" rows={1} />
-        <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-3">
-          <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+        {mode !== 'chat' && <div className="px-4 pt-3"><span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">{mode === 'image' ? <ImageIcon className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}{mode === 'image' ? 'Create image' : 'Email'}<button type="button" onClick={() => setMode('chat')} aria-label={`Exit ${mode} mode`}><X className="h-3 w-3" /></button></span></div>}
+        <textarea value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void handleSend() } }} disabled={disabled} placeholder={mode === 'image' ? 'Describe the image you want to create…' : attachments.length ? 'Ask anything about your attached files…' : mode === 'email' ? 'Describe the email you want to prepare…' : 'Message AI Assistant…'} className="max-h-40 min-h-16 w-full resize-none bg-transparent px-5 pb-2 pt-4 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60" rows={1} />
+        <div className="flex items-center justify-between gap-2 px-3 pb-3">
+          <div className="flex min-w-0 items-center gap-1.5">
             <input ref={fileInputRef} type="file" multiple className="hidden" accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.webp" onChange={(event) => void handleFiles(event.target.files)} />
-            <Button type="button" size="icon" variant="ghost" onClick={() => fileInputRef.current?.click()} disabled={disabled || uploading || mode === 'image' || attachments.length >= 8} className="h-9 w-9 rounded-full text-muted-foreground hover:text-foreground" aria-label="Attach files">{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}</Button>
-            <Button type="button" variant="ghost" onClick={() => { setMode((current) => current === 'image' ? 'chat' : 'image'); setAttachments([]) }} disabled={disabled || uploading} className="h-9 rounded-full px-2 text-xs text-muted-foreground hover:text-foreground sm:px-3"><ImageIcon className="sm:mr-1.5 h-4 w-4" /><span className="sr-only sm:not-sr-only">Create image</span></Button>
-            <Button type="button" variant="ghost" onClick={() => setMode((current) => current === 'email' ? 'chat' : 'email')} disabled={disabled || uploading || mode === 'image'} className="h-9 rounded-full px-2 text-xs text-muted-foreground hover:text-foreground sm:px-3"><Mail className="sm:mr-1.5 h-4 w-4" /><span className="sr-only sm:not-sr-only">Email</span></Button>
+            <input ref={folderInputRef} type="file" multiple className="hidden" accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.webp" onChange={(event) => void handleFiles(event.target.files)} {...({ webkitdirectory: '', directory: '' } as React.InputHTMLAttributes<HTMLInputElement>)} />
+
+            <div className="relative">
+              <Button type="button" size="icon" variant="outline" onClick={() => setOpenMenu((current) => current === 'tools' ? null : 'tools')} disabled={disabled || uploading} className="h-9 w-9 rounded-full bg-transparent" aria-label="Add files or use tools" aria-haspopup="menu" aria-expanded={openMenu === 'tools'}>{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-5 w-5" />}</Button>
+              {openMenu === 'tools' && <div role="menu" className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-64 overflow-hidden rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
+                <MenuButton icon={<Upload />} label="Upload files" description="PDF, Office, text or image" disabled={mode === 'image' || attachments.length >= 8} onClick={() => fileInputRef.current?.click()} />
+                <MenuButton icon={<FolderUp />} label="Upload folder" description="Add supported files together" disabled={mode === 'image' || attachments.length >= 8} onClick={() => folderInputRef.current?.click()} />
+                <div className="my-1 border-t border-border" />
+                <MenuButton icon={<ImageIcon />} label="Create image" description="Generate a new visual" active={mode === 'image'} onClick={() => chooseMode(mode === 'image' ? 'chat' : 'image')} />
+                <MenuButton icon={<Mail />} label="Prepare email" description="Draft and send through Zoho" active={mode === 'email'} disabled={mode === 'image'} onClick={() => chooseMode(mode === 'email' ? 'chat' : 'email')} />
+                <div className="my-1 border-t border-border" />
+                <MenuButton icon={<Library />} label="Knowledge source" description={knowledgeLabel} onClick={() => setOpenMenu('knowledge')} />
+              </div>}
+              {openMenu === 'knowledge' && <div role="menu" className="absolute bottom-[calc(100%+10px)] left-0 z-30 max-h-72 w-64 overflow-y-auto rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
+                <p className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Knowledge source</p>
+                <ChoiceButton selected={knowledgeScope === 'auto'} label="Automatic knowledge" description="Use company sources when relevant" onClick={() => chooseKnowledge('auto')} />
+                <ChoiceButton selected={knowledgeScope === 'all'} label="All I can access" description="Search every permitted collection" onClick={() => chooseKnowledge('all')} />
+                {collections.map((collection) => <ChoiceButton key={collection.id} selected={knowledgeScope === collection.id} label={collection.name} description={`${collection.document_count} ${collection.document_count === 1 ? 'document' : 'documents'}`} onClick={() => chooseKnowledge(collection.id)} />)}
+              </div>}
+            </div>
+
+            <div className="relative">
+              <button type="button" onClick={() => setOpenMenu((current) => current === 'response' ? null : 'response')} disabled={disabled || mode !== 'chat'} className="inline-flex h-9 max-w-[14rem] items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-45" aria-haspopup="menu" aria-expanded={openMenu === 'response'} title="Choose response detail"><Gauge className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">{responseOption.label}</span><span className="hidden text-muted-foreground sm:inline">· {responseOption.description}</span><ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /></button>
+              {openMenu === 'response' && <div role="menu" className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-60 rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
+                <p className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Response style</p>
+                {RESPONSE_OPTIONS.map((option) => <ChoiceButton key={option.value} selected={responseMode === option.value} label={option.label} description={option.description} onClick={() => { setResponseMode(option.value); setOpenMenu(null) }} />)}
+              </div>}
+            </div>
           </div>
-          <div className="flex items-center gap-1">
+
+          <div className="flex shrink-0 items-center gap-1">
             <VoiceInputButton disabled={disabled || uploading} label="Speak your question" onTranscript={(text) => setMessage((current) => current.trim() ? `${current.trim()} ${text}` : text)} />
-            {busy ? <Button type="button" size="icon" onClick={onStop} className="h-9 w-9 rounded-full bg-foreground text-background hover:bg-foreground/85" aria-label="Stop generating"><Square className="h-3.5 w-3.5 fill-current" /></Button> : <Button type="button" size="icon" onClick={() => void handleSend()} disabled={disabled || uploading || !message.trim()} className="h-9 w-9 rounded-full bg-foreground text-background hover:bg-foreground/85"><Send className="h-4 w-4" /></Button>}
+            {busy ? <Button type="button" size="icon" onClick={onStop} className="h-9 w-9 rounded-full bg-foreground text-background hover:bg-foreground/85" aria-label="Stop generating"><Square className="h-3.5 w-3.5 fill-current" /></Button> : <Button type="button" size="icon" onClick={() => void handleSend()} disabled={disabled || uploading || !message.trim()} className="h-9 w-9 rounded-full bg-foreground text-background hover:bg-foreground/85" aria-label="Send message"><Send className="h-4 w-4" /></Button>}
           </div>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        <span className="inline-flex items-center gap-1"><Zap className="h-3 w-3 text-primary" />Permission-aware</span>
-        <label className="inline-flex items-center gap-1"><Gauge className="h-3 w-3" /><span className="sr-only">Response detail</span><select aria-label="Response detail" value={responseMode} onChange={(event) => setResponseMode(event.target.value as 'quick' | 'standard' | 'deep')} disabled={disabled || mode !== 'chat'} className="bg-transparent text-[11px] font-medium text-foreground outline-none"><option value="quick">Quick · concise</option><option value="standard">Standard · balanced</option><option value="deep">Deep · thorough</option></select></label>
-        <label className="inline-flex items-center gap-1"><Library className="h-3 w-3" /><select aria-label="Knowledge source" value={knowledgeScope} onChange={(event) => onKnowledgeScopeChange?.(event.target.value)} disabled={disabled} className="max-w-44 bg-transparent text-[11px] text-muted-foreground outline-none"><option value="auto">Automatic knowledge</option><option value="all">All I can access</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select></label>
-        <span>{busy ? 'You can type your next message while this answer is being prepared.' : 'AI can make mistakes. Check important information.'}</span>
-      </div>
+      <p className="mt-2 text-center text-[11px] leading-4 text-muted-foreground">{busy ? 'You can type your next message while this answer is being prepared.' : 'AI can make mistakes. Check important information.'}</p>
     </div>
   </div>
+}
+
+function MenuButton({ icon, label, description, active = false, disabled = false, onClick }: { icon: React.ReactNode; label: string; description: string; active?: boolean; disabled?: boolean; onClick: () => void }) {
+  return <button type="button" role="menuitem" disabled={disabled} onClick={onClick} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40 ${active ? 'bg-primary/10 text-primary' : ''}`}><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground [&>svg]:h-4 [&>svg]:w-4">{icon}</span><span className="min-w-0"><span className="block text-sm font-medium">{label}</span><span className="block truncate text-[11px] text-muted-foreground">{description}</span></span></button>
+}
+
+function ChoiceButton({ selected, label, description, onClick }: { selected: boolean; label: string; description: string; onClick: () => void }) {
+  return <button type="button" role="menuitemradio" aria-checked={selected} onClick={onClick} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-muted ${selected ? 'bg-primary/10' : ''}`}><span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border ${selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border'}`}>{selected ? <Check className="h-3 w-3" /> : null}</span><span className="min-w-0"><span className="block text-sm font-medium">{label}</span><span className="block truncate text-[11px] text-muted-foreground">{description}</span></span></button>
 }
