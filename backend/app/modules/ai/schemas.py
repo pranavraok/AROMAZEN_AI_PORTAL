@@ -11,7 +11,7 @@ class StreamChatRequest(BaseModel):
     collection_ids: list[UUID] = Field(default_factory=list, max_length=25)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=8)
     mode: Literal["chat", "image", "email"] = "chat"
-    response_mode: Literal["quick", "standard", "deep"] = "quick"
+    response_mode: Literal["auto", "quick", "standard", "deep"] = "auto"
 
 
 class ConversationUpdateRequest(BaseModel):

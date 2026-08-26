@@ -18,6 +18,7 @@ const DOCUMENT_CATEGORIES = [
   ['attendance_rule', 'Attendance rule / letter'], ['leave_rule', 'Leave rule / letter'],
   ['hr_policy', 'HR policy'], ['other', 'Other'],
   ['document_template', 'Document template'],
+  ['department_upload', 'Department upload'],
 ] as const
 
 const DEFAULT_FOLDERS = [
@@ -30,6 +31,7 @@ const DEFAULT_FOLDERS = [
   { key: 'hr_policy', label: 'HR policy', icon: Shield },
   { key: 'other', label: 'Other', icon: Folder },
   { key: 'templates', label: 'Templates', icon: FileText, categories: ['document_template', 'salary_slip_template', 'hr_letter_template:offer', 'hr_letter_template:appointment', 'hr_letter_template:spot_appreciation', 'hr_letter_template:special_increment'] },
+  { key: 'department_upload', label: 'Department uploads', icon: FileText },
 ] as const
 
 type AccessFilter = 'all' | 'company-wide' | 'my-department'

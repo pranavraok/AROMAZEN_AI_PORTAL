@@ -24,6 +24,7 @@ from app.modules.settings.service import provider_runtime_settings
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.routes import can_access_collection
 from app.modules.knowledge.storage import organized_storage_name
+from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
 
 router = APIRouter(dependencies=[Depends(require_department("r-d"))])
 
@@ -417,15 +418,16 @@ async def generate(
     excel_fields: dict[str, str] = {}
     excel_rows: list[dict[str, str]] = []
     temporary_excel: Path | None = None
+    excel_content: bytes | None = None
     if excel_file:
         if Path(excel_file.filename or "").suffix.lower() != ".xlsx":
             raise HTTPException(status_code=422, detail="Please upload an XLSX Excel file.")
         max_excel_bytes = get_settings().max_excel_upload_size_mb * 1024 * 1024
-        content = await excel_file.read(max_excel_bytes + 1)
-        if len(content) > max_excel_bytes:
+        excel_content = await excel_file.read(max_excel_bytes + 1)
+        if len(excel_content) > max_excel_bytes:
             raise HTTPException(status_code=413, detail=f"The Excel file exceeds the {get_settings().max_excel_upload_size_mb} MB limit.")
         temporary_excel = storage / f"{uuid.uuid4()}.xlsx"
-        temporary_excel.write_bytes(content)
+        temporary_excel.write_bytes(excel_content)
         try:
             excel_fields, excel_rows = read_excel(temporary_excel, document_type)
         except Exception as exc:
@@ -485,7 +487,15 @@ async def generate(
     generation = DocumentGeneration(id=generated_id, organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, template_document_id=document.id, document_type=document_type, input_mode="mixed" if excel_file and manual_fields else "excel" if excel_file else "manual", output_stored_filename=output_stored, output_original_filename=output_name, warnings_json=warnings, status="draft")
     session.add(generation)
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="document.generated", target_type="document_generation", target_id=str(generated_id), metadata_json={"document_type": document_type, "template_document_id": str(document.id), "input_mode": generation.input_mode, "warning_count": len(warnings)}))
-    await session.commit()
+    if excel_content is not None and excel_file is not None:
+        await replace_department_uploads(session, user, "r-d", [DepartmentUpload(
+            f"document-generator:{document_type}-data",
+            excel_content,
+            excel_file.filename or f"{document_type.upper()}_Input.xlsx",
+            excel_file.content_type,
+        )])
+    else:
+        await session.commit()
     return {"id": str(generated_id), "filename": output_name, "status": "draft", "warnings": warnings}
 
 

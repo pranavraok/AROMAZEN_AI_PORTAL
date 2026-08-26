@@ -166,6 +166,22 @@ def _query_plan(question: str, history: list[AIMessage], collection_ids: list[uu
     return QueryPlan(mode, internal, exhaustive, 32 if exhaustive else get_settings().ai_retrieval_limit)
 
 
+def _resolve_response_mode(question: str, requested_mode: str, plan: QueryPlan) -> str:
+    if requested_mode != "auto":
+        return requested_mode
+    lowered = " ".join(question.lower().split())
+    deep_markers = (
+        "analyse", "analyze", "compare", "strategy", "detailed", "in detail", "deep", "thorough",
+        "complete", "forecast", "risk", "calculate", "evaluate", "investigate", "step by step",
+    )
+    if plan.exhaustive or len(question) > 600 or any(marker in lowered for marker in deep_markers):
+        return "deep"
+    direct_starts = ("what is ", "who is ", "when is ", "where is ", "define ", "convert ", "how much is ")
+    if plan.mode == "general" and len(question) <= 160 and lowered.startswith(direct_starts):
+        return "quick"
+    return "standard"
+
+
 def _needs_live_web_search(question: str) -> bool:
     """Route time-sensitive or discovery questions to live web search."""
     lowered = " ".join(question.lower().split())
@@ -947,7 +963,7 @@ async def stream_message(
     collection_ids = list(payload.collection_ids)
     attachment_ids = [attachment.id for attachment in attachments]
     request_mode = payload.mode
-    response_mode = payload.response_mode
+    requested_response_mode = payload.response_mode
 
     async def generate() -> AsyncIterator[str]:
         started = time.perf_counter()
@@ -1082,13 +1098,14 @@ async def stream_message(
                     return
                 chunks: list[dict] = []
                 retrieval_ms = 0
-                history_limit = 4 if response_mode == "quick" else 8
+                history_limit = 4 if requested_response_mode == "quick" else 8
                 history = list(await stream_session.scalars(select(AIMessage).where(
                     AIMessage.conversation_id == conversation_id,
                     AIMessage.id != user_message_id,
                 ).order_by(AIMessage.created_at.desc()).limit(history_limit)))
                 history.reverse()
                 plan = _query_plan(content, history, collection_ids, bool(stream_attachments))
+                response_mode = _resolve_response_mode(content, requested_response_mode, plan)
                 retrieval_question = _retrieval_question(content, history)
                 use_web_search = _needs_live_web_search(content)
                 if plan.use_knowledge:

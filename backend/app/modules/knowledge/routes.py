@@ -36,6 +36,7 @@ def _document_response(item: KnowledgeDocument) -> dict:
         "version": item.version, "size_bytes": item.size_bytes,
         "extracted_characters": item.extracted_characters,
         "document_category": item.document_category,
+        "source_key": item.source_key,
         "expiry_date": item.expiry_date.isoformat() if item.expiry_date else None,
         "reminder_days_before": item.reminder_days_before,
         "reminder_owner": item.reminder_owner,
@@ -233,14 +234,12 @@ async def upload_document(
     settings = get_settings()
     destination_root = Path(settings.upload_storage_path)
     destination_root.mkdir(parents=True, exist_ok=True)
-    previous_template_documents: list[KnowledgeDocument] = []
-    if normalized_category == "document_template":
-        previous_template_documents = list(await session.scalars(select(KnowledgeDocument).where(
-            KnowledgeDocument.organization_id == user.organization_id,
-            KnowledgeDocument.collection_id == collection.id,
-            KnowledgeDocument.document_category == "document_template",
-            KnowledgeDocument.original_filename == original_filename,
-        )))
+    previous_documents = list(await session.scalars(select(KnowledgeDocument).where(
+        KnowledgeDocument.organization_id == user.organization_id,
+        KnowledgeDocument.collection_id == collection.id,
+        KnowledgeDocument.document_category == normalized_category,
+        KnowledgeDocument.original_filename == original_filename,
+    )))
     previous_version = await session.scalar(select(func.max(KnowledgeDocument.version)).where(KnowledgeDocument.collection_id == collection.id, KnowledgeDocument.original_filename == original_filename))
     document_id = uuid.uuid4()
     stored_filename = organized_storage_name(
@@ -293,9 +292,8 @@ async def upload_document(
         document.extracted_characters = len(document.extracted_text)
         document.status = "ready"
         document.processed_at = datetime.now(timezone.utc)
-        for previous in previous_template_documents:
-            if previous.status == "ready":
-                previous.status = "superseded"
+        for previous in previous_documents:
+            await session.delete(previous)
         await create_knowledge_upload_notifications(
             session,
             document=document,
@@ -303,6 +301,8 @@ async def upload_document(
             actor=user,
         )
         await session.commit()
+        for previous in previous_documents:
+            (destination_root / previous.stored_filename).unlink(missing_ok=True)
     except ExtractionError:
         document.status = "failed"
         await session.commit()

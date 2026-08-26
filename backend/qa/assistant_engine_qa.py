@@ -4,7 +4,7 @@ from datetime import date
 from types import SimpleNamespace
 
 from app.modules.ai.providers import AIProviderRouter
-from app.modules.ai.routes import _build_prompt, _query_plan
+from app.modules.ai.routes import _build_prompt, _query_plan, _resolve_response_mode
 from app.modules.ai.rag import _document_lexical_score, _parse_record_date, apply_structured_employee_filter, structured_employee_answer
 
 
@@ -110,6 +110,11 @@ def main() -> None:
 
     attachment = _query_plan("Summarize this file", [], [], True)
     assert attachment.mode == "attachment" and not attachment.use_knowledge
+    assert _resolve_response_mode("Summarize this file", "auto", attachment) == "standard"
+    assert _resolve_response_mode("What is photosynthesis?", "auto", general) == "quick"
+    assert _resolve_response_mode("Compare both strategies in detail", "auto", general) == "deep"
+    assert _resolve_response_mode("What is photosynthesis?", "standard", general) == "standard"
+    assert _resolve_response_mode("List every employee", "auto", exhaustive) == "deep"
 
     attached_file = SimpleNamespace(original_filename="Long Report.pdf", extracted_text="x" * 70000)
     attachment_prompt = _build_prompt("Investigate this report", [], [], [attached_file], attachment)

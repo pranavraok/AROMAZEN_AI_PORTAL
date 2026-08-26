@@ -53,6 +53,7 @@ export interface KnowledgeDocument {
   created_at: string
   processed_at: string | null
   document_category: string | null
+  source_key?: string | null
   expiry_date: string | null
   reminder_days_before: number
   reminder_owner: string | null
@@ -122,7 +123,7 @@ export interface CreateChatMessageRequest {
   collection_ids: string[]
   attachment_ids?: string[]
   mode?: 'chat' | 'image' | 'email'
-  response_mode?: 'quick' | 'standard' | 'deep'
+  response_mode?: 'auto' | 'quick' | 'standard' | 'deep'
 }
 
 export interface SendEmailRequest extends Omit<EmailDraft, 'status' | 'sent_at'> { message_id: string }

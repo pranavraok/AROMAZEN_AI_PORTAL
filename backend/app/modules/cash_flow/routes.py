@@ -17,6 +17,7 @@ from app.modules.identity.authorization import require_permissions
 from app.modules.identity.models import AuditEvent, CashFlowReportSnapshot, Department, KnowledgeCollection, KnowledgeDocument, User
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.storage import organized_storage_name
+from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
 
 router = APIRouter()
 
@@ -177,7 +178,15 @@ async def generate(
         accounts_collection.updated_at = datetime.now(timezone.utc)
         await session.flush()
         session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="cash_flow.report_generated", target_type="cash_flow_report", target_id=report_month, metadata_json={"fixed_assets_included": bool(assets), "page_source_files": 5 if assets_content else 4, "previous_comparison_included": include_previous_comparison, "previous_report_month": previous_snapshot.report_month if previous_snapshot else None, "knowledge_collection_id": str(accounts_collection.id), "knowledge_document_id": str(knowledge_document.id), "password_protected": True}))
-        await session.commit()
+        source_uploads = [
+            DepartmentUpload("cash-flow:bank-of-baroda", bob, bob_statement.filename or "Bank_of_Baroda_Statement.pdf", bob_statement.content_type),
+            DepartmentUpload("cash-flow:axis-bank", axis, axis_statement.filename or "Axis_Bank_Statement.pdf", axis_statement.content_type),
+            DepartmentUpload("cash-flow:indusind-bank", indus, indusind_statement.filename or "IndusInd_Bank_Statement.pdf", indusind_statement.content_type),
+            DepartmentUpload("cash-flow:monthly-data", cash, cash_flow_excel.filename or "Monthly_Cash_Flow.xlsx", cash_flow_excel.content_type),
+        ]
+        if assets_content is not None and fixed_assets_excel is not None:
+            source_uploads.append(DepartmentUpload("cash-flow:fixed-assets", assets_content, fixed_assets_excel.filename or "Fixed_Assets.xlsx", fixed_assets_excel.content_type))
+        await replace_department_uploads(session, user, "accounts", source_uploads)
     except Exception:
         await session.rollback()
         await run_in_threadpool(destination.unlink, missing_ok=True)

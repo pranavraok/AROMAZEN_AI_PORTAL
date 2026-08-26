@@ -24,6 +24,7 @@ const FOLDER_DEFINITIONS = [
   { key: 'leave_rule', label: 'Leave rule / letter', icon: Shield },
   { key: 'hr_policy', label: 'HR policy', icon: Shield },
   { key: 'other', label: 'Other', icon: Folder },
+  { key: 'department_upload', label: 'Department uploads', icon: Folder },
 ] as const
 
 function formatSize(bytes: number) {
@@ -36,6 +37,7 @@ function folderLabel(doc: KnowledgeDocument) {
   if (cat.startsWith('hr_letter_template:')) return `HR letter template · ${cat.slice('hr_letter_template:'.length).replaceAll('_', ' ')}`
   if (cat === 'salary_slip_template') return 'Salary-slip template'
   if (cat === 'document_template') return 'Document template'
+  if (cat === 'department_upload') return doc.source_key ? `Department upload · ${doc.source_key.replaceAll(':', ' · ').replaceAll('-', ' ')}` : 'Department upload'
   return FOLDER_DEFINITIONS.find((f) => f.key === cat)?.label ?? cat
 }
 

@@ -41,8 +41,7 @@ from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_c
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.db.session import get_db_session
 from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, KnowledgeDocument, User
-from app.modules.knowledge.storage import organized_storage_name
-from app.modules.knowledge.templates import department_knowledge_collection
+from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.settings.service import provider_runtime_settings
@@ -842,64 +841,27 @@ async def replace_letter_template(
     content = await template_file.read()
     if len(content) > get_settings().max_upload_size_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail="The HR template is too large.")
-    template_id = uuid.uuid4()
-    collection = await department_knowledge_collection(session, user.organization_id, "hr")
-    if collection is None:
-        raise HTTPException(status_code=422, detail="Create the HR department first so its Knowledge Base collection is available.")
-    previous_documents = list(await session.scalars(select(KnowledgeDocument).where(
-        KnowledgeDocument.organization_id == user.organization_id,
-        KnowledgeDocument.document_category == _template_category(template_key),
-    )))
-    version = max((item.version for item in previous_documents), default=0) + 1
-    stored_filename = organized_storage_name(
-        "templates",
-        user.organization_id,
-        original_filename,
-        category=f"hr-letters/{template_key}",
-        identifier=template_id,
-        version=version,
-    )
-    destination = Path(get_settings().upload_storage_path) / stored_filename
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(content)
+    validation_path = Path(get_settings().upload_storage_path) / f"hr-template-validation-{uuid.uuid4()}.docx"
+    validation_path.parent.mkdir(parents=True, exist_ok=True)
+    validation_path.write_bytes(content)
     try:
-        tokens = _template_tokens(destination)
+        tokens = _template_tokens(validation_path)
         if not tokens:
             raise ValueError("missing_placeholders")
-        extracted = extract_text(destination, ".docx")
+        extract_text(validation_path, ".docx")
     except (ValueError, ExtractionError) as error:
-        destination.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail="No usable {{field_name}} placeholders were found in this DOCX template.") from error
-    for previous in previous_documents:
-        if previous.status == "ready":
-            previous.status = "superseded"
-    document = KnowledgeDocument(
-        id=template_id,
-        organization_id=user.organization_id,
-        collection_id=collection.id,
-        uploaded_by_user_id=user.id,
-        original_filename=original_filename,
-        stored_filename=stored_filename,
-        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        size_bytes=len(content),
-        version=version,
-        status="ready",
-        extracted_text=extracted,
-        extracted_characters=len(extracted),
-        processed_at=datetime.now(timezone.utc),
-        document_category=_template_category(template_key),
-    )
-    session.add(document)
-    session.add(AuditEvent(
-        organization_id=user.organization_id,
-        actor_user_id=user.id,
-        action="hr.template_replaced",
-        target_type="knowledge_document",
-        target_id=str(template_id),
-        metadata_json={"template_key": template_key, "filename": original_filename, "version": version, "detected_fields": tokens},
-    ))
-    await session.commit()
-    await session.refresh(document)
+    finally:
+        validation_path.unlink(missing_ok=True)
+    documents = await replace_department_uploads(session, user, "hr", [DepartmentUpload(
+        f"hr-letter-template:{template_key}",
+        content,
+        original_filename,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        _template_category(template_key),
+    )])
+    document = documents[0]
+    destination = Path(get_settings().upload_storage_path) / document.stored_filename
     return _template_response(template_key, destination, document)
 
 

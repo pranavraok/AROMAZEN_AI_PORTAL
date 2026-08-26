@@ -143,6 +143,7 @@ class KnowledgeCollection(Base):
 
 class KnowledgeDocument(Base):
     __tablename__ = "knowledge_documents"
+    __table_args__ = (UniqueConstraint("organization_id", "collection_id", "source_key", name="uq_knowledge_document_collection_source"),)
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
     collection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("knowledge_collections.id", ondelete="CASCADE"), index=True)
@@ -157,6 +158,7 @@ class KnowledgeDocument(Base):
     extracted_characters: Mapped[int] = mapped_column(default=0)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     document_category: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    source_key: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
     expiry_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     reminder_days_before: Mapped[int] = mapped_column(default=30)
     reminder_owner: Mapped[str | None] = mapped_column(String(160), nullable=True)

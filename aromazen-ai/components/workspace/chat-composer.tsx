@@ -7,10 +7,11 @@ import { VoiceInputButton } from '@/components/voice-input-button'
 import type { ChatAttachment } from '@/lib/api/types'
 
 type ChatMode = 'chat' | 'image' | 'email'
-type ResponseMode = 'quick' | 'standard' | 'deep'
+type ResponseMode = 'auto' | 'quick' | 'standard' | 'deep'
 type OpenMenu = 'tools' | 'response' | null
 
 const RESPONSE_OPTIONS: { value: ResponseMode; label: string; description: string }[] = [
+  { value: 'auto', label: 'Auto', description: 'Adapts to your query' },
   { value: 'quick', label: 'Quick', description: 'Short and fast' },
   { value: 'standard', label: 'Standard', description: 'Balanced detail' },
   { value: 'deep', label: 'Deep', description: 'Thorough answer' },
@@ -29,7 +30,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [mode, setMode] = useState<ChatMode>('chat')
-  const [responseMode, setResponseMode] = useState<ResponseMode>('quick')
+  const [responseMode, setResponseMode] = useState<ResponseMode>('auto')
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)

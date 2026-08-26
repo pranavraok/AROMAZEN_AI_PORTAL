@@ -19,7 +19,7 @@ type Suggestion = { icon: string; text: string; description?: string; href?: str
 type WebSource = { title: string; url: string }
 type WorkspaceMessage = ChatMessageDto & { web_sources?: WebSource[]; attachments?: ChatAttachment[] }
 type StreamPayload = { conversation_id?: string; message_id?: string; message?: string; text?: string; citations?: ChatCitation[]; sources?: WebSource[]; code?: string; attachment?: ChatAttachment; usage?: UsageSummary; email?: EmailDraft }
-type ResponseMode = 'quick' | 'standard' | 'deep'
+type ResponseMode = 'auto' | 'quick' | 'standard' | 'deep'
 type PendingRequest = { content: string; conversationId: string | null; collectionIds: string[]; attachmentIds: string[]; mode: 'chat' | 'image' | 'email'; responseMode: ResponseMode; startedAt: number }
 type SendOptions = { resume?: boolean; conversationOverride?: string | null; collectionIdsOverride?: string[] }
 
@@ -235,7 +235,7 @@ function WorkspaceContent() {
         if (editedIndex < 0) return current
         return current.slice(0, editedIndex + 1).map((message, index) => index === editedIndex ? { ...message, content: revisedContent } : message)
       })
-      return await sendMessage(revisedContent, [], 'chat', 'quick', { resume: true, conversationOverride: conversationId })
+      return await sendMessage(revisedContent, [], 'chat', 'auto', { resume: true, conversationOverride: conversationId })
     } catch (error) {
       notify('error', error instanceof ApiError ? error.message : 'Unable to edit and regenerate this prompt.')
       return false
@@ -254,7 +254,7 @@ function WorkspaceContent() {
     finally { setSendingEmail(false) }
   }
 
-  async function sendMessage(content: string, attachments: ChatAttachment[] = [], mode: 'chat' | 'image' | 'email' = 'chat', responseMode: ResponseMode = 'quick', options: SendOptions = {}): Promise<boolean> {
+  async function sendMessage(content: string, attachments: ChatAttachment[] = [], mode: 'chat' | 'image' | 'email' = 'chat', responseMode: ResponseMode = 'auto', options: SendOptions = {}): Promise<boolean> {
     if (!accessToken || isSending) return false
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -360,7 +360,7 @@ function WorkspaceContent() {
       if (last.role === 'assistant') { localStorage.removeItem(pendingKey); return }
       const lastUser = [...restored].reverse().find((message) => message.role === 'user')
       if (!lastUser || lastUser.content !== pending.content) { localStorage.removeItem(pendingKey); return }
-      await sendMessage(pending.content, lastUser.attachments ?? [], pending.mode, pending.responseMode ?? 'quick', { resume: true, conversationOverride: pending.conversationId, collectionIdsOverride: pending.collectionIds })
+      await sendMessage(pending.content, lastUser.attachments ?? [], pending.mode, pending.responseMode ?? 'auto', { resume: true, conversationOverride: pending.conversationId, collectionIdsOverride: pending.collectionIds })
     })()
     // This runs once per signed-in workspace to recover an interrupted request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
