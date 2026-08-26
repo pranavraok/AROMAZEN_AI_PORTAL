@@ -50,6 +50,12 @@ jobs:
       - name: Build production application images
         run: docker compose -f docker-compose.prod.yml build --pull api migrations frontend
 
+      - name: Validate a single database migration head
+        run: |
+          set -euo pipefail
+          HEAD_COUNT="$(docker compose -f docker-compose.prod.yml run --rm --no-deps migrations alembic heads | grep -c '(head)')"
+          test "$HEAD_COUNT" -eq 1
+
   deploy:
     name: Deploy after approval
     needs: verify

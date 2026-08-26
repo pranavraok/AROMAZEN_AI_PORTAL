@@ -4,8 +4,8 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision = "0032_department_upload_sources"
-down_revision = "0031_department_templates"
+revision = "0034_department_upload_sources"
+down_revision = "0033_password_reset_otps"
 branch_labels = None
 depends_on = None
 
