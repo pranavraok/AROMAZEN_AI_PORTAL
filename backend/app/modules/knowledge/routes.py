@@ -202,7 +202,7 @@ async def rules_and_reminders(user: User = Depends(require_permissions("knowledg
         )
 
     rows = (await session.execute(query.order_by(KnowledgeDocument.created_at.desc()))).all()
-    return [_document_response(doc) | {"collection_name": col_name} for doc, col_name in rows]
+    return [_document_response(doc) | {"collection_id": str(doc.collection_id), "collection_name": col_name} for doc, col_name in rows]
 
 
 @router.post("/collections/{collection_id}/documents", status_code=status.HTTP_201_CREATED)

@@ -62,7 +62,7 @@ export default function RulesRemindersPage() {
   }), [documents])
 
   function viewDocument(doc: RuleDocument) {
-    const params = new URLSearchParams({ collectionId: doc.collection_id, documentId: doc.id, name: doc.name })
+    const params = new URLSearchParams({ collectionId: doc.collection_id, documentId: doc.id, name: doc.name, returnTo: '/knowledge/rules-reminders' })
     router.push(`/knowledge/viewer?${params.toString()}`)
   }
 

@@ -27,7 +27,7 @@ from app.modules.ai.providers import AIProviderRouter, OpenAIImageGenerator, Pro
 from app.modules.ai.rag import apply_structured_employee_filter, retrieve_complete_documents, structured_employee_answer
 from app.modules.ai.schemas import ConversationUpdateRequest, EmailSendRequest, StreamChatRequest
 from app.modules.identity.authorization import department_matches, require_permissions
-from app.modules.identity.models import AIChatAttachment, AIConversation, AIMessage, AIUsageEvent, AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PortalNotification, User
+from app.modules.identity.models import AIChatAttachment, AIConversation, AIMessage, AIUsageEvent, AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, OrganizationSetting, PortalNotification, User
 from app.modules.identity.service import permission_keys_for_user, role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.knowledge.storage import organized_storage_name
@@ -391,7 +391,8 @@ async def usage_notifications(
             select coalesce(sum(cost_usd), 0) from ai_usage_events
             where organization_id=:organization_id and created_at >= date_trunc('month', now())
         """), {"organization_id": user.organization_id}) or 0
-        cost_ratio = float(org_cost) / max(float(settings.monthly_ai_cost_limit_usd), 1)
+        cost_limit = float(settings.monthly_ai_cost_limit_usd) if settings.monthly_ai_cost_limit_usd else 0
+        cost_ratio = float(org_cost) / cost_limit if cost_limit > 0 else 0
         if cost_ratio >= .8:
             exchange_rate = await usd_to_inr_rate()
             used_inr = usd_to_inr(float(org_cost), exchange_rate)
@@ -487,6 +488,41 @@ async def _rate_limit(request: Request, user: User) -> None:
         await request.app.state.redis.expire(key, 60)
     if count > settings.ai_rate_limit_per_minute:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many AI requests. Please wait a minute and try again.")
+
+
+async def _check_organization_limits(session: AsyncSession, organization_id: uuid.UUID) -> None:
+    """Block the request if the organization has exceeded its monthly cost or request limit."""
+    org_settings = await session.get(OrganizationSetting, organization_id)
+    if not org_settings:
+        return
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    row = await session.execute(
+        select(
+            func.count(AIUsageEvent.id).label("requests"),
+            func.coalesce(func.sum(AIUsageEvent.cost_usd), 0).label("cost_usd"),
+        ).where(
+            AIUsageEvent.organization_id == organization_id,
+            AIUsageEvent.created_at >= month_start,
+        )
+    )
+    usage = row.one()
+    # Check request limit
+    if org_settings.monthly_ai_request_limit and usage.requests >= org_settings.monthly_ai_request_limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Monthly AI request limit reached ({org_settings.monthly_ai_request_limit} requests). Please contact your administrator.",
+        )
+    # Check cost limit
+    if org_settings.monthly_ai_cost_limit_usd and float(usage.cost_usd) >= float(org_settings.monthly_ai_cost_limit_usd):
+        try:
+            exchange_rate = await usd_to_inr_rate()
+            limit_inr = usd_to_inr(float(org_settings.monthly_ai_cost_limit_usd), exchange_rate)
+            used_inr = usd_to_inr(float(usage.cost_usd), exchange_rate)
+            detail = f"Monthly AI cost limit reached (₹{used_inr:,.2f} of ₹{limit_inr:,.2f}). Please contact your administrator."
+        except Exception:
+            detail = f"Monthly AI cost limit reached ({float(usage.cost_usd):.2f} USD of {float(org_settings.monthly_ai_cost_limit_usd):.2f} USD). Please contact your administrator."
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail)
 
 
 async def _validate_collections(session: AsyncSession, user: User, collection_ids: list[uuid.UUID]) -> None:
@@ -861,6 +897,7 @@ async def stream_message(
     session: AsyncSession = Depends(get_db_session),
 ) -> StreamingResponse:
     await _rate_limit(request, user)
+    await _check_organization_limits(session, user.organization_id)
     await _validate_collections(session, user, payload.collection_ids)
     content = payload.content.strip()
     if not content:
