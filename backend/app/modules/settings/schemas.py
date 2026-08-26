@@ -38,7 +38,7 @@ class UpdateOrganizationSettingsRequest(BaseModel):
     organization_name: str = Field(min_length=2, max_length=160)
     platform_name: str = Field(min_length=2, max_length=160)
     theme: str = Field(pattern="^(dark|light|system)$")
-    default_ai_provider: str = Field(pattern="^(openai|anthropic)$")
+    default_ai_provider: str = Field(pattern="^(auto|openai|anthropic)$")
     session_timeout_minutes: int = Field(ge=30, le=1440)
     timezone: str = Field(min_length=2, max_length=80)
     daily_ai_request_limit: int = Field(ge=1, le=100000)

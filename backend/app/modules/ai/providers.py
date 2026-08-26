@@ -262,21 +262,22 @@ class AIProviderRouter:
 
     def _providers(self, question: str, *, use_web_search: bool = False):
         lowered = question.lower()
-        complex_markers = ("[internal_exhaustive]", "analyse", "analyze", "compare", "strategy", "calculate", "deep", "detailed", "complete", "all employees", "list of", "risk", "forecast", "formulation")
+        complex_markers = ("[internal_exhaustive]", "[attachment_exhaustive]", "analyse", "analyze", "compare", "strategy", "calculate", "deep", "detailed", "complete", "all employees", "list of", "risk", "forecast", "formulation")
         complex_request = len(question) > 600 or any(marker in lowered for marker in complex_markers)
         openai = OpenAIProvider(self.settings)
         sonnet = AnthropicProvider(self.settings, self.settings.anthropic_default_model)
         if use_web_search:
             return [openai] if openai.available else []
-        if complex_request and openai.available:
-            primary = openai
-        elif self.settings.ai_default_provider.lower() == "anthropic" and sonnet.available:
-            primary = sonnet
-        elif openai.available:
-            primary = openai
-        elif sonnet.available:
-            primary = sonnet
+        routing_mode = self.settings.ai_default_provider.lower()
+        if routing_mode == "auto":
+            preferred = openai if complex_request else sonnet
+        elif routing_mode == "openai":
+            preferred = openai
         else:
+            preferred = sonnet
+        alternate = sonnet if preferred.name == "openai" else openai
+        primary = preferred if preferred.available else alternate if alternate.available else None
+        if primary is None:
             return []
         fallback = openai if primary.name == "anthropic" else sonnet
         return [primary] + ([fallback] if fallback.available and (fallback.name, fallback.model) != (primary.name, primary.model) else [])

@@ -134,13 +134,23 @@ def main() -> None:
     settings = SimpleNamespace(
         openai_api_key="configured", anthropic_api_key="configured", openai_chat_model="gpt-5.5",
         anthropic_default_model="claude-sonnet-4-6", anthropic_fast_model="claude-haiku-4-5",
-        ai_default_provider="anthropic",
+        ai_default_provider="auto",
     )
     router = AIProviderRouter(settings)
     normal_models = [provider.model for provider in router._providers("[general] explain gravity")]
     exhaustive_models = [provider.model for provider in router._providers("[internal_exhaustive] list all employees")]
+    exhaustive_attachment_models = [provider.model for provider in router._providers("[attachment_exhaustive] review every section")]
     assert all("haiku" not in model for model in normal_models + exhaustive_models)
+    assert normal_models[0] == "claude-sonnet-4-6"
     assert exhaustive_models[0] == "gpt-5.5"
+    assert exhaustive_attachment_models[0] == "gpt-5.5"
+
+    settings.ai_default_provider = "anthropic"
+    assert router._providers("[internal_exhaustive] list all employees")[0].model == "claude-sonnet-4-6"
+    settings.ai_default_provider = "openai"
+    assert router._providers("[general] explain gravity")[0].model == "gpt-5.5"
+    settings.ai_default_provider = "auto"
+    assert router._providers("[general] latest fragrance industry news", use_web_search=True)[0].model == "gpt-5.5"
     print("assistant_engine_qa=passed")
 
 

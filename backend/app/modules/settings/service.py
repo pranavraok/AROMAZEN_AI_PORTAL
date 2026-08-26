@@ -12,7 +12,7 @@ async def organization_settings(session: AsyncSession, organization_id) -> Organ
             organization_id=organization_id,
             platform_name="AROMAZEN AI",
             theme="dark",
-            default_ai_provider=defaults.ai_default_provider if defaults.ai_default_provider in {"openai", "anthropic"} else "anthropic",
+            default_ai_provider=defaults.ai_default_provider if defaults.ai_default_provider in {"auto", "openai", "anthropic"} else "anthropic",
             session_timeout_minutes=480,
             timezone="Asia/Calcutta",
             daily_ai_request_limit=100,

@@ -32,6 +32,7 @@ async def response_for(session: AsyncSession, user: User) -> OrganizationSetting
         currency="INR", usd_to_inr_rate=exchange_rate.rate,
         exchange_rate_source=exchange_rate.source, exchange_rate_updated_at=exchange_rate.updated_at,
         providers=[
+            ProviderStatus(key="auto", name="Auto", connected=bool(config.openai_api_key or config.anthropic_api_key), models=["Query-aware model selection"]),
             ProviderStatus(key="openai", name="OpenAI", connected=bool(config.openai_api_key), models=[config.openai_chat_model, config.openai_embedding_model, config.openai_transcription_model]),
             ProviderStatus(key="anthropic", name="Anthropic", connected=bool(config.anthropic_api_key), models=[config.anthropic_default_model, config.anthropic_fast_model]),
         ],
@@ -52,7 +53,11 @@ async def get_organization_settings(user: User = Depends(require_permissions("se
 async def update_organization_settings(payload: UpdateOrganizationSettingsRequest, user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> OrganizationSettingsResponse:
     organization = await session.get(Organization, user.organization_id)
     config = get_settings()
-    configured = {"openai": bool(config.openai_api_key), "anthropic": bool(config.anthropic_api_key)}
+    configured = {
+        "auto": bool(config.openai_api_key or config.anthropic_api_key),
+        "openai": bool(config.openai_api_key),
+        "anthropic": bool(config.anthropic_api_key),
+    }
     current_value = await organization_settings(session, user.organization_id)
     permissions = set(await permission_keys_for_user(session, user.id))
     protected_changes = (
@@ -67,7 +72,8 @@ async def update_organization_settings(payload: UpdateOrganizationSettingsReques
     if duplicate:
         raise HTTPException(status_code=409, detail="Another organization already uses this name.")
     if not configured[payload.default_ai_provider] and payload.default_ai_provider != current_value.default_ai_provider:
-        raise HTTPException(status_code=422, detail=f"{payload.default_ai_provider.title()} is not configured on this deployment.")
+        detail = "No AI provider is configured on this deployment." if payload.default_ai_provider == "auto" else f"{payload.default_ai_provider.title()} is not configured on this deployment."
+        raise HTTPException(status_code=422, detail=detail)
     value = current_value
     organization.name = payload.organization_name.strip()
     value.platform_name = payload.platform_name.strip()

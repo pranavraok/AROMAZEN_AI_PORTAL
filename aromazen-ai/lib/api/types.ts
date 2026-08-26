@@ -501,7 +501,7 @@ export interface OrganizationSettings {
   organization_name: string
   platform_name: string
   theme: 'dark' | 'light' | 'system'
-  default_ai_provider: 'openai' | 'anthropic'
+  default_ai_provider: 'auto' | 'openai' | 'anthropic'
   session_timeout_minutes: number
   timezone: string
   daily_ai_request_limit: number
@@ -511,7 +511,7 @@ export interface OrganizationSettings {
   usd_to_inr_rate: number
   exchange_rate_source: string
   exchange_rate_updated_at: string
-  providers: { key: 'openai' | 'anthropic'; name: string; connected: boolean; models: string[] }[]
+  providers: { key: 'auto' | 'openai' | 'anthropic'; name: string; connected: boolean; models: string[] }[]
   zoho_email_connected: boolean
   storage_bytes: number
   knowledge_documents: number
