@@ -28,15 +28,14 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
-        <link rel="manifest" href="/manifest.json" />
+        <link rel="manifest" href="/manifest.json?v=3" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Aromazen AI" />
-        <link rel="apple-touch-icon" href="/apple-icon.png" />
-        <link rel="icon" href="/favicon.ico?v=2" sizes="any" />
-        <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=2" />
-        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=2" />
-        <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+        <link rel="apple-touch-icon" href="/aromazen-apple-icon-v3.png" />
+        <link rel="icon" href="/favicon.ico?v=3" sizes="any" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=3" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=3" />
       </head>
       <body className="bg-background text-foreground antialiased">
         <ServiceWorkerRegistrar />
