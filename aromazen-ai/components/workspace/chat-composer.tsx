@@ -5,9 +5,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { VoiceInputButton } from '@/components/voice-input-button'
 import type { ChatAttachment } from '@/lib/api/types'
+import { api } from '@/lib/api/services'
+import { useAuth } from '@/components/auth/auth-provider'
 
 type ChatMode = 'chat' | 'image' | 'email'
-type ResponseMode = 'auto' | 'quick' | 'standard' | 'deep'
+type ResponseMode = 'auto' | 'quick' | 'standard' | 'deep' | 'essential'
 type OpenMenu = 'tools' | 'response' | null
 
 const RESPONSE_OPTIONS: { value: ResponseMode; label: string; description: string }[] = [
@@ -15,7 +17,26 @@ const RESPONSE_OPTIONS: { value: ResponseMode; label: string; description: strin
   { value: 'quick', label: 'Quick', description: 'Short and fast' },
   { value: 'standard', label: 'Standard', description: 'Balanced detail' },
   { value: 'deep', label: 'Deep', description: 'Thorough answer' },
+  { value: 'essential', label: 'Essential', description: 'Free-tier' },
 ]
+
+function TokenDonut({ percentage, used, limit }: { percentage: number; used: number; limit: number }) {
+  const radius = 10;
+  const stroke = 3;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (Math.min(percentage, 100) / 100) * circumference;
+  const color = percentage >= 90 ? "#ef4444" : percentage >= 70 ? "#f59e0b" : "#22c55e";
+  return (
+    <span className="relative inline-flex shrink-0 items-center justify-center" title={`${used.toLocaleString()} / ${limit.toLocaleString()} tokens used today`}>
+      <svg width="22" height="22" viewBox="0 0 26 26" className="-rotate-90">
+        <circle cx="13" cy="13" r={radius} fill="none" stroke="currentColor" strokeWidth={stroke} className="text-muted/40" />
+        <circle cx="13" cy="13" r={radius} fill="none" stroke={color} strokeWidth={stroke} strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" className="transition-all duration-500" />
+      </svg>
+      <span className="absolute text-[8px] font-semibold text-foreground/80">{percentage < 10 ? percentage.toFixed(0) : percentage < 100 ? Math.round(percentage) : "100"}</span>
+    </span>
+  );
+}
+
 
 interface ChatComposerProps {
   disabled?: boolean
@@ -35,6 +56,16 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
+  const { accessToken } = useAuth()
+  const [tokenUsage, setTokenUsage] = useState<{ used: number; limit: number; percentage: number } | null>(null)
+  useEffect(() => {
+    if (!accessToken) return
+    let cancelled = false
+    api.workspace.openrouterUsage(accessToken).then((usage) => {
+      if (!cancelled) setTokenUsage({ used: usage.used_tokens, limit: usage.daily_limit, percentage: usage.percentage })
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [accessToken])
   const responseOption = RESPONSE_OPTIONS.find((option) => option.value === responseMode) ?? RESPONSE_OPTIONS[0]
 
   useEffect(() => {
@@ -120,7 +151,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
             </div>
 
             <div className="relative">
-              <button type="button" onClick={() => setOpenMenu((current) => current === 'response' ? null : 'response')} disabled={disabled || mode !== 'chat'} className="inline-flex h-9 max-w-[14rem] items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-45" aria-haspopup="menu" aria-expanded={openMenu === 'response'} title="Choose response detail"><Gauge className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">{responseOption.label}</span><span className="hidden text-muted-foreground sm:inline">· {responseOption.description}</span><ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /></button>
+              <button type="button" onClick={() => setOpenMenu((current) => current === 'response' ? null : 'response')} disabled={disabled || mode !== 'chat'} className="inline-flex h-9 max-w-[14rem] items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-45" aria-haspopup="menu" aria-expanded={openMenu === 'response'} title="Choose response detail"><Gauge className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">{responseOption.label}</span>{responseMode === 'essential' && tokenUsage && <TokenDonut percentage={tokenUsage.percentage} used={tokenUsage.used} limit={tokenUsage.limit} />}<span className="hidden text-muted-foreground sm:inline">· {responseOption.description}</span><ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /></button>
               {openMenu === 'response' && <div role="menu" className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-60 rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
                 <p className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Response style</p>
                 {RESPONSE_OPTIONS.map((option) => <ChoiceButton key={option.value} selected={responseMode === option.value} label={option.label} description={option.description} onClick={() => { setResponseMode(option.value); setOpenMenu(null) }} />)}

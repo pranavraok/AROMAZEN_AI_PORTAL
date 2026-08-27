@@ -6,7 +6,7 @@ import { Check, ChevronDown, Copy, Download, ExternalLink, FileText, Globe2, Lib
 import { MarkdownContent, markdownToPlainText } from '@/components/workspace/markdown-content'
 import type { ChatAttachment } from '@/lib/api/types'
 import { BrandMark } from '@/components/brand-mark'
-import { EmailDraftCard, UsageChart } from '@/components/workspace/chat-artifacts'
+import { EmailDraftCard, TokenUsagePie, UsageChart } from '@/components/workspace/chat-artifacts'
 import type { ChatArtifacts, EmailDraft } from '@/lib/api/types'
 
 interface Source {
@@ -34,9 +34,10 @@ interface ChatMessageProps {
   onSendEmail?: (draft: EmailDraft) => void
   editable?: boolean
   onEdit?: (content: string) => Promise<boolean>
+  tokenUsage?: { used_tokens: number; daily_limit: number }
 }
 
-export function ChatMessage({ role, content, sources = [], webSources = [], status, onOpenSource, attachments = [], onOpenAttachment, artifacts = {}, emailBusy = false, onSendEmail, editable = false, onEdit }: ChatMessageProps) {
+export function ChatMessage({ role, content, sources = [], webSources = [], status, onOpenSource, attachments = [], onOpenAttachment, artifacts = {}, emailBusy = false, onSendEmail, editable = false, onEdit, tokenUsage }: ChatMessageProps) {
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -91,6 +92,7 @@ export function ChatMessage({ role, content, sources = [], webSources = [], stat
       {attachments.filter((attachment) => attachment.kind === 'generated' && attachment.preview_url).map((attachment) => <div key={attachment.id} className="mt-4 max-w-xl overflow-hidden rounded-2xl border border-border bg-muted"><button type="button" onClick={() => onOpenAttachment?.(attachment)} className="relative block aspect-square w-full"><Image src={attachment.preview_url!} alt={attachment.name} fill sizes="(max-width: 768px) 100vw, 576px" unoptimized className="object-cover" /></button><div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground"><span>AI-generated image</span><button type="button" onClick={() => onOpenAttachment?.(attachment)} className="inline-flex items-center gap-1 hover:text-foreground"><Download className="h-3.5 w-3.5" />Open</button></div></div>)}
       {artifacts.usage && <UsageChart usage={artifacts.usage} />}
       {artifacts.email && onSendEmail && <EmailDraftCard draft={artifacts.email} busy={emailBusy} onSend={onSendEmail} />}
+
       {content && <div className="mt-3 flex items-center gap-1 text-muted-foreground">
         <button type="button" onClick={() => void copyAnswer()} className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs transition-colors hover:bg-muted hover:text-foreground" aria-label="Copy answer">{copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{copied ? 'Copied' : 'Copy'}</button>
         {sourceCount > 0 && <button type="button" onClick={() => setSourcesOpen((current) => !current)} className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs transition-colors hover:bg-muted hover:text-foreground" aria-expanded={sourcesOpen}><Library className="h-3.5 w-3.5" />Sources <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-foreground">{sourceCount}</span><ChevronDown className={`h-3.5 w-3.5 transition-transform ${sourcesOpen ? 'rotate-180' : ''}`} /></button>}

@@ -53,11 +53,11 @@ export interface KnowledgeDocument {
   created_at: string
   processed_at: string | null
   document_category: string | null
-  source_key?: string | null
   expiry_date: string | null
   reminder_days_before: number
   reminder_owner: string | null
   is_company_wide: boolean
+  source_key: string | null
 }
 
 export interface ChatCitation {
@@ -123,7 +123,7 @@ export interface CreateChatMessageRequest {
   collection_ids: string[]
   attachment_ids?: string[]
   mode?: 'chat' | 'image' | 'email'
-  response_mode?: 'auto' | 'quick' | 'standard' | 'deep'
+  response_mode?: 'auto' | 'quick' | 'standard' | 'deep' | 'essential'
 }
 
 export interface SendEmailRequest extends Omit<EmailDraft, 'status' | 'sent_at'> { message_id: string }
@@ -399,6 +399,14 @@ export interface DocumentField { key: string; label: string; required: boolean }
 export interface DocumentTemplateSchema { document_type: 'coa' | 'sds'; fields: DocumentField[]; row_fields: string[]; default_rows: Record<string, string>[]; can_edit_filename: boolean }
 export interface GeneratedDocument { id: string; filename: string; status: 'draft'; warnings: string[] }
 export interface DocumentDraftUpdate { field_updates: Record<string, string>; row_updates: Record<string, string>[]; unassigned_notes: string; provider: string; model: string }
+
+export interface OpenRouterUsage {
+  date: string
+  used_tokens: number
+  daily_limit: number
+  remaining_tokens: number
+  percentage: number
+}
 
 export interface DashboardOverview {
   currency: 'INR'

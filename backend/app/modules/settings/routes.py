@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.currency import usd_to_inr, usd_to_inr_rate
 from app.db.session import get_db_session
-from app.modules.identity.authorization import require_permissions
+from app.modules.identity.authorization import get_current_user, require_permissions
 from app.modules.identity.models import AuditEvent, DocumentGeneration, KnowledgeDocument, Organization, User
 from app.modules.identity.service import permission_keys_for_user
 from app.modules.settings.schemas import OrganizationSettingsResponse, ProviderStatus, UpdateOrganizationSettingsRequest
@@ -43,7 +43,7 @@ async def response_for(session: AsyncSession, user: User) -> OrganizationSetting
 
 
 @router.get("", response_model=OrganizationSettingsResponse)
-async def get_organization_settings(user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> OrganizationSettingsResponse:
+async def get_organization_settings(user: User = Depends(get_current_user), session: AsyncSession = Depends(get_db_session)) -> OrganizationSettingsResponse:
     result = await response_for(session, user)
     await session.commit()
     return result

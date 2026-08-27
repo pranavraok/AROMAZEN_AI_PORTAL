@@ -38,6 +38,7 @@ import type {
   AssetMaintenanceEvent,
   AssetNotificationSettings,
   GstReconciliationResult,
+  OpenRouterUsage,
 } from './types'
 
 export const api = {
@@ -124,6 +125,7 @@ export const api = {
     saveStoppedResponse: (accessToken: string, conversationId: string, content: string) => apiRequest<{ id: string; content: string }>(`/workspace/conversations/${conversationId}/stopped-response`, { method: 'POST', body: { content }, headers: { Authorization: `Bearer ${accessToken}` } }),
     sendEmail: (accessToken: string, payload: SendEmailRequest) => apiRequest<{ status: 'sent'; sent_at: string }>('/workspace/email/send', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
     uploadAttachment: (accessToken: string, file: File) => apiRequest<ChatAttachment>('/workspace/attachments', { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); return form })(), headers: { Authorization: `Bearer ${accessToken}` } }),
+    openrouterUsage: (accessToken: string) => apiRequest<OpenRouterUsage>('/workspace/openrouter/usage', { headers: { Authorization: `Bearer ${accessToken}` } }),
     attachmentContentUrl: (attachmentId: string) => `/api/v1/workspace/attachments/${attachmentId}/content`,
   },
   documentGenerator: {

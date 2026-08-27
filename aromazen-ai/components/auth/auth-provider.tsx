@@ -83,7 +83,7 @@ const routePermissions: Array<[route: string, permission: string]> = [
   ['/department-tools', 'ai.workspace.use'],
   ['/workspace', 'ai.workspace.use'],
   ['/knowledge', 'knowledge.read'],
-  ['/settings', 'settings.manage'],
+  // ['/settings', 'settings.manage'],  // All roles can access Settings (Appearance only for non-admins)
 ]
 
 function matchesRoute(pathname: string, route: string) {

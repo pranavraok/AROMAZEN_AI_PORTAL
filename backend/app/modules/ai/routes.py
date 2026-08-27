@@ -64,6 +64,7 @@ RESPONSE_MODE_INSTRUCTIONS = {
     "quick": "Answer immediately and concisely. Give only the direct answer and at most one short supporting sentence unless the user explicitly requests more. Avoid introductions, background, repeated context, and follow-up offers.",
     "standard": "Give a clear, moderately detailed answer. Include useful context, but avoid unnecessary background or repetition.",
     "deep": "Give a thorough, carefully structured answer. Cover important context, caveats, and reasoning appropriate to the request.",
+    "essential": "Answer from your broad knowledge combined with any supplied company evidence. Be clear, helpful, and accurate.",
 }
 
 EMAIL_DRAFT_PROMPT = """You prepare professional business email drafts for AROMAZEN INDIA.
@@ -296,6 +297,34 @@ async def usage_summary(
         "departments": [{**dict(row), "cost": usd_to_inr(float(row["cost"]), exchange_rate), "requests": int(row["requests"])} for row in departments],
         "users": [{**dict(row), "cost": usd_to_inr(float(row["cost"]), exchange_rate), "requests": int(row["requests"])} for row in users],
         "timeseries": [{"date": row["day"].isoformat(), "requests": int(row["requests"]), "cost": usd_to_inr(float(row["cost"]), exchange_rate), "tokens": int(row["tokens"])} for row in timeseries],
+    }
+
+
+@router.get("/openrouter/usage")
+async def openrouter_daily_usage(
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Return today's OpenRouter token usage and the daily limit for the pie chart."""
+    settings = get_settings()
+    today = datetime.now(timezone.utc).date()
+    result = await session.execute(text("""
+        select coalesce(sum(input_tokens + output_tokens), 0) as total_tokens
+        from ai_usage_events
+        where organization_id = :organization_id
+          and provider = 'openrouter'
+          and created_at >= cast(:today as date)
+          and created_at < (cast(:today as date) + interval '1 day')
+    """), {"organization_id": user.organization_id, "today": today})
+    row = result.mappings().one()
+    used = int(row["total_tokens"])
+    limit = settings.openrouter_daily_token_limit
+    return {
+        "date": today.isoformat(),
+        "used_tokens": used,
+        "daily_limit": limit,
+        "remaining_tokens": max(0, limit - used),
+        "percentage": round(min(100.0, used / max(limit, 1) * 100), 1),
     }
 
 
@@ -913,7 +942,10 @@ async def stream_message(
     session: AsyncSession = Depends(get_db_session),
 ) -> StreamingResponse:
     await _rate_limit(request, user)
-    await _check_organization_limits(session, user.organization_id)
+    # Essential mode uses free-tier OpenRouter — skip org cost/request limits;
+    # OpenRouter enforces its own rate limits (20 RPM, 50-1000 req/day).
+    if payload.response_mode != "essential":
+        await _check_organization_limits(session, user.organization_id)
     await _validate_collections(session, user, payload.collection_ids)
     content = payload.content.strip()
     if not content:
@@ -1104,7 +1136,22 @@ async def stream_message(
                     AIMessage.id != user_message_id,
                 ).order_by(AIMessage.created_at.desc()).limit(history_limit)))
                 history.reverse()
-                plan = _query_plan(content, history, collection_ids, bool(stream_attachments))
+                # When no collections are explicitly selected, auto-discover all
+                # active collections the user can access so the AI always has
+                # company knowledge available — just like the paid providers.
+                effective_collection_ids = collection_ids
+                if not effective_collection_ids:
+                    all_collections = list(await stream_session.scalars(
+                        select(KnowledgeCollection).where(
+                            KnowledgeCollection.organization_id == organization_id,
+                            KnowledgeCollection.status == "active",
+                        )
+                    ))
+                    effective_collection_ids = [
+                        col.id for col in all_collections
+                        if await can_access_collection(stream_session, stream_user, col)
+                    ]
+                plan = _query_plan(content, history, effective_collection_ids, bool(stream_attachments))
                 response_mode = _resolve_response_mode(content, requested_response_mode, plan)
                 retrieval_question = _retrieval_question(content, history)
                 use_web_search = _needs_live_web_search(content)
@@ -1114,7 +1161,7 @@ async def stream_message(
                     # vector chunks are intentionally not used as the answer boundary:
                     # they can omit a qualifying row, later clause, exception, or conflict.
                     chunks = await retrieve_complete_documents(
-                        stream_session, stream_user, retrieval_question, collection_ids,
+                        stream_session, stream_user, retrieval_question, effective_collection_ids,
                     )
                     # Structured filters improve exactness for supported record queries,
                     # while whole-document evidence remains the universal path.
@@ -1220,6 +1267,16 @@ async def stream_message(
                 ))
                 await stream_session.commit()
                 logger.info("ai.chat.completed", user_id=str(user_id), provider=provider, model=model, input_tokens=input_tokens, output_tokens=output_tokens, retrieval_ms=retrieval_ms, web_search=use_web_search, web_sources=len(web_sources), latency_ms=latency_ms)
+                # Emit daily OpenRouter token usage when Essential mode is used
+                if response_mode == "essential" and runtime_settings.openrouter_api_key:
+                    today = datetime.now(timezone.utc).date()
+                    token_row = (await stream_session.execute(text("""
+                        select coalesce(sum(input_tokens + output_tokens), 0) as total_tokens
+                        from ai_usage_events
+                        where organization_id = :oid and provider = 'openrouter'
+                          and created_at >= cast(:today as date) and created_at < (cast(:today as date) + interval '1 day')
+                    """), {"oid": organization_id, "today": today})).mappings().one()
+                    yield _event("token_usage", used_tokens=int(token_row["total_tokens"]), daily_limit=runtime_settings.openrouter_daily_token_limit)
                 yield _event("done", message_id=assistant.id, provider=provider, model=model, latency_ms=latency_ms)
         except ProviderError as error:
             latency_ms = int((time.perf_counter() - started) * 1000)

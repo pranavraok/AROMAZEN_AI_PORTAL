@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { BellRing, Bot, Database, ExternalLink, Loader2, LockKeyhole, Palette, RefreshCw, Save, ShieldCheck } from 'lucide-react'
+import { QuickAccessCard } from '@/components/install-prompt'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -22,6 +23,8 @@ export default function SettingsPage() {
   const [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const canManagePlatform = hasPermission('platform.manage')
+  const canManageSettings = hasPermission('settings.manage')
+  const showOnlyAppearance = !canManagePlatform && !canManageSettings
 
   const load = useCallback(async () => {
     if (!accessToken) return
@@ -47,41 +50,42 @@ export default function SettingsPage() {
     <PageHeader title="Organization Settings" description="Persistent controls for branding, appearance, AI routing, security, and operational capacity" actions={<div className="flex gap-2"><Button type="button" variant="outline" onClick={() => void load()}><RefreshCw className="mr-2 h-4 w-4" />Reload</Button><Button type="submit" disabled={busy}><Save className="mr-2 h-4 w-4" />{busy ? 'Saving…' : 'Save changes'}</Button></div>} />
 
     <div className="grid gap-6 xl:grid-cols-2">
-      <Section icon={<ShieldCheck />} title="Organization profile" description="Names displayed across the managed portal. Identity changes are reserved for the Super Admin.">
+      {!showOnlyAppearance && <Section icon={<ShieldCheck />} title="Organization profile" description="Names displayed across the managed portal. Identity changes are reserved for the Super Admin.">
         <Field label="Organization name"><input required disabled={!canManagePlatform} value={settings.organization_name} onChange={(e) => field('organization_name', e.target.value)} className="control disabled:cursor-not-allowed disabled:opacity-60" /></Field>
         <Field label="Platform name"><input required disabled={!canManagePlatform} value={settings.platform_name} onChange={(e) => field('platform_name', e.target.value)} className="control disabled:cursor-not-allowed disabled:opacity-60" /></Field>
         {!canManagePlatform && <ProtectedNote />}
         <Field label="Organization timezone"><select value={settings.timezone} onChange={(e) => field('timezone', e.target.value)} className="control"><option value="Asia/Calcutta">India Standard Time</option><option value="UTC">UTC</option><option value="Asia/Dubai">Dubai</option><option value="Europe/London">London</option><option value="America/New_York">New York</option></select></Field>
-      </Section>
+      </Section>}
 
       <Section icon={<Palette />} title="Appearance" description="Saved to the organization database and applied for every signed-in session.">
         <div className="grid gap-3 sm:grid-cols-3">{(['light', 'dark', 'system'] as const).map((theme) => <label key={theme} className={`cursor-pointer rounded-xl border p-4 capitalize transition ${settings.theme === theme ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted/40'}`}><input className="mr-2" type="radio" name="theme" checked={settings.theme === theme} onChange={() => { field('theme', theme); applyTheme(theme) }} />{theme}<p className="mt-2 text-xs normal-case text-muted-foreground">{theme === 'system' ? 'Follow the device appearance' : theme === 'light' ? 'Ivory, charcoal, and warm accents' : 'Deep graphite with cool green accents'}</p></label>)}</div>
+        <QuickAccessCard />
       </Section>
 
-      <Section icon={<Bot />} title="AI provider routing" description="Let Auto select the best model for each query, or choose a preferred provider. Routing changes are reserved for the Super Admin.">
+      {!showOnlyAppearance && <Section icon={<Bot />} title="AI provider routing" description="Let Auto select the best model for each query, or choose a preferred provider. Routing changes are reserved for the Super Admin.">
         <div className="space-y-3">{settings.providers.map((provider) => <label key={provider.key} className={`flex items-start gap-3 rounded-lg border p-4 ${provider.connected && canManagePlatform ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'} ${settings.default_ai_provider === provider.key ? 'border-primary bg-primary/10' : 'border-border'}`}><input type="radio" name="provider" disabled={!provider.connected || !canManagePlatform} checked={settings.default_ai_provider === provider.key} onChange={() => field('default_ai_provider', provider.key)} /><div className="min-w-0 flex-1"><div className="flex items-center justify-between"><span className="font-medium">{provider.name}</span><span className={`text-xs ${provider.connected ? 'text-emerald-500' : 'text-muted-foreground'}`}>{provider.connected ? provider.key === 'auto' ? 'Recommended' : 'Connected' : 'Not configured'}</span></div><p className="mt-1 text-xs text-muted-foreground">{provider.key === 'auto' ? 'Uses Claude for everyday requests and GPT for complex analysis or live web search.' : provider.models.join(' · ')}</p></div></label>)}</div>
         {!canManagePlatform && <ProtectedNote />}
         <div className="flex items-center justify-between rounded-lg border border-border p-4"><div><p className="text-sm font-medium">Zoho Mail</p><p className="mt-1 text-xs text-muted-foreground">Secure confirmed email sending from AI chat</p></div><span className={`text-xs ${settings.zoho_email_connected ? 'text-emerald-500' : 'text-muted-foreground'}`}>{settings.zoho_email_connected ? 'Connected' : 'Not configured'}</span></div>
-      </Section>
+      </Section>}
 
-      <Section icon={<ShieldCheck />} title="Security and accountability" description="Session security is protected while the audit log remains available to administrators.">
+      {!showOnlyAppearance && <Section icon={<ShieldCheck />} title="Security and accountability" description="Session security is protected while the audit log remains available to administrators.">
         <Field label="Access session duration"><select disabled={!canManagePlatform} value={settings.session_timeout_minutes} onChange={(e) => field('session_timeout_minutes', Number(e.target.value))} className="control disabled:cursor-not-allowed disabled:opacity-60"><option value={30}>30 minutes</option><option value={120}>2 hours</option><option value={480}>8 hours</option><option value={1440}>24 hours</option></select></Field>
         {!canManagePlatform && <ProtectedNote />}
         <Link href="/admin/users" className={buttonVariants({ variant: 'outline', className: 'w-full' })}>View users and audit log <ExternalLink className="ml-2 h-4 w-4" /></Link>
-      </Section>
+      </Section>}
 
-      <div id="usage-alerts"><Section icon={<BellRing />} title="AI usage alerts" description="Notify employees and their administration hierarchy before request or cost limits are exceeded.">
+      {!showOnlyAppearance && <div id="usage-alerts"><Section icon={<BellRing />} title="AI usage alerts" description="Notify employees and their administration hierarchy before request or cost limits are exceeded.">
         <div className="grid gap-3 sm:grid-cols-2"><Field label="Daily requests per employee"><input type="number" min={1} value={settings.daily_ai_request_limit} onChange={(e) => field('daily_ai_request_limit', Number(e.target.value))} className="control" /></Field><Field label="Monthly requests per employee"><input type="number" min={1} value={settings.monthly_ai_request_limit} onChange={(e) => field('monthly_ai_request_limit', Number(e.target.value))} className="control" /></Field></div>
         <Field label="Monthly organization cost alert (₹)"><input type="number" min={1} step="1" value={settings.monthly_ai_cost_limit_inr} onChange={(e) => field('monthly_ai_cost_limit_inr', Number(e.target.value))} className="control" /></Field>
         <p className="text-xs text-muted-foreground">All costs are shown in Indian rupees using the latest available reference rate (₹{settings.usd_to_inr_rate.toFixed(2)} per provider billing unit; updated {new Date(settings.exchange_rate_updated_at).toLocaleDateString()}).</p>
         <p className="text-xs leading-5 text-muted-foreground">Warnings appear at 80%. Employees see their own usage; Department Admins see their team; Admins and Super Admins see organization-wide alerts.</p>
-      </Section></div>
+      </Section></div>}
     </div>
 
-    <Section icon={<Database />} title="Live storage and content" description="Calculated from the current organization database; no sample quota or usage values.">
+    {!showOnlyAppearance && <Section icon={<Database />} title="Live storage and content" description="Calculated from the current organization database; no sample quota or usage values.">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><Stat label="Knowledge storage" value={bytes(settings.storage_bytes)} /><Stat label="Knowledge documents" value={settings.knowledge_documents.toLocaleString()} /><Stat label="Generated documents" value={settings.generated_documents.toLocaleString()} /><Stat label="Knowledge upload" value={`${settings.max_upload_size_mb} MB per file`} /><Stat label="R&D Excel upload" value={`${settings.max_excel_upload_size_mb} MB per file`} /></div>
       <Link href="/admin/knowledge" className={buttonVariants({ variant: 'outline' })}>Manage knowledge storage <ExternalLink className="ml-2 h-4 w-4" /></Link>
-    </Section>
+    </Section>}
     <p className="text-right text-xs text-muted-foreground">{settings.updated_at ? `Last saved ${new Date(settings.updated_at).toLocaleString()}` : 'Using deployment defaults until first save'}</p>
   </form></AppLayout>
 }

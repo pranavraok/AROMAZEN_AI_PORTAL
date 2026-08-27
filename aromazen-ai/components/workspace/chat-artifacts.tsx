@@ -7,6 +7,7 @@ import type { EmailDraft, UsageSummary } from '@/lib/api/types'
 
 function money(value: number) { return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: value < 1 ? 4 : 2, maximumFractionDigits: value < 1 ? 4 : 2 }).format(value) }
 function compact(value: number) { return value >= 1_000_000 ? `${(value / 1_000_000).toFixed(2)}M` : value >= 1_000 ? `${(value / 1_000).toFixed(1)}K` : value.toLocaleString() }
+function formatK(value: number) { return `${(value / 1000).toFixed(1)}K` }
 
 export function UsageChart({ usage }: { usage: UsageSummary }) {
   const maximum = Math.max(1, ...usage.timeseries.map((row) => row.requests))
@@ -18,6 +19,33 @@ export function UsageChart({ usage }: { usage: UsageSummary }) {
       <div className="mt-4 space-y-2">{usage.providers.slice(0, 5).map((row) => <div key={`${row.provider}-${row.model}`} className="flex items-center gap-3 text-xs"><span className="h-2 w-2 rounded-full bg-primary" /><span className="min-w-0 flex-1 truncate capitalize">{row.provider} · {row.model}</span><span className="text-muted-foreground">{row.requests} · {money(row.cost)}</span></div>)}</div>
     </div>
   </section>
+}
+
+export function TokenUsagePie({ usedTokens, dailyLimit }: { usedTokens: number; dailyLimit: number }) {
+  const pct = Math.min(100, (usedTokens / Math.max(dailyLimit, 1)) * 100)
+  const radius = 42
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference - (pct / 100) * circumference
+  const color = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : '#22c55e'
+  const freeTokens = Math.max(0, dailyLimit - usedTokens)
+  return (
+    <div className="inline-flex items-center gap-4 rounded-2xl border border-border bg-card px-4 py-3 shadow-sm">
+      <div className="relative h-24 w-24 shrink-0">
+        <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
+          <circle cx="50" cy="50" r={radius} fill="none" stroke="currentColor" strokeWidth="8" className="text-muted/40" />
+          <circle cx="50" cy="50" r={radius} fill="none" stroke={color} strokeWidth="8" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={offset} className="transition-all duration-700 ease-out" />
+        </svg>
+        <div className="absolute inset-0 grid place-items-center">
+          <span className="text-base font-bold tabular-nums text-foreground">{Math.round(pct)}%</span>
+        </div>
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Daily token limit</p>
+        <p className="mt-1 text-lg font-bold tabular-nums text-foreground">{formatK(usedTokens)}<span className="text-sm font-normal text-muted-foreground"> / {formatK(dailyLimit)}</span></p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{formatK(freeTokens)} remaining today</p>
+      </div>
+    </div>
+  )
 }
 
 function splitAddresses(value: string) { return value.split(/[;,]/).map((item) => item.trim()).filter(Boolean) }

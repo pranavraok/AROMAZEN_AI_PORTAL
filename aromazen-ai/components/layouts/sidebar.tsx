@@ -52,7 +52,7 @@ export function Sidebar({ open, onToggle }: SidebarProps) {
     if (item.href === '/hr/assets') return user?.role_names.includes('Department Admin') && ['HR', 'Human Resources', 'Accounts'].includes(user.department_name ?? '')
     if (item.href === '/admin/usage') return hasPermission('usage.read')
     if (item.href === '/admin/users') return hasPermission('users.manage')
-    if (item.href === '/settings') return hasPermission('settings.manage')
+    if (item.href === '/settings') return true // All roles can access Settings (Appearance section)
     return true
   })
 

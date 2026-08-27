@@ -20,6 +20,15 @@ const nextConfig = {
   headers: async () => {
     return [
       {
+        source: '/favicon(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-cache, no-store, must-revalidate',
+          },
+        ],
+      },
+      {
         source: '/(.*)',
         headers: [
           {
