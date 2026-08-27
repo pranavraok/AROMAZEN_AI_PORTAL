@@ -7,7 +7,7 @@ const PRECACHE_ASSETS = [
   '/aromazen-icon-192-v3.png',
   '/aromazen-icon-512-v3.png',
   '/aromazen-icon-maskable-512-v3.png',
-  '/aromazen-apple-icon-v3.png',
+  '/apple-icon.png',
 ];
 
 self.addEventListener('install', (event) => {
