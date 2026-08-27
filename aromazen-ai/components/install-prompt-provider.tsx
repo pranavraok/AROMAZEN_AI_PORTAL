@@ -8,6 +8,11 @@ interface InstallPromptState {
   install: () => Promise<void>
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
+
 const InstallPromptContext = createContext<InstallPromptState>({
   canInstall: false,
   installed: false,
@@ -20,15 +25,16 @@ export function useInstallPrompt() {
 
 // Capture beforeinstallprompt GLOBALLY before React mounts.
 // Chrome fires this very early — if we only listen in useEffect, we miss it.
-let globalDeferredPrompt: any = null
-let globalPromptListeners: Array<(p: any) => void> = []
+let globalDeferredPrompt: BeforeInstallPromptEvent | null = null
+let globalPromptListeners: Array<(prompt: BeforeInstallPromptEvent) => void> = []
 
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeinstallprompt', (e: Event) => {
     e.preventDefault()
-    globalDeferredPrompt = e
+    const promptEvent = e as BeforeInstallPromptEvent
+    globalDeferredPrompt = promptEvent
     console.log('[PWA] beforeinstallprompt captured globally — ready to install')
-    globalPromptListeners.forEach((fn) => fn(e))
+    globalPromptListeners.forEach((fn) => fn(promptEvent))
   })
   window.addEventListener('appinstalled', () => {
     console.log('[PWA] App installed successfully')
@@ -36,7 +42,7 @@ if (typeof window !== 'undefined') {
 }
 
 export function InstallPromptProvider({ children }: { children: React.ReactNode }) {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(globalDeferredPrompt)
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(globalDeferredPrompt)
   const [installed, setInstalled] = useState(false)
   const promptRef = useRef(deferredPrompt)
 
@@ -48,7 +54,7 @@ export function InstallPromptProvider({ children }: { children: React.ReactNode 
     }
 
     // Listen for future captures (e.g. on page reload after interaction)
-    function onPrompt(e: any) {
+    function onPrompt(e: BeforeInstallPromptEvent) {
       promptRef.current = e
       setDeferredPrompt(e)
     }

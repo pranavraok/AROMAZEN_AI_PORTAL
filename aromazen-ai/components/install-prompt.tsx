@@ -1,6 +1,6 @@
 'use client'
 
-import { Monitor, Smartphone, Globe } from 'lucide-react'
+import { Monitor, Smartphone } from 'lucide-react'
 import { useInstallPrompt } from '@/components/install-prompt-provider'
 
 function Step({ n, children }: { n: number; children: React.ReactNode }) {
