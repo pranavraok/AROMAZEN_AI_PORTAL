@@ -6,7 +6,7 @@ import { Check, ChevronDown, Copy, Download, ExternalLink, FileText, Globe2, Lib
 import { MarkdownContent, markdownToPlainText } from '@/components/workspace/markdown-content'
 import type { ChatAttachment } from '@/lib/api/types'
 import { BrandMark } from '@/components/brand-mark'
-import { EmailDraftCard, TokenUsagePie, UsageChart } from '@/components/workspace/chat-artifacts'
+import { EmailDraftCard, UsageChart } from '@/components/workspace/chat-artifacts'
 import type { ChatArtifacts, EmailDraft } from '@/lib/api/types'
 
 interface Source {
@@ -34,10 +34,9 @@ interface ChatMessageProps {
   onSendEmail?: (draft: EmailDraft) => void
   editable?: boolean
   onEdit?: (content: string) => Promise<boolean>
-  tokenUsage?: { used_tokens: number; daily_limit: number }
 }
 
-export function ChatMessage({ role, content, sources = [], webSources = [], status, onOpenSource, attachments = [], onOpenAttachment, artifacts = {}, emailBusy = false, onSendEmail, editable = false, onEdit, tokenUsage }: ChatMessageProps) {
+export function ChatMessage({ role, content, sources = [], webSources = [], status, onOpenSource, attachments = [], onOpenAttachment, artifacts = {}, emailBusy = false, onSendEmail, editable = false, onEdit }: ChatMessageProps) {
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState(false)

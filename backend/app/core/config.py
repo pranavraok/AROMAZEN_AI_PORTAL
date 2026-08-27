@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     anthropic_default_model: str = "claude-sonnet-4-6"
     anthropic_fast_model: str = "claude-haiku-4-5"
     openrouter_api_key: str | None = None
-    openrouter_model: str = "google/gemma-4-31b-it:free"
+    openrouter_model: str = "z-ai/glm-5.2:free"
     openrouter_daily_token_limit: int = 1_000_000
     ai_default_provider: str = "anthropic"
     ai_request_timeout_seconds: float = 240.0
