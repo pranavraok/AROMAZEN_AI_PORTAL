@@ -219,10 +219,10 @@ class OpenRouterProvider:
 
     # Models tried in order — verified working with guardrail restrictions.
     _FALLBACK_MODELS: list[str] = [
-        "minimax/minimax-m3:free",
-        "cohere/north-mini-code:free",
-        "dots-studio/dots-3-note-preview:free",
+        "z-ai/glm-5.2:free",
+        "thinkingmachines/inkling:free",
         "google/gemma-4-31b-it:free",
+        "cohere/north-mini-code:free",
     ]
 
     # Class-level cache: once a model works, try it first next time.
