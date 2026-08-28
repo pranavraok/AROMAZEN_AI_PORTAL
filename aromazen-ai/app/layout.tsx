@@ -28,15 +28,16 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
-        <link rel="manifest" href="/manifest.json?v=3" />
+        <link rel="manifest" href="/manifest.json?v=4" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Aromazen AI" />
         <link rel="apple-touch-icon" href="/apple-icon.png" />
-        <link rel="icon" href="/favicon.ico?v=2" sizes="any" />
-        <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=2" />
-        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=2" />
-        <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+        <link rel="icon" href="/favicon.ico?v=4" sizes="any" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/aromazen-favicon-light-v4.png" media="(prefers-color-scheme: light)" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/aromazen-favicon-dark-v4.png" media="(prefers-color-scheme: dark)" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/aromazen-favicon-light-16-v4.png" media="(prefers-color-scheme: light)" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/aromazen-favicon-dark-16-v4.png" media="(prefers-color-scheme: dark)" />
       </head>
       <body className="bg-background text-foreground antialiased">
         <ServiceWorkerRegistrar />
