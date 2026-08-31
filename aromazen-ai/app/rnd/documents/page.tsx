@@ -26,6 +26,9 @@ export default function RndDocumentsPage() {
   const { notify } = useToast()
   const [templates, setTemplates] = useState<DocumentTemplate[]>([])
   const [templateId, setTemplateId] = useState('')
+  const [templateUploadType, setTemplateUploadType] = useState<'coa' | 'sds'>('sds')
+  const [templateFile, setTemplateFile] = useState<File | null>(null)
+  const [uploadingTemplate, setUploadingTemplate] = useState(false)
   const [schema, setSchema] = useState<DocumentTemplateSchema | null>(null)
   const [step, setStep] = useState(0)
   const [fields, setFields] = useState<Record<string, string>>({})
@@ -45,6 +48,7 @@ export default function RndDocumentsPage() {
   const finishRequestedRef = useRef(false)
   const selected = useMemo(() => templates.find((item) => item.id === templateId), [templateId, templates])
   const canUseGenerator = ['R&D', 'QA & QC'].includes(user?.department_name ?? '') || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
+  const canUploadTemplate = user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin' || role === 'Department Admin') ?? false
   const steps = schema?.document_type === 'sds' ? ['Product', 'Ingredients', 'Safety', 'Properties', 'Review'] : ['Product', 'Test results', 'Review']
   const sdsKnownFields = new Set(Object.values(SDS_SECTIONS).flat())
 
@@ -53,6 +57,7 @@ export default function RndDocumentsPage() {
     void api.documentGenerator.templates(accessToken).then((items) => {
       setTemplates(items)
       const requestedType = new URLSearchParams(window.location.search).get('type')
+      if (requestedType === 'coa' || requestedType === 'sds') setTemplateUploadType(requestedType)
       const requestedTemplate = items.find((item) => item.document_type === requestedType)
       const initialTemplate = requestedTemplate ?? items[0]
       if (initialTemplate) setTemplateId(initialTemplate.id)
@@ -145,6 +150,21 @@ export default function RndDocumentsPage() {
   function addRow() { if (!schema || schema.document_type === 'coa') return; setRows((current) => [...current, Object.fromEntries(schema.row_fields.map((key) => [key, '']))]) }
   function updateRow(index: number, key: string, value: string) { setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row)) }
   async function downloadExcel() { if (!accessToken || !templateId) return; try { const file = await api.documentGenerator.excelTemplate(accessToken, templateId); saveFile(file.blob, file.filename) } catch (reason) { notify('error', reason instanceof ApiError ? reason.message : 'Unable to download the Excel format.') } }
+  async function uploadTemplate() {
+    if (!accessToken || !templateFile) return
+    setUploadingTemplate(true)
+    try {
+      const uploaded = await api.documentGenerator.uploadTemplate(accessToken, templateUploadType, templateFile)
+      setTemplates((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)])
+      setTemplateId(uploaded.id)
+      setTemplateFile(null)
+      notify('success', `${templateUploadType.toUpperCase()} Word template uploaded successfully.`)
+    } catch (reason) {
+      notify('error', reason instanceof ApiError ? reason.message : 'Unable to upload the Word template.')
+    } finally {
+      setUploadingTemplate(false)
+    }
+  }
   async function generate() {
     if (!accessToken || !templateId || !schema) return
     setBusy(true)
@@ -197,6 +217,7 @@ export default function RndDocumentsPage() {
       </section>
 
       <aside className="space-y-4">
+        {canUploadTemplate && <div className="rounded-lg border border-primary/30 bg-card p-5"><h2 className="font-semibold">Upload Word Template</h2><p className="mt-1 text-sm text-muted-foreground">Upload the approved SDS or COA format as a DOCX file. A later upload of the same type replaces the previous template uploaded here.</p><select value={templateUploadType} onChange={(event) => setTemplateUploadType(event.target.value as 'coa' | 'sds')} className="mt-4 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"><option value="sds">Safety Data Sheet (SDS)</option><option value="coa">Certificate of Analysis (COA)</option></select><label className="mt-3 flex cursor-pointer items-center justify-center rounded-md border border-dashed border-border p-5 text-center text-sm hover:bg-muted"><input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={(event: ChangeEvent<HTMLInputElement>) => setTemplateFile(event.target.files?.[0] ?? null)} /><span><Upload className="mx-auto mb-2 h-5 w-5" />{templateFile?.name ?? 'Choose DOCX template'}</span></label><Button type="button" className="mt-3 w-full" disabled={!templateFile || uploadingTemplate} onClick={() => void uploadTemplate()}><Upload className="mr-2 h-4 w-4" />{uploadingTemplate ? 'Uploading template…' : `Upload ${templateUploadType.toUpperCase()} Template`}</Button></div>}
         {schema?.can_edit_filename && <div className="rounded-lg border border-border bg-card p-5"><label className="text-sm font-semibold">Document filename</label><p className="mt-1 text-xs text-muted-foreground">Available to the Super Admin and administrators.</p><div className="mt-3 flex items-center gap-2"><input value={outputFilename} onChange={(event) => setOutputFilename(event.target.value)} placeholder="Example: Orange Blossom COA" className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm" /><span className="text-xs text-muted-foreground">.docx</span></div></div>}
         {schema?.document_type === 'coa' && <div className="rounded-lg border border-border bg-card p-5"><h2 className="font-semibold">Excel entry</h2><p className="mt-1 text-sm text-muted-foreground">Optional shortcut for COA test results.</p><Button variant="outline" onClick={() => void downloadExcel()} disabled={!templateId} className="mt-4 w-full"><Download className="mr-2 h-4 w-4" />Download Excel format</Button><label className="mt-3 flex cursor-pointer items-center justify-center rounded-md border border-dashed border-border p-5 text-center text-sm hover:bg-muted"><input type="file" accept=".xlsx" className="hidden" onChange={(event: ChangeEvent<HTMLInputElement>) => setExcel(event.target.files?.[0] ?? null)} /><span><Upload className="mx-auto mb-2 h-5 w-5" />{excel?.name ?? 'Choose filled XLSX file'}</span></label></div>}
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm"><p className="font-medium">Review before issue</p><p className="mt-1 text-muted-foreground">The AI only organizes stated facts. Missing information remains blank, and SDS regulatory information still requires qualified review.</p></div>

@@ -130,6 +130,10 @@ export const api = {
   },
   documentGenerator: {
     templates: (accessToken: string) => apiRequest<DocumentTemplate[]>('/document-generator/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    uploadTemplate: (accessToken: string, documentType: 'coa' | 'sds', file: File) => {
+      const form = new FormData(); form.append('document_type', documentType); form.append('template_file', file)
+      return apiRequest<DocumentTemplate>('/document-generator/templates', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
     schema: (accessToken: string, templateId: string) => apiRequest<DocumentTemplateSchema>(`/document-generator/templates/${templateId}/schema`, { headers: { Authorization: `Bearer ${accessToken}` } }),
     excelTemplate: (accessToken: string, templateId: string) => apiFileRequest(`/document-generator/templates/${templateId}/excel-template`, accessToken),
     transcribe: (accessToken: string, audio: File) => {

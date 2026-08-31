@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
+from docx import Document as WordDocument
 
 from app.core.config import get_settings
 from app.db.session import get_db_session
@@ -246,6 +247,49 @@ async def list_templates(user: User = Depends(require_permissions("ai.workspace.
     for document, collection in (await session.execute(query)).all():
         result.append({"id": str(document.id), "name": document.original_filename, "collection_name": collection.name, "document_type": _type_for(document.original_filename)})
     return result
+
+
+@router.post("/templates")
+async def upload_template(
+    document_type: str = Form(...),
+    template_file: UploadFile = File(...),
+    user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read", "knowledge.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _require_document_department(session, user)
+    roles = await role_keys_for_user(session, user.id)
+    if not roles.intersection({"owner", "super_admin", "department_admin"}):
+        raise HTTPException(status_code=403, detail="Only administrators can upload SDS and COA templates.")
+    if document_type not in {"coa", "sds"}:
+        raise HTTPException(status_code=422, detail="Choose either an SDS or COA template type.")
+    original_name = Path(template_file.filename or "").name
+    if Path(original_name).suffix.lower() != ".docx":
+        raise HTTPException(status_code=422, detail="Templates must be uploaded as DOCX Word files.")
+    settings = get_settings()
+    content = await template_file.read(settings.max_upload_size_mb * 1024 * 1024 + 1)
+    if not content or len(content) > settings.max_upload_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"The template is empty or exceeds the {settings.max_upload_size_mb} MB limit.")
+    try:
+        WordDocument(io.BytesIO(content))
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="The uploaded file is not a valid DOCX Word document.") from exc
+    type_label = document_type.upper()
+    stored_name = original_name if document_type in original_name.lower() else f"{Path(original_name).stem}-{type_label}.docx"
+    documents = await replace_department_uploads(session, user, "r-d", [DepartmentUpload(
+        f"document-generator-template:{document_type}",
+        content,
+        stored_name,
+        template_file.content_type or "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        document_category="document_template",
+    )])
+    document = documents[0]
+    collection = await session.get(KnowledgeCollection, document.collection_id)
+    return {
+        "id": str(document.id),
+        "name": document.original_filename,
+        "collection_name": collection.name if collection else "R&D",
+        "document_type": document_type,
+    }
 
 
 @router.get("/templates/{template_id}/schema")
