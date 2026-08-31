@@ -55,7 +55,7 @@ async def replace_department_uploads(
                 KnowledgeDocument.collection_id == collection.id,
                 KnowledgeDocument.source_key == source_key,
             ))
-            if document is None:
+            if document is None and not source_key.startswith("document-generator-template:"):
                 legacy_query = select(KnowledgeDocument).where(
                     KnowledgeDocument.organization_id == user.organization_id,
                     KnowledgeDocument.collection_id == collection.id,

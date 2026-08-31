@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from openpyxl import Workbook
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 from docx import Document as WordDocument
@@ -211,6 +211,13 @@ def _type_for(name: str) -> str:
 async def _template(session: AsyncSession, user: User, template_id: str) -> tuple[KnowledgeDocument, KnowledgeCollection]:
     document = await session.get(KnowledgeDocument, template_id)
     collection = await session.get(KnowledgeCollection, document.collection_id) if document else None
+    is_another_users_personal_template = bool(
+        document
+        and document.source_key
+        and document.source_key.startswith("document-generator-template:")
+        and document.source_key.count(":") >= 2
+        and document.uploaded_by_user_id != user.id
+    )
     belongs_to_rnd = bool(await session.scalar(select(collection_departments.c.collection_id).join(
         Department, Department.id == collection_departments.c.department_id
     ).where(
@@ -224,6 +231,7 @@ async def _template(session: AsyncSession, user: User, template_id: str) -> tupl
         or document.status != "ready"
         or document.document_category != "document_template"
         or not belongs_to_rnd
+        or is_another_users_personal_template
         or Path(document.original_filename).suffix.lower() != ".docx"
     ):
         raise HTTPException(status_code=404, detail="Word template not found.")
@@ -242,6 +250,11 @@ async def list_templates(user: User = Depends(require_permissions("ai.workspace.
         KnowledgeDocument.original_filename.ilike("%.docx"),
         KnowledgeCollection.status == "active",
         Department.slug == "r-d",
+        or_(
+            KnowledgeDocument.source_key.is_(None),
+            KnowledgeDocument.source_key.not_like("document-generator-template:%:%"),
+            KnowledgeDocument.uploaded_by_user_id == user.id,
+        ),
     ).order_by(KnowledgeDocument.created_at.desc())
     result = []
     for document, collection in (await session.execute(query)).all():
@@ -253,13 +266,10 @@ async def list_templates(user: User = Depends(require_permissions("ai.workspace.
 async def upload_template(
     document_type: str = Form(...),
     template_file: UploadFile = File(...),
-    user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read", "knowledge.write")),
+    user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     await _require_document_department(session, user)
-    roles = await role_keys_for_user(session, user.id)
-    if not roles.intersection({"owner", "super_admin", "department_admin"}):
-        raise HTTPException(status_code=403, detail="Only administrators can upload SDS and COA templates.")
     if document_type not in {"coa", "sds"}:
         raise HTTPException(status_code=422, detail="Choose either an SDS or COA template type.")
     original_name = Path(template_file.filename or "").name
@@ -276,7 +286,7 @@ async def upload_template(
     type_label = document_type.upper()
     stored_name = original_name if document_type in original_name.lower() else f"{Path(original_name).stem}-{type_label}.docx"
     documents = await replace_department_uploads(session, user, "r-d", [DepartmentUpload(
-        f"document-generator-template:{document_type}",
+        f"document-generator-template:{document_type}:{user.id}",
         content,
         stored_name,
         template_file.content_type or "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
