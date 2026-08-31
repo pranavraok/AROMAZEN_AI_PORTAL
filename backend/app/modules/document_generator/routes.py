@@ -22,7 +22,6 @@ from app.modules.identity.authorization import require_department, require_permi
 from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, DocumentGeneration, KnowledgeCollection, KnowledgeDocument, User, collection_departments
 from app.modules.settings.service import provider_runtime_settings
 from app.modules.identity.service import role_keys_for_user
-from app.modules.knowledge.routes import can_access_collection
 from app.modules.knowledge.storage import organized_storage_name
 from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
 
@@ -191,13 +190,17 @@ def _normalize_coa_value(parameter: str, column: str, value: str) -> str:
     return text[:2000]
 
 
-async def _require_rnd(session: AsyncSession, user: User) -> None:
+DOCUMENT_DEPARTMENT_SLUGS = {"r-d", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"}
+
+
+async def _require_document_department(session: AsyncSession, user: User) -> str:
     roles = await role_keys_for_user(session, user.id)
     if roles.intersection({"owner", "super_admin"}):
-        return
+        return "r-d"
     department = await session.get(Department, user.department_id) if user.department_id else None
-    if not department or department.name.strip().lower() != "r&d":
-        raise HTTPException(status_code=403, detail="R&D document generation is currently limited to the R&D department.")
+    if not department or department.slug not in DOCUMENT_DEPARTMENT_SLUGS:
+        raise HTTPException(status_code=403, detail="SDS and COA creation is limited to the R&D and QA & QC departments.")
+    return department.slug
 
 
 def _type_for(name: str) -> str:
@@ -223,14 +226,12 @@ async def _template(session: AsyncSession, user: User, template_id: str) -> tupl
         or Path(document.original_filename).suffix.lower() != ".docx"
     ):
         raise HTTPException(status_code=404, detail="Word template not found.")
-    if not await can_access_collection(session, user, collection):
-        raise HTTPException(status_code=403, detail="You do not have access to this template.")
     return document, collection
 
 
 @router.get("/templates")
 async def list_templates(user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> list[dict]:
-    await _require_rnd(session, user)
+    await _require_document_department(session, user)
     query = select(KnowledgeDocument, KnowledgeCollection).join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id).join(
         collection_departments, collection_departments.c.collection_id == KnowledgeCollection.id
     ).join(Department, Department.id == collection_departments.c.department_id).where(
@@ -243,14 +244,13 @@ async def list_templates(user: User = Depends(require_permissions("ai.workspace.
     ).order_by(KnowledgeDocument.created_at.desc())
     result = []
     for document, collection in (await session.execute(query)).all():
-        if await can_access_collection(session, user, collection):
-            result.append({"id": str(document.id), "name": document.original_filename, "collection_name": collection.name, "document_type": _type_for(document.original_filename)})
+        result.append({"id": str(document.id), "name": document.original_filename, "collection_name": collection.name, "document_type": _type_for(document.original_filename)})
     return result
 
 
 @router.get("/templates/{template_id}/schema")
 async def template_schema(template_id: str, user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> dict:
-    await _require_rnd(session, user)
+    await _require_document_department(session, user)
     document, _ = await _template(session, user, template_id)
     document_type = _type_for(document.original_filename)
     row_fields = (["parameter", "specification", "result"] if document_type == "coa" else ["name", "cas_number", "ec_number", "concentration", "classification", "notes"])
@@ -262,7 +262,7 @@ async def template_schema(template_id: str, user: User = Depends(require_permiss
 
 @router.get("/templates/{template_id}/excel-template")
 async def excel_template(template_id: str, user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> StreamingResponse:
-    await _require_rnd(session, user)
+    await _require_document_department(session, user)
     document, _ = await _template(session, user, template_id)
     document_type = _type_for(document.original_filename)
     workbook = Workbook()
@@ -292,7 +292,7 @@ async def transcribe_draft_audio(
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     """Recheck the complete recording on Done; the audio is never stored."""
-    await _require_rnd(session, user)
+    await _require_document_department(session, user)
     settings = get_settings()
     if not settings.openai_api_key:
         raise HTTPException(status_code=503, detail="Professional voice transcription is not configured. The visible browser transcript can still be used.")
@@ -335,7 +335,7 @@ async def transcribe_draft_audio(
 
 @router.post("/draft-from-notes")
 async def draft_from_notes(payload: DraftNotesRequest, user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> dict:
-    await _require_rnd(session, user)
+    await _require_document_department(session, user)
     document, _ = await _template(session, user, payload.template_document_id)
     document_type = _type_for(document.original_filename)
     template_path = Path(get_settings().upload_storage_path) / document.stored_filename
@@ -402,7 +402,7 @@ async def generate(
     template_document_id: str = Form(...), document_type: str = Form(...), fields_json: str = Form("{}"), rows_json: str = Form("[]"),
     output_filename: str | None = Form(None), excel_file: UploadFile | None = File(None), user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    await _require_rnd(session, user)
+    document_department_slug = await _require_document_department(session, user)
     document, _ = await _template(session, user, template_document_id)
     actual_type = _type_for(document.original_filename)
     if document_type not in {"coa", "sds"} or document_type != actual_type:
@@ -488,7 +488,7 @@ async def generate(
     session.add(generation)
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="document.generated", target_type="document_generation", target_id=str(generated_id), metadata_json={"document_type": document_type, "template_document_id": str(document.id), "input_mode": generation.input_mode, "warning_count": len(warnings)}))
     if excel_content is not None and excel_file is not None:
-        await replace_department_uploads(session, user, "r-d", [DepartmentUpload(
+        await replace_department_uploads(session, user, document_department_slug, [DepartmentUpload(
             f"document-generator:{document_type}-data",
             excel_content,
             excel_file.filename or f"{document_type.upper()}_Input.xlsx",
@@ -501,7 +501,7 @@ async def generate(
 
 @router.get("/generations/{generation_id}/download")
 async def download(generation_id: str, user: User = Depends(require_permissions("ai.workspace.use")), session: AsyncSession = Depends(get_db_session)) -> FileResponse:
-    await _require_rnd(session, user)
+    await _require_document_department(session, user)
     generation = await session.get(DocumentGeneration, generation_id)
     roles = await role_keys_for_user(session, user.id)
     if not generation or generation.organization_id != user.organization_id or (generation.user_id != user.id and not roles.intersection({"owner", "super_admin"})):

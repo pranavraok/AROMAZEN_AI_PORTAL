@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowRight, RefreshCw } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
-import { DepartmentActionCenter, DepartmentDirectory } from '@/components/departments/department-action-center'
+import { DepartmentActionCenter, DepartmentDirectory, departmentActions } from '@/components/departments/department-action-center'
 import { ExecutiveVisualizations } from '@/components/dashboard/executive-visualizations'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { DataTable } from '@/components/ui/data-table'
@@ -54,6 +54,7 @@ export default function DashboardPage() {
   const isDepartmentAdmin = user?.role_names.includes('Department Admin') ?? false
   const isEmployee = user?.role_names.includes('Employee') ?? false
   const currentDepartment = departments[0] ?? (user?.department_name ? { id: user.department_name, name: user.department_name, slug: user.department_name.toLowerCase().replace(/[^a-z0-9]+/g, '-') } : null)
+  const hasEmployeeDepartmentActions = currentDepartment ? departmentActions(currentDepartment, 'employee').length > 0 : false
 
   return <AppLayout><div className="space-y-6 p-6">
     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -64,7 +65,7 @@ export default function DashboardPage() {
     {isSuperAdmin && overview ? <ExecutiveVisualizations overview={overview} /> : null}
     {isAdmin && departments.length > 0 ? <DepartmentDirectory departments={departments} /> : null}
     {isDepartmentAdmin && currentDepartment ? <DepartmentActionCenter department={currentDepartment} audience="department_admin" /> : null}
-    {isEmployee && currentDepartment && ['Accounts', 'Human Resources', 'HR'].includes(currentDepartment.name) ? <DepartmentActionCenter department={currentDepartment} audience="employee" /> : null}
+    {isEmployee && currentDepartment && hasEmployeeDepartmentActions ? <DepartmentActionCenter department={currentDepartment} audience="employee" /> : null}
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">{overview?.metrics.map((metric) => <MetricCard key={metric.key} label={metric.label} value={metric.format === 'currency' ? money(metric.value) : metric.value.toLocaleString()} />) ?? Array.from({ length: 4 }, (_, index) => <MetricCard key={index} label="Loading…" value="—" />)}</div>
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3"><div className="space-y-6 lg:col-span-2">
       {overview && ['platform', 'organization'].includes(overview.scope) && <section className="overflow-hidden rounded-lg border border-border bg-card"><div className="border-b border-border px-6 py-4"><h2 className="font-semibold">Department Usage This Month</h2><p className="text-xs text-muted-foreground">Visible only to Super Admin and Admin</p></div><DataTable columns={[{ header: 'Department', key: 'department' as const }, { header: 'AI Requests', key: 'requests' as const }, { header: 'Estimated Cost', key: 'cost' as const }]} data={departmentRows} compact /></section>}

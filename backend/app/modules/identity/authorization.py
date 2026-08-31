@@ -11,6 +11,8 @@ from app.modules.identity.service import permission_keys_for_user, role_keys_for
 
 DEPARTMENT_ALIASES = {
     "hr": {"hr", "HR", "human-resources", "Human Resources"},
+    # COA and SDS generation is jointly owned by R&D and QA & QC.
+    "r-d": {"r-d", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"},
 }
 
 

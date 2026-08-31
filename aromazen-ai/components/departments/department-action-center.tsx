@@ -29,18 +29,23 @@ type DepartmentAction = {
 function departmentKind(department: Pick<Department, 'name' | 'slug'>) {
   const value = `${department.name} ${department.slug}`.toLowerCase()
   if (/human resources|human-resources|\bhr\b/.test(value)) return 'hr'
+  if (/\bqa\b.*\bqc\b|quality assurance.*quality control/.test(value)) return 'qa_qc'
   if (/accounts?/.test(value)) return 'accounts'
   if (/inventory/.test(value)) return 'inventory'
   return 'general'
 }
 
-const SPECIALIZED_ACTIONS: Record<'hr' | 'accounts' | 'inventory', DepartmentAction[]> = {
+const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'accounts' | 'inventory', DepartmentAction[]> = {
   hr: [
     { key: 'attendance', title: 'Attendance', description: 'Upload attendance, review exceptions and export results.', href: '/department-tools/hr-attendance', icon: CalendarCheck2, employeeAccess: true },
     { key: 'leave', title: 'Leave Calculator', description: 'Calculate leave, LOP, paid days and overtime.', href: '/hr/leave-calculator', icon: ClipboardCheck },
     { key: 'letters', title: 'HR Letters', description: 'Prepare, review, download and email approved letters.', href: '/department-tools/hr-letters', icon: FileText, employeeAccess: true },
     { key: 'payroll', title: 'Payroll & Salary Slips', description: 'Prepare salary slips and manage delivery results.', href: '/hr/salary-slips', icon: WalletCards },
     { key: 'rules', title: 'Rules & Reminders', description: 'Review HR rules, licences and renewal reminders.', href: '/knowledge/rules-reminders', icon: BookOpen, employeeAccess: true },
+  ],
+  qa_qc: [
+    { key: 'sds', title: 'Safety Data Sheet (SDS)', description: 'Create, review and download an approved-format SDS draft.', href: '/rnd/documents?type=sds', icon: FileText, employeeAccess: true },
+    { key: 'coa', title: 'Certificate of Analysis (COA)', description: 'Create, review and download an approved-format COA draft.', href: '/rnd/documents?type=coa', icon: ClipboardCheck, employeeAccess: true },
   ],
   accounts: [
     { key: 'cash-flow', title: 'Cash Flow Report', description: 'Upload monthly files and generate the protected report.', href: '/accounts/cash-flow', icon: WalletCards },
