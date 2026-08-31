@@ -218,11 +218,11 @@ async def _template(session: AsyncSession, user: User, template_id: str) -> tupl
         and document.source_key.count(":") >= 2
         and document.uploaded_by_user_id != user.id
     )
-    belongs_to_rnd = bool(await session.scalar(select(collection_departments.c.collection_id).join(
+    belongs_to_document_department = bool(await session.scalar(select(collection_departments.c.collection_id).join(
         Department, Department.id == collection_departments.c.department_id
     ).where(
         collection_departments.c.collection_id == collection.id,
-        Department.slug == "r-d",
+        Department.slug.in_(tuple(DOCUMENT_DEPARTMENT_SLUGS)),
     ))) if collection else False
     if (
         not document
@@ -230,7 +230,7 @@ async def _template(session: AsyncSession, user: User, template_id: str) -> tupl
         or document.organization_id != user.organization_id
         or document.status != "ready"
         or document.document_category != "document_template"
-        or not belongs_to_rnd
+        or not belongs_to_document_department
         or is_another_users_personal_template
         or Path(document.original_filename).suffix.lower() != ".docx"
     ):
@@ -249,7 +249,7 @@ async def list_templates(user: User = Depends(require_permissions("ai.workspace.
         KnowledgeDocument.document_category == "document_template",
         KnowledgeDocument.original_filename.ilike("%.docx"),
         KnowledgeCollection.status == "active",
-        Department.slug == "r-d",
+        Department.slug.in_(tuple(DOCUMENT_DEPARTMENT_SLUGS)),
         or_(
             KnowledgeDocument.source_key.is_(None),
             KnowledgeDocument.source_key.not_like("document-generator-template:%:%"),
@@ -269,7 +269,7 @@ async def upload_template(
     user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    await _require_document_department(session, user)
+    department_slug = await _require_document_department(session, user)
     if document_type not in {"coa", "sds"}:
         raise HTTPException(status_code=422, detail="Choose either an SDS or COA template type.")
     original_name = Path(template_file.filename or "").name
@@ -285,7 +285,7 @@ async def upload_template(
         raise HTTPException(status_code=422, detail="The uploaded file is not a valid DOCX Word document.") from exc
     type_label = document_type.upper()
     stored_name = original_name if document_type in original_name.lower() else f"{Path(original_name).stem}-{type_label}.docx"
-    documents = await replace_department_uploads(session, user, "r-d", [DepartmentUpload(
+    documents = await replace_department_uploads(session, user, department_slug, [DepartmentUpload(
         f"document-generator-template:{document_type}:{user.id}",
         content,
         stored_name,
