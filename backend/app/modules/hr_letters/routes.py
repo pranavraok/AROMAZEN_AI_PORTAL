@@ -82,6 +82,7 @@ TEMPLATE_FIELD_DEFAULTS = {
     },
 }
 OFFER_FIELDS = ("issue_date", "employee_name", "interview_date", "designation", "joining_date", "signatory_name")
+OFFER_DATE_FIELDS = {"issue_date", "interview_date", "joining_date"}
 OFFER_PDF_FIELD_WIDTHS = {
     "issue_date": 105,
     "employee_name": 220,
@@ -616,7 +617,18 @@ def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> byt
     scale_x = page_width / 595.276
     scale_y = page_height / 841.89
     font_scale = min(scale_x, scale_y)
-    unit_address = fields.get("unit_address", "")
+
+    def display_value(key: str) -> str:
+        value = fields.get(key, "").strip()
+        if key in OFFER_DATE_FIELDS:
+            date_match = re.fullmatch(r"(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})", value)
+            if date_match:
+                value = f"{int(date_match.group(1)):02d}-{int(date_match.group(2)):02d}-{date_match.group(3)}"
+        if key == "employee_name" and value and not value.endswith(","):
+            value = f"{value},"
+        return value
+
+    unit_address = display_value("unit_address")
     placeholder_pattern = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
     placeholder_words: list[tuple[dict, re.Match[str]]] = []
     expanded_line_keys: set[str] = set()
@@ -629,8 +641,7 @@ def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> byt
                 if not line_match:
                     continue
                 line_key = line_match.group(1).lower()
-                trailing_text = str(line["text"])[line_match.end():]
-                if line_key == "interview_date" and any(character.isalpha() for character in trailing_text):
+                if line_key in {"issue_date", "employee_name", "interview_date"}:
                     expanded_lines[line_key] = (line, line_match)
                     expanded_line_keys.add(line_key)
             seen_keys: set[str] = set()
@@ -671,7 +682,7 @@ def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> byt
         for word, match in placeholder_words:
             key = match.group(1).lower()
             raw_text = str(word["text"])
-            value = f"{raw_text[:match.start()]}{fields.get(key, '')}{raw_text[match.end():]}"
+            value = f"{raw_text[:match.start()]}{display_value(key)}{raw_text[match.end():]}"
             font_size = (8.4 if key == "unit_address" else 10.5) * font_scale
             maximum_width = (
                 page_width - 110 * scale_x
@@ -712,12 +723,12 @@ def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> byt
         overlay.setFont("Helvetica", address_font_size)
         overlay.drawCentredString(page_width / 2, 723 * scale_y, unit_address)
         overlay.setFont("Helvetica", 10.5 * font_scale)
-        overlay.drawString(458 * scale_x, 653 * scale_y, fields.get("issue_date", ""))
-        overlay.drawString(78 * scale_x, 625 * scale_y, fields.get("employee_name", ""))
-        overlay.drawString(264 * scale_x, 601 * scale_y, fields.get("interview_date", ""))
-        overlay.drawString(60 * scale_x, 510 * scale_y, fields.get("designation", ""))
-        overlay.drawString(310 * scale_x, 510 * scale_y, fields.get("joining_date", ""))
-        overlay.drawString(371 * scale_x, 192 * scale_y, fields.get("signatory_name", ""))
+        overlay.drawString(458 * scale_x, 653 * scale_y, display_value("issue_date"))
+        overlay.drawString(78 * scale_x, 625 * scale_y, display_value("employee_name"))
+        overlay.drawString(264 * scale_x, 601 * scale_y, display_value("interview_date"))
+        overlay.drawString(60 * scale_x, 510 * scale_y, display_value("designation"))
+        overlay.drawString(310 * scale_x, 510 * scale_y, display_value("joining_date"))
+        overlay.drawString(371 * scale_x, 192 * scale_y, display_value("signatory_name"))
     overlay.save()
     packet.seek(0)
     page.merge_page(PdfReader(packet).pages[0])
