@@ -19,6 +19,7 @@ from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
 
+import pdfplumber
 from docx import Document
 from docx.oxml.ns import qn
 from docx.shared import Pt
@@ -81,6 +82,14 @@ TEMPLATE_FIELD_DEFAULTS = {
     },
 }
 OFFER_FIELDS = ("issue_date", "employee_name", "interview_date", "designation", "joining_date", "signatory_name")
+OFFER_PDF_FIELD_WIDTHS = {
+    "issue_date": 105,
+    "employee_name": 220,
+    "interview_date": 145,
+    "designation": 220,
+    "joining_date": 220,
+    "signatory_name": 190,
+}
 EXPECTED_APPOINTMENT_PAGE_COUNT = 10
 KANNADA_FONT_NAME = (
     "Nirmala UI"
@@ -594,30 +603,121 @@ def _trim_appointment_footer_overflow(pdf_bytes: bytes) -> bytes:
 
 
 def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> bytes:
-    source = PdfReader(template_path or ASSET_ROOT / TEMPLATE_FILES["offer"])
+    source_path = template_path or ASSET_ROOT / TEMPLATE_FILES["offer"]
+    source = PdfReader(source_path)
     page = source.pages[0]
     packet = io.BytesIO()
-    overlay = canvas.Canvas(packet, pagesize=(float(page.mediabox.width), float(page.mediabox.height)))
     page_width = float(page.mediabox.width)
+    page_height = float(page.mediabox.height)
+    overlay = canvas.Canvas(packet, pagesize=(page_width, page_height))
+    # Canva preserves the design's custom page dimensions when exporting. Scale
+    # the approved A4 mapping so uploaded Canva PDFs and the built-in A4 starter
+    # use the same logical field positions.
+    scale_x = page_width / 595.276
+    scale_y = page_height / 841.89
+    font_scale = min(scale_x, scale_y)
     unit_address = fields.get("unit_address", "")
+    placeholder_pattern = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
+    placeholder_words: list[tuple[dict, re.Match[str]]] = []
+    expanded_line_keys: set[str] = set()
+    try:
+        with pdfplumber.open(source_path) as template_pdf:
+            template_page = template_pdf.pages[0]
+            expanded_lines: dict[str, tuple[dict, re.Match[str]]] = {}
+            for line in template_page.extract_text_lines(strip=True, return_chars=False):
+                line_match = placeholder_pattern.search(str(line.get("text", "")))
+                if not line_match:
+                    continue
+                line_key = line_match.group(1).lower()
+                trailing_text = str(line["text"])[line_match.end():]
+                if line_key == "interview_date" and any(character.isalpha() for character in trailing_text):
+                    expanded_lines[line_key] = (line, line_match)
+                    expanded_line_keys.add(line_key)
+            seen_keys: set[str] = set()
+            for word in template_page.extract_words():
+                match = placeholder_pattern.search(str(word.get("text", "")))
+                if not match:
+                    continue
+                key = match.group(1).lower()
+                if key not in {*OFFER_FIELDS, *SYSTEM_MANAGED_FIELDS} or key in seen_keys:
+                    continue
+                placeholder_words.append(expanded_lines.get(key, (word, match)))
+                seen_keys.add(key)
+    except Exception as error:
+        logger.warning("offer_pdf_placeholder_detection_failed", error=str(error))
+
     overlay.setFillColor(colors.white)
-    overlay.rect(48, 716, page_width - 96, 22, stroke=0, fill=1)
-    overlay.setFillColor(colors.HexColor("#24272b"))
-    address_font_size = 8.4
-    while (
-        address_font_size > 6
-        and overlay.stringWidth(unit_address, "Helvetica", address_font_size) > page_width - 110
-    ):
-        address_font_size -= 0.2
-    overlay.setFont("Helvetica", address_font_size)
-    overlay.drawCentredString(page_width / 2, 723, unit_address)
-    overlay.setFont("Helvetica", 10.5)
-    overlay.drawString(458, 653, fields.get("issue_date", ""))
-    overlay.drawString(78, 625, fields.get("employee_name", ""))
-    overlay.drawString(264, 601, fields.get("interview_date", ""))
-    overlay.drawString(60, 510, fields.get("designation", ""))
-    overlay.drawString(310, 510, fields.get("joining_date", ""))
-    overlay.drawString(371, 192, fields.get("signatory_name", ""))
+    if placeholder_words:
+        for word, match in placeholder_words:
+            key = match.group(1).lower()
+            word_top = float(word["top"])
+            word_bottom = float(word["bottom"])
+            if key == "unit_address":
+                left = 48 * scale_x
+                width = page_width - 96 * scale_x
+            else:
+                left = float(word["x0"]) - 2 * scale_x
+                width = float(word["x1"]) - float(word["x0"]) + 4 * scale_x
+            overlay.rect(
+                left,
+                page_height - word_bottom - 2 * scale_y,
+                width,
+                word_bottom - word_top + 4 * scale_y,
+                stroke=0,
+                fill=1,
+            )
+
+        overlay.setFillColor(colors.HexColor("#24272b"))
+        for word, match in placeholder_words:
+            key = match.group(1).lower()
+            raw_text = str(word["text"])
+            value = f"{raw_text[:match.start()]}{fields.get(key, '')}{raw_text[match.end():]}"
+            font_size = (8.4 if key == "unit_address" else 10.5) * font_scale
+            maximum_width = (
+                page_width - 110 * scale_x
+                if key == "unit_address"
+                else page_width - float(word["x0"]) - 75 * scale_x
+                if key in expanded_line_keys
+                else OFFER_PDF_FIELD_WIDTHS.get(key, 220) * scale_x
+            )
+            minimum_font_size = 6 * font_scale
+            while font_size > minimum_font_size and overlay.stringWidth(value, "Helvetica", font_size) > maximum_width:
+                font_size -= 0.2 * font_scale
+            overlay.setFont("Helvetica", font_size)
+            baseline = page_height - float(word["bottom"])
+            if key == "unit_address":
+                overlay.drawCentredString(page_width / 2, baseline, value)
+            else:
+                overlay.drawString(float(word["x0"]), baseline, value)
+    else:
+        # Backward-compatible mapping for the original blank A4 starter.
+        placeholder_areas = (
+            (48, 716, page_width / scale_x - 96, 22),
+            (448, 646, 105, 15),
+            (72, 618, 220, 15),
+            (255, 594, 145, 15),
+            (55, 500, 220, 25),
+            (305, 500, 220, 25),
+            (365, 185, 190, 17),
+        )
+        for left, bottom, width, height in placeholder_areas:
+            overlay.rect(left * scale_x, bottom * scale_y, width * scale_x, height * scale_y, stroke=0, fill=1)
+        overlay.setFillColor(colors.HexColor("#24272b"))
+        address_font_size = 8.4 * font_scale
+        while (
+            address_font_size > 6 * font_scale
+            and overlay.stringWidth(unit_address, "Helvetica", address_font_size) > page_width - 110 * scale_x
+        ):
+            address_font_size -= 0.2 * font_scale
+        overlay.setFont("Helvetica", address_font_size)
+        overlay.drawCentredString(page_width / 2, 723 * scale_y, unit_address)
+        overlay.setFont("Helvetica", 10.5 * font_scale)
+        overlay.drawString(458 * scale_x, 653 * scale_y, fields.get("issue_date", ""))
+        overlay.drawString(78 * scale_x, 625 * scale_y, fields.get("employee_name", ""))
+        overlay.drawString(264 * scale_x, 601 * scale_y, fields.get("interview_date", ""))
+        overlay.drawString(60 * scale_x, 510 * scale_y, fields.get("designation", ""))
+        overlay.drawString(310 * scale_x, 510 * scale_y, fields.get("joining_date", ""))
+        overlay.drawString(371 * scale_x, 192 * scale_y, fields.get("signatory_name", ""))
     overlay.save()
     packet.seek(0)
     page.merge_page(PdfReader(packet).pages[0])
