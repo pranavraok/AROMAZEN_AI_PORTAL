@@ -44,7 +44,7 @@ export function SpreadsheetPreview({ workbook }: { workbook: SpreadsheetWorkbook
 
   return <div className="flex h-full min-h-0 flex-col bg-[#f3f4f6] text-gray-900">
     {sheet.truncated && <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900">This preview shows the first 2,000 rows and 100 columns. Download the workbook to view anything beyond that range.</div>}
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="min-h-0 flex-1 overflow-auto overscroll-contain [touch-action:pan-x_pan-y]">
       <table className="border-separate border-spacing-0 bg-white text-xs">
         <thead className="sticky top-0 z-20">
           <tr>
@@ -60,7 +60,7 @@ export function SpreadsheetPreview({ workbook }: { workbook: SpreadsheetWorkbook
         </tbody>
       </table>
     </div>
-    <div className="flex shrink-0 items-center justify-between gap-3 border-t border-gray-300 bg-[#e7e9ed]">
+    <div className="flex shrink-0 items-center justify-between gap-3 border-t border-gray-300 bg-[#e7e9ed] pb-[env(safe-area-inset-bottom)]">
       <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2 pt-1">
         {workbook.sheets.map((item, index) => <button key={`${item.name}-${index}`} type="button" onClick={() => { setActiveSheet(index); setPage(0) }} className={`max-w-48 shrink-0 truncate border-b-2 px-4 py-2 text-xs font-medium transition-colors ${index === activeSheet ? 'border-emerald-600 bg-white text-emerald-800' : 'border-transparent text-gray-600 hover:bg-white/70 hover:text-gray-900'}`} title={item.name}>{item.name}</button>)}
       </div>

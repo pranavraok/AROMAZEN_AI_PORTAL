@@ -78,11 +78,11 @@ export function TopBar({ sidebarOpen, onSidebarToggle }: TopBarProps) {
     setUnreadCount(0)
   }
 
-  return <header className="top-bar relative z-20 flex h-[60px] items-center gap-2 border-b border-border bg-background/80 px-3 backdrop-blur-xl sm:h-[68px] sm:gap-4 sm:px-4 md:px-7" ref={shellRef}>
-    <button onClick={() => onSidebarToggle(!sidebarOpen)} className="text-foreground transition-colors hover:text-primary lg:hidden" aria-label="Toggle navigation"><Menu className="h-5 w-5" /></button>
+  return <header className="top-bar relative z-20 flex h-[60px] min-w-0 items-center gap-2 border-b border-border bg-background/80 px-3 backdrop-blur-xl sm:h-[68px] sm:gap-4 sm:px-4 md:px-7" ref={shellRef}>
+    <button onClick={() => onSidebarToggle(!sidebarOpen)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-muted hover:text-primary lg:hidden" aria-label="Toggle navigation" aria-expanded={sidebarOpen} aria-controls="app-sidebar"><Menu className="h-5 w-5" /></button>
     {showDepartmentBack ? <button type="button" onClick={() => router.push('/dashboard')} className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-medium text-foreground shadow-sm hover:bg-muted"><ArrowLeft className="h-4 w-4" /><span className="hidden sm:inline">Back to Dashboard</span></button> : null}
     <div className="hidden min-w-0 md:block"><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Aromazen Workspace</p><p className="mt-0.5 truncate text-sm font-medium text-foreground">Secure company intelligence</p></div>
-    <div className="relative ml-auto w-full max-w-md">
+    <div className="relative ml-auto min-w-0 flex-1 md:max-w-md">
       <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <input value={query} onChange={(event) => { setQuery(event.target.value); setSearchOpen(true); setNotificationsOpen(false) }} onFocus={() => setSearchOpen(true)} onKeyDown={(event) => { if (event.key === 'Enter' && results[0]) go(results[0].href); if (event.key === 'Escape') setSearchOpen(false) }} placeholder="Search" aria-label="Search pages, chats, and knowledge" className="h-10 w-full rounded-2xl border border-border bg-card pl-10 pr-8 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/10 sm:h-11 sm:pr-10" />
       {query && <button onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="Clear search"><X className="h-4 w-4" /></button>}

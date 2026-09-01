@@ -11,6 +11,7 @@ import { useAuth } from '@/components/auth/auth-provider'
 import { api } from '@/lib/api/services'
 import mammoth from 'mammoth'
 import { SpreadsheetPreview, type SpreadsheetWorkbook } from '@/components/document-viewer/spreadsheet-preview'
+import { PdfPreview } from '@/components/document-viewer/pdf-preview'
 
 const DOCX_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -32,6 +33,10 @@ function isDocx(filename: string, ct: string): boolean {
   if (DOCX_TYPES.includes(ct)) return true
   const lower = filename.toLowerCase()
   return lower.endsWith('.docx') || lower.endsWith('.doc')
+}
+
+function isPdf(filename: string, ct: string): boolean {
+  return ct.split(';')[0].trim().toLowerCase() === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')
 }
 
 function sanitizeDocxHtml(html: string): string {
@@ -71,6 +76,7 @@ function DocumentViewer() {
   const [docxLoading, setDocxLoading] = useState(false)
   const [spreadsheet, setSpreadsheet] = useState<SpreadsheetWorkbook | null>(null)
   const [spreadsheetLoading, setSpreadsheetLoading] = useState(false)
+  const [pdfData, setPdfData] = useState<Uint8Array | null>(null)
 
   useEffect(() => {
     if (!accessToken || (!attachmentId && (!collectionId || !documentId))) return
@@ -84,6 +90,7 @@ function DocumentViewer() {
     setDocxLoading(false)
     setSpreadsheet(null)
     setSpreadsheetLoading(false)
+    setPdfData(null)
 
     const contentUrl = attachmentId
       ? api.workspace.attachmentContentUrl(attachmentId)
@@ -102,6 +109,10 @@ function DocumentViewer() {
         setUrl(createdUrl)
         setContentType(ct)
         setLoading(false)
+
+        if (isPdf(docName, ct)) {
+          setPdfData(new Uint8Array(await blob.arrayBuffer()))
+        }
 
         // If .docx, convert to HTML using mammoth
         if (isDocx(docName, ct)) {
@@ -181,7 +192,7 @@ function DocumentViewer() {
   }
 
   const isImage = contentType.startsWith('image/')
-  const isPdf = contentType === 'application/pdf'
+  const showPdf = isPdf(docName, contentType)
   const showDocx = isDocx(docName, contentType)
   const showExcel = isExcel(docName, contentType)
 
@@ -194,8 +205,7 @@ function DocumentViewer() {
         </Link>
         <div className="mx-2 h-4 w-px bg-border" />
         {showExcel ? <Table2 className="h-4 w-4 shrink-0 text-emerald-500" /> : <FileText className="h-4 w-4 shrink-0 text-primary" />}
-        <span className="truncate text-sm font-medium">{docName}</span>
-        <div className="flex-1" />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{docName}</span>
         <Button variant="outline" size="sm" onClick={handleDownload} disabled={!url}>
           <Download className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Download</span>
         </Button>
@@ -222,7 +232,9 @@ function DocumentViewer() {
 
         {url && !loading && !error && (
           <>
-            {isPdf && <iframe src={requestedPage ? `${url}#page=${requestedPage}` : url} className="h-full w-full border-0" title={docName} />}
+            {showPdf && pdfData && <PdfPreview data={pdfData} initialPage={Number(requestedPage) || 1} />}
+
+            {showPdf && !pdfData && <div className="flex h-full items-center justify-center gap-3 text-gray-500"><LoaderCircle className="h-5 w-5 animate-spin" />Preparing PDF preview…</div>}
 
             {isImage && (
               <div className="relative h-full w-full p-4">
@@ -237,7 +249,7 @@ function DocumentViewer() {
             )}
 
             {showDocx && !docxLoading && docxHtml !== null && (
-              <div className="overflow-x-auto">
+              <div className="docx-paper-scroll h-full overflow-auto overscroll-contain">
                 <div className="docx-paper">
                   <div dangerouslySetInnerHTML={{ __html: docxHtml }} />
                 </div>
@@ -268,7 +280,7 @@ function DocumentViewer() {
               </div>
             )}
 
-            {!isPdf && !isImage && !showDocx && !showExcel && (
+            {!showPdf && !isImage && !showDocx && !showExcel && (
               <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center text-gray-500">
                 <FileText className="h-12 w-12" />
                 <p className="text-sm">This file type ({contentType}) cannot be previewed inline.</p>

@@ -5,6 +5,7 @@ import { api } from '@/lib/api/services'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/components/ui/toast-provider'
 import { ArrowLeft, CheckCircle, KeyRound, LoaderCircle, Mail, X } from 'lucide-react'
+import { PasswordInput } from '@/components/ui/password-input'
 
 type Step = 'email' | 'otp' | 'password' | 'done'
 
@@ -212,9 +213,8 @@ export function ForgotPasswordFlow({ open, onClose }: ForgotPasswordFlowProps) {
             <div className="mt-5 space-y-4">
               <div>
                 <label htmlFor="fp-new-pw" className="mb-2 block text-xs font-medium text-foreground">Set New Password</label>
-                <input
+                <PasswordInput
                   id="fp-new-pw"
-                  type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="At least 8 characters"
@@ -226,9 +226,8 @@ export function ForgotPasswordFlow({ open, onClose }: ForgotPasswordFlowProps) {
               </div>
               <div>
                 <label htmlFor="fp-confirm-pw" className="mb-2 block text-xs font-medium text-foreground">Re-enter New Password</label>
-                <input
+                <PasswordInput
                   id="fp-confirm-pw"
-                  type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleResetPassword() } }}

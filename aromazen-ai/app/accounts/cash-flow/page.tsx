@@ -1,10 +1,11 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { CheckCircle2, Download, FileSpreadsheet, FileText, History, LoaderCircle, LockKeyhole, ShieldCheck, WalletCards } from 'lucide-react'
+import { CheckCircle2, Download, FileSpreadsheet, FileText, History, LoaderCircle, ShieldCheck, WalletCards } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
+import { PasswordInput } from '@/components/ui/password-input'
 import { useAuth } from '@/components/auth/auth-provider'
 import { useToast } from '@/components/ui/toast-provider'
 import { api } from '@/lib/api/services'
@@ -46,7 +47,7 @@ export default function CashFlowPage() {
 
     <section className="grid gap-4 rounded-2xl border border-border bg-card p-5 lg:grid-cols-[1fr_1fr_1.25fr]">
       <label><span className="mb-1.5 block text-xs font-medium text-muted-foreground">REPORT MONTH</span><input type="month" value={month} onChange={(e) => { setMonth(e.target.value); const [year,value] = e.target.value.split('-'); setPassword(`AromaZen#${new Date(Number(year),Number(value)-1).toLocaleString('en',{month:'short'})}${year}`) }} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" /></label>
-      <label><span className="mb-1.5 block text-xs font-medium text-muted-foreground">PDF PASSWORD</span><span className="flex h-11 items-center rounded-xl border border-border bg-background px-3"><LockKeyhole className="mr-2 h-4 w-4 text-primary" /><input value={password} minLength={8} onChange={(e) => setPassword(e.target.value)} className="w-full bg-transparent text-sm outline-none" /></span></label>
+      <label><span className="mb-1.5 block text-xs font-medium text-muted-foreground">PDF PASSWORD</span><PasswordInput value={password} minLength={8} onChange={(e) => setPassword(e.target.value)} containerClassName="w-full" className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40" /></label>
       <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-border bg-background px-4 py-2.5"><input type="checkbox" checked={includePreviousComparison} onChange={(event) => setIncludePreviousComparison(event.target.checked)} className="h-5 w-5 accent-primary" /><History className="h-5 w-5 shrink-0 text-primary" /><span className="min-w-0"><span className="block text-sm font-semibold">Previous-month comparison</span><span className="block truncate text-xs text-muted-foreground">Adds comparison and AI insights</span></span></label>
     </section>
 

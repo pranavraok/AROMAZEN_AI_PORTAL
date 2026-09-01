@@ -237,8 +237,11 @@
 }
 
 @layer base {
-  html { background: var(--background); }
+  html { width: 100%; overflow-x: hidden; background: var(--background); }
   body {
+    width: 100%;
+    overflow-x: hidden;
+    overscroll-behavior: none;
     min-width: 320px;
     font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
@@ -253,6 +256,8 @@
 .app-main {
   min-width: 0;
   overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   background:
     radial-gradient(circle at 82% -15%, rgba(238,234,224,.045), transparent 30rem),
     var(--background);
@@ -301,22 +306,83 @@ table tbody tr { transition: background-color .18s ease; }
 table tbody tr:hover { background: rgba(255,255,255,.018); }
 
 @media (max-width: 767px) {
+  .top-bar {
+    height: calc(60px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+  }
+  #app-sidebar { padding-top: env(safe-area-inset-top); }
   .app-main > .space-y-6 { padding: 20px 16px 28px; }
   .app-main > [class*="p-6"] { padding: 20px 16px 28px; }
   .app-main > main[class*="p-6"] { padding: 20px 16px 28px; }
+  .app-main > [class*="p-5"],
+  .app-main > main[class*="p-5"] { padding: 20px 16px 28px; }
+  .app-main h1,
+  .app-main h2,
+  .app-main h3,
+  .app-main p { overflow-wrap: anywhere; }
+  .app-main section > .flex.items-center.justify-between,
+  .app-main section > .flex.items-start.justify-between,
+  .app-main details > .flex.items-center.justify-between { flex-wrap: wrap; gap: .75rem; }
+  .app-main section > .flex.items-center.justify-between > *,
+  .app-main section > .flex.items-start.justify-between > * { min-width: 0; }
+  .app-main section[class*="p-6"],
+  .app-main article[class*="p-6"] { padding: 16px; }
   .app-main .fixed.inset-0 { padding: 16px; }
   .app-main .fixed.inset-0 > * { max-height: calc(100dvh - 32px); overflow-y: auto; }
   .app-main table th,
   .app-main table td { white-space: nowrap; }
   .app-main .overflow-hidden:has(> table) { overflow-x: auto; }
-  .top-bar div[class*="min-w-[320px]"] { width: min(420px, calc(100vw - 24px)); min-width: 0; }
-  .docx-paper { padding: 24px 20px; }
+  .top-bar div[class*="min-w-[320px]"] {
+    position: fixed;
+    top: 68px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    min-width: 0;
+  }
+  .top-bar div[class*="w-[min(400px"] {
+    position: fixed;
+    top: 68px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100dvh - 80px);
+  }
+  .page-header-actions > *,
+  .page-header-actions > * > * { max-width: 100%; }
+  .docx-paper { padding: 24px 20px; font-size: 13px; }
+  .docx-paper table { display: block; max-width: 100%; overflow-x: auto; }
+  .docx-paper table th,
+  .docx-paper table td { white-space: normal; }
 }
+
+.app-shell { width: 100%; min-height: 100svh; }
+.mobile-drawer-open,
+.mobile-drawer-open body { overflow: hidden; overscroll-behavior: none; }
+.mobile-drawer-edge { touch-action: pan-y; }
+#app-sidebar { touch-action: pan-y; will-change: transform; }
+.app-main > * { min-width: 0; }
+.app-main input,
+.app-main select,
+.app-main textarea,
+.top-bar input { min-width: 0; max-width: 100%; }
+.mobile-table-scroll { scrollbar-gutter: stable; }
+.mobile-table-scroll,
+.docx-paper-scroll { -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
 
 @media (max-width: 479px) {
   .app-main > .space-y-6,
   .app-main > [class*="p-6"],
-  .app-main > main[class*="p-6"] { padding-inline: 12px; }
+  .app-main > main[class*="p-6"],
+  .app-main > [class*="p-5"],
+  .app-main > main[class*="p-5"] { padding-inline: 12px; }
+  .page-header-actions,
+  .page-header-actions > div { width: 100%; }
+  .page-header-actions button,
+  .page-header-actions a { flex: 1 1 auto; }
+  .top-bar { padding-inline: 8px; }
+  .top-bar > button:first-child { width: 36px; }
+  .app-main .group.max-w-\[82\%\] { max-width: 92%; }
 }
 
 @media (prefers-reduced-motion: no-preference) {

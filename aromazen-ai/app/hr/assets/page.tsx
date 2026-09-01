@@ -21,6 +21,23 @@ import type {
 const STATUSES: AssetStatus[] = ['Active', 'Spare', 'Under maintenance', 'Repair needed', 'Recovery required', 'Lost', 'Scrap proposed', 'Approved for scrap', 'Scrapped', 'Disposed']
 const CONDITIONS: AssetCondition[] = ['Good', 'Fair', 'Poor', 'Damaged', 'Obsolete']
 const SCRAP_STATUSES: AssetStatus[] = ['Scrap proposed', 'Approved for scrap', 'Scrapped', 'Disposed']
+type SummaryFilter = 'all' | 'active-spare' | 'service-due' | 'repair-recovery' | 'scrap-queue'
+
+const SUMMARY_LABELS: Record<SummaryFilter, string> = {
+  all: 'All assets',
+  'active-spare': 'Active / spare',
+  'service-due': 'Service due',
+  'repair-recovery': 'Repair / recovery',
+  'scrap-queue': 'Scrap queue',
+}
+
+function matchesSummaryFilter(item: ITAsset, filter: SummaryFilter) {
+  if (filter === 'active-spare') return item.status === 'Active' || item.status === 'Spare'
+  if (filter === 'service-due') return item.maintenance_state === 'due' || item.maintenance_state === 'overdue'
+  if (filter === 'repair-recovery') return ['Repair needed', 'Under maintenance', 'Recovery required'].includes(item.status)
+  if (filter === 'scrap-queue') return item.status === 'Scrap proposed' || item.status === 'Approved for scrap'
+  return true
+}
 
 const defaultNotificationSettings = (): AssetNotificationSettings => ({
   default_notification_enabled: true,
@@ -70,6 +87,7 @@ export default function AssetManagementPage() {
   const { accessToken, user, hasPermission } = useAuth()
   const { notify } = useToast()
   const importRef = useRef<HTMLInputElement>(null)
+  const inventoryRef = useRef<HTMLDivElement>(null)
   const [data, setData] = useState<AssetListResponse | null>(null)
   const [notificationSettings, setNotificationSettings] = useState(defaultNotificationSettings())
   const [settingsForm, setSettingsForm] = useState(defaultNotificationSettings())
@@ -82,6 +100,7 @@ export default function AssetManagementPage() {
   const [department, setDepartment] = useState('All')
   const [register, setRegister] = useState('All')
   const [attentionOnly, setAttentionOnly] = useState(false)
+  const [summaryFilter, setSummaryFilter] = useState<SummaryFilter>('all')
   const [busy, setBusy] = useState<'load' | 'save' | 'import' | 'export' | 'maintenance' | 'remove' | 'settings' | null>(null)
   const [editing, setEditing] = useState<ITAsset | 'new' | null>(null)
   const [form, setForm] = useState<AssetPayload>(blankAsset())
@@ -111,11 +130,23 @@ export default function AssetManagementPage() {
   }, [])
   useEffect(() => { const timer = window.setTimeout(() => void load(), 250); return () => window.clearTimeout(timer) }, [load])
 
-  const filteredValue = useMemo(() => data?.items.reduce((sum, item) => sum + (item.price ?? 0), 0) ?? 0, [data])
+  const visibleItems = useMemo(() => data?.items.filter((item) => matchesSummaryFilter(item, summaryFilter)) ?? [], [data, summaryFilter])
+  const filteredValue = useMemo(() => visibleItems.reduce((sum, item) => sum + (item.price ?? 0), 0), [visibleItems])
+
+  function resetListFilters() {
+    setSearch(''); setStatus('All'); setCategory('All'); setLocation('All'); setDepartment('All'); setRegister('All'); setAttentionOnly(false)
+  }
+
+  function selectSummary(nextFilter: SummaryFilter) {
+    resetListFilters()
+    setSummaryFilter(nextFilter)
+    window.requestAnimationFrame(() => inventoryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
   function openNew() { setForm(blankAsset(notificationSettings, assetGroup)); setEditing('new') }
   function switchAssetGroup(nextGroup: AssetGroup) {
     setAssetGroup(nextGroup)
-    setSearch(''); setStatus('All'); setCategory('All'); setLocation('All'); setDepartment('All'); setRegister('All'); setAttentionOnly(false)
+    resetListFilters(); setSummaryFilter('all')
   }
   function openEdit(item: ITAsset) { setForm(assetPayload(item)); setEditing(item) }
   function change<K extends keyof AssetPayload>(key: K, value: AssetPayload[K]) { setForm((current) => ({ ...current, [key]: value })) }
@@ -212,11 +243,17 @@ export default function AssetManagementPage() {
       <RegisterChoice active={assetGroup === 'General'} title="General Assets" description="Plant machinery, CCTV, vehicles, ACs, scales and appliances" count={data?.group_counts.General} icon={<Boxes />} onClick={() => switchAssetGroup('General')} />
     </section>
 
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Kpi label="Total assets" value={data?.summary.total ?? '—'} icon={<Boxes />} /><Kpi label="Active / spare" value={data ? `${data.summary.active} / ${data.summary.spare}` : '—'} icon={<CheckCircle2 />} /><Kpi label="Service due" value={data?.summary.maintenance_due ?? '—'} icon={<CalendarDays />} tone={data?.summary.maintenance_overdue ? 'text-red-400' : 'text-amber-400'} /><Kpi label="Repair / recovery" value={data ? data.summary.repair_needed + data.summary.recovery_required : '—'} icon={<Wrench />} tone="text-amber-400" /><Kpi label="Scrap queue" value={data?.summary.scrap_queue ?? '—'} icon={<Recycle />} tone={data?.summary.scrap_queue ? 'text-red-400' : ''} /></section>
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Filter assets by summary">
+      <Kpi label="Total assets" value={data?.summary.total ?? '—'} icon={<Boxes />} active={summaryFilter === 'all'} onClick={() => selectSummary('all')} />
+      <Kpi label="Active / spare" value={data ? `${data.summary.active} / ${data.summary.spare}` : '—'} icon={<CheckCircle2 />} active={summaryFilter === 'active-spare'} onClick={() => selectSummary('active-spare')} />
+      <Kpi label="Service due" value={data?.summary.maintenance_due ?? '—'} icon={<CalendarDays />} tone={data?.summary.maintenance_overdue ? 'text-red-400' : 'text-amber-400'} active={summaryFilter === 'service-due'} onClick={() => selectSummary('service-due')} />
+      <Kpi label="Repair / recovery" value={data ? data.summary.repair_needed + data.summary.recovery_required : '—'} icon={<Wrench />} tone="text-amber-400" active={summaryFilter === 'repair-recovery'} onClick={() => selectSummary('repair-recovery')} />
+      <Kpi label="Scrap queue" value={data?.summary.scrap_queue ?? '—'} icon={<Recycle />} tone={data?.summary.scrap_queue ? 'text-red-400' : ''} active={summaryFilter === 'scrap-queue'} onClick={() => selectSummary('scrap-queue')} />
+    </section>
 
-    <section className="rounded-2xl border border-border bg-card p-4"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><label className="relative md:col-span-2"><Search className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search asset, person, label, serial or vehicle" className="h-11 w-full rounded-xl border border-border bg-background pl-10 pr-3 text-sm" /></label><Filter value={register} onChange={setRegister} options={data?.registers ?? []} label="All registers" /><Filter value={status} onChange={setStatus} options={STATUSES} label="All statuses" /><Filter value={category} onChange={setCategory} options={data?.categories ?? []} label="All categories" /><Filter value={location} onChange={setLocation} options={data?.locations ?? []} label="All locations" /><Filter value={department} onChange={setDepartment} options={data?.departments ?? []} label="All departments" /><button type="button" onClick={() => setAttentionOnly((value) => !value)} className={`h-11 rounded-xl border px-4 text-sm font-medium transition-colors ${attentionOnly ? 'border-amber-500/40 bg-amber-500/10 text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground'}`}>Needs attention</button></div><div className="mt-4 flex flex-wrap justify-between gap-2 border-t border-border/70 pt-3 text-xs text-muted-foreground"><span>{data?.items.length ?? 0} assets shown · {money(filteredValue)} shown value</span><span>{data ? money(data.summary.total_value) : '—'} total recorded value</span></div></section>
+    <section className="rounded-2xl border border-border bg-card p-4"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><label className="relative md:col-span-2"><Search className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" /><input value={search} onChange={(event) => { setSearch(event.target.value); setSummaryFilter('all') }} placeholder="Search asset, person, label, serial or vehicle" className="h-11 w-full rounded-xl border border-border bg-background pl-10 pr-3 text-sm" /></label><Filter value={register} onChange={(value) => { setRegister(value); setSummaryFilter('all') }} options={data?.registers ?? []} label="All registers" /><Filter value={status} onChange={(value) => { setStatus(value); setSummaryFilter('all') }} options={STATUSES} label="All statuses" /><Filter value={category} onChange={(value) => { setCategory(value); setSummaryFilter('all') }} options={data?.categories ?? []} label="All categories" /><Filter value={location} onChange={(value) => { setLocation(value); setSummaryFilter('all') }} options={data?.locations ?? []} label="All locations" /><Filter value={department} onChange={(value) => { setDepartment(value); setSummaryFilter('all') }} options={data?.departments ?? []} label="All departments" /><button type="button" onClick={() => { setAttentionOnly((value) => !value); setSummaryFilter('all') }} className={`h-11 rounded-xl border px-4 text-sm font-medium transition-colors ${attentionOnly ? 'border-amber-500/40 bg-amber-500/10 text-amber-300' : 'border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground'}`}>Needs attention</button></div><div className="mt-4 flex flex-wrap justify-between gap-2 border-t border-border/70 pt-3 text-xs text-muted-foreground"><span aria-live="polite">{visibleItems.length} assets shown · {money(filteredValue)} shown value{summaryFilter !== 'all' ? ` · ${SUMMARY_LABELS[summaryFilter]}` : ''}</span><span>{data ? money(data.summary.total_value) : '—'} total recorded value</span></div></section>
 
-    <AssetInventoryList assetGroup={assetGroup} data={data} busy={busy} onService={(item) => void openMaintenance(item)} onEdit={openEdit} onRemove={(item) => void remove(item)} />
+    <div ref={inventoryRef} className="scroll-mt-3"><AssetInventoryList assetGroup={assetGroup} data={data ? { ...data, items: visibleItems } : null} busy={busy} activeSummary={SUMMARY_LABELS[summaryFilter]} onClearSummary={() => selectSummary('all')} onService={(item) => void openMaintenance(item)} onEdit={openEdit} onRemove={(item) => void remove(item)} /></div>
 
     {editing && <Modal title={editing === 'new' ? 'Add an asset' : `Edit ${editing.category || 'asset'}`} onClose={() => setEditing(null)}><div className="grid gap-4 sm:grid-cols-2"><TextField label="Category *" value={form.category ?? ''} onChange={(value) => change('category', emptyToNull(value))} /><TextField label="Source register" value={form.source_register ?? ''} onChange={(value) => change('source_register', emptyToNull(value))} /><TextField label="Assigned employee / user" value={form.employee ?? ''} onChange={(value) => change('employee', emptyToNull(value))} /><TextField label="Department" value={form.department_name ?? ''} onChange={(value) => change('department_name', emptyToNull(value))} /><TextField label="Physical location" value={form.physical_location ?? ''} onChange={(value) => change('physical_location', emptyToNull(value))} /><TextField label="Home / office note" value={form.home_office ?? ''} onChange={(value) => change('home_office', emptyToNull(value))} /><TextField label="Brand" value={form.brand ?? ''} onChange={(value) => change('brand', emptyToNull(value))} /><TextField label="Model" value={form.model ?? ''} onChange={(value) => change('model', emptyToNull(value))} /><TextField label="Serial / IMEI / chassis" value={form.serial_imei ?? ''} onChange={(value) => change('serial_imei', emptyToNull(value))} /><TextField label="Asset label / registration" value={form.label_no ?? ''} onChange={(value) => change('label_no', emptyToNull(value))} /></div><details className="mt-5 rounded-xl border border-border"><summary className="cursor-pointer p-3 text-sm font-medium">Purchase, SIM and other details</summary><div className="grid gap-4 border-t border-border p-4 sm:grid-cols-2"><TextField label="SIM number" value={form.sim_no ?? ''} onChange={(value) => change('sim_no', emptyToNull(value))} /><TextField label="UPS / stabilizer note" value={form.ups ?? ''} onChange={(value) => change('ups', emptyToNull(value))} /><TextField label="Invoice date" type="date" value={form.invoice_date ?? ''} onChange={(value) => change('invoice_date', emptyToNull(value))} /><TextField label="Invoice number" value={form.invoice_no ?? ''} onChange={(value) => change('invoice_no', emptyToNull(value))} /><TextField label="Supplier" value={form.supplier_name ?? ''} onChange={(value) => change('supplier_name', emptyToNull(value))} /><TextField label="Price" type="number" value={form.price?.toString() ?? ''} onChange={(value) => change('price', value ? Number(value) : null)} /><TextField label="Warranty" value={form.warranty ?? ''} onChange={(value) => change('warranty', emptyToNull(value))} /><div className="sm:col-span-2"><CustomFieldsEditor value={form.custom_fields} onChange={(value) => change('custom_fields', value)} /></div></div></details><details open className="mt-4 rounded-xl border border-border"><summary className="cursor-pointer p-3 text-sm font-medium">Lifecycle, service and reminders</summary><div className="grid gap-4 border-t border-border p-4 sm:grid-cols-2"><SelectField label="Status" value={form.status} options={STATUSES} onChange={(value) => change('status', value as AssetStatus)} /><SelectField label="Condition" value={form.condition} options={CONDITIONS} onChange={(value) => change('condition', value as AssetCondition)} /><TextField label="Last service date" type="date" value={form.last_maintenance_date ?? ''} onChange={(value) => change('last_maintenance_date', emptyToNull(value))} /><TextField label="Next service date" type="date" value={form.next_maintenance_date ?? ''} onChange={(value) => change('next_maintenance_date', emptyToNull(value))} /><SelectField label="Notify before" value={String(form.maintenance_reminder_days)} options={['0', '7', '15', '30', '60', '90']} labels={{ '0': 'On due date', '7': '7 days', '15': '15 days', '30': '30 days', '60': '60 days', '90': '90 days' }} onChange={(value) => change('maintenance_reminder_days', Number(value))} /><TextField label="Service interval (months)" type="number" value={form.maintenance_interval_months?.toString() ?? ''} onChange={(value) => change('maintenance_interval_months', value ? Number(value) : null)} /><TextField label="Responsible person" value={form.maintenance_owner ?? ''} onChange={(value) => change('maintenance_owner', emptyToNull(value))} /><ToggleField label="Send service notifications for this asset" checked={form.notification_enabled} onChange={(value) => change('notification_enabled', value)} /><label className="sm:col-span-2"><span className="mb-1.5 block text-xs text-muted-foreground">Notes</span><textarea rows={3} value={form.notes ?? ''} onChange={(event) => change('notes', emptyToNull(event.target.value))} className="w-full rounded-xl border border-border bg-background p-3 text-sm" /></label>{SCRAP_STATUSES.includes(form.status) && <><label className="sm:col-span-2"><span className="mb-1.5 block text-xs text-muted-foreground">Scrap / disposal reason</span><textarea rows={3} value={form.scrap_reason ?? ''} onChange={(event) => change('scrap_reason', emptyToNull(event.target.value))} className="w-full rounded-xl border border-border bg-background p-3 text-sm" /></label><TextField label="Scrap / disposal date" type="date" value={form.scrap_date ?? ''} onChange={(value) => change('scrap_date', emptyToNull(value))} /><TextField label="Recovered scrap value" type="number" value={form.scrap_value?.toString() ?? ''} onChange={(value) => change('scrap_value', value ? Number(value) : null)} /></>}</div></details><div className="mt-5 flex justify-end gap-2"><Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button><Button disabled={busy !== null} onClick={() => void save()}>{busy === 'save' ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}{editing === 'new' ? 'Add asset' : 'Save changes'}</Button></div></Modal>}
 
@@ -233,18 +270,21 @@ function RegisterChoice({ active, title, description, count, icon, onClick }: { 
   </button>
 }
 
-function AssetInventoryList({ assetGroup, data, busy, onService, onEdit, onRemove }: {
+function AssetInventoryList({ assetGroup, data, busy, activeSummary, onClearSummary, onService, onEdit, onRemove }: {
   assetGroup: AssetGroup
   data: AssetListResponse | null
   busy: string | null
+  activeSummary: string
+  onClearSummary: () => void
   onService: (item: ITAsset) => void
   onEdit: (item: ITAsset) => void
   onRemove: (item: ITAsset) => void
 }) {
-  return <section className="overflow-hidden rounded-2xl border border-border bg-card">
+  const filteredBySummary = activeSummary !== SUMMARY_LABELS.all
+  return <section id="asset-inventory-list" className="overflow-hidden rounded-2xl border border-border bg-card">
     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4 md:px-5">
       <div><h2 className="text-sm font-semibold">{assetGroup === 'IT' ? 'IT asset register' : 'General asset register'}</h2><p className="mt-1 text-xs text-muted-foreground">Scan the essentials. Open source details only when you need them.</p></div>
-      <span className="rounded-full bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">{data?.items.length ?? 0} records</span>
+      <div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-3 py-1.5 text-xs font-medium ${filteredBySummary ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>{activeSummary} · {data?.items.length ?? 0} records</span>{filteredBySummary && <button type="button" onClick={onClearSummary} className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground">Show all</button>}</div>
     </header>
     <div className="max-h-[68vh] divide-y divide-border/70 overflow-y-auto">
       {data?.items.map((item) => {
@@ -295,7 +335,7 @@ function InfoLine({ icon, label, value, detail }: { icon: React.ReactNode; label
   return <div className="flex min-w-0 gap-2 text-sm"><span className="mt-0.5 shrink-0 text-muted-foreground [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span><div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-[.12em] text-muted-foreground">{label}</p><p className="mt-0.5 truncate font-medium text-foreground" title={value}>{value}</p>{detail && <p className="truncate text-xs text-muted-foreground" title={detail}>{detail}</p>}</div></div>
 }
 
-function Kpi({ label, value, icon, tone = '' }: { label: string; value: string | number; icon: React.ReactNode; tone?: string }) { return <div className="rounded-2xl border border-border bg-card p-4"><div className="flex items-center justify-between"><p className={`text-2xl font-semibold ${tone}`}>{value}</p><span className="text-muted-foreground [&>svg]:h-4 [&>svg]:w-4">{icon}</span></div><p className="mt-1 text-xs text-muted-foreground">{label}</p></div> }
+function Kpi({ label, value, icon, tone = '', active, onClick }: { label: string; value: string | number; icon: React.ReactNode; tone?: string; active: boolean; onClick: () => void }) { return <button type="button" onClick={onClick} aria-pressed={active} aria-controls="asset-inventory-list" className={`rounded-2xl border p-4 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${active ? 'border-primary/45 bg-primary/[0.08] ring-1 ring-primary/15' : 'border-border bg-card hover:border-primary/30 hover:bg-muted/30'}`}><div className="flex items-center justify-between"><p className={`text-2xl font-semibold ${tone}`}>{value}</p><span className={`${active ? 'text-primary' : 'text-muted-foreground'} [&>svg]:h-4 [&>svg]:w-4`}>{icon}</span></div><p className="mt-1 text-xs text-muted-foreground">{label}</p><p className={`mt-2 text-[10px] font-medium uppercase tracking-[.12em] ${active ? 'text-primary' : 'text-muted-foreground/60'}`}>{active ? 'Showing below' : 'View items'}</p></button> }
 function Filter({ value, onChange, options, label }: { value: string; onChange: (value: string) => void; options: string[]; label: string }) { return <select value={value} onChange={(event) => onChange(event.target.value)} className="h-11 rounded-xl border border-border bg-background px-3 text-sm"><option value="All">{label}</option>{options.map((option) => <option key={option}>{option}</option>)}</select> }
 function TextField({ label, value, onChange, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; type?: string }) { return <label><span className="mb-1.5 block text-xs text-muted-foreground">{label}</span><input type={type} min={type === 'number' ? 0 : undefined} value={value} onChange={(event) => onChange(event.target.value)} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" /></label> }
 function SelectField({ label, value, options, labels, onChange }: { label: string; value: string; options: string[]; labels?: Record<string, string>; onChange: (value: string) => void }) { const isReminderDays = label === 'Notify before' || label === 'Default reminder'; return <label><span className="mb-1.5 block text-xs text-muted-foreground">{label}{isReminderDays ? ' (days)' : ''}</span>{isReminderDays ? <input type="number" min={0} max={365} value={value} onChange={(event) => onChange(String(Math.min(365, Math.max(0, Number(event.target.value) || 0))))} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" /> : <select value={value} onChange={(event) => onChange(event.target.value)} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm">{options.map((option) => <option key={option} value={option}>{labels?.[option] ?? option}</option>)}</select>}</label> }

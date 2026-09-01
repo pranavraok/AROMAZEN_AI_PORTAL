@@ -17,9 +17,9 @@ export function DataTable<T extends object>({
   compact = false,
 }: DataTableProps<T>) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+    <div className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card">
+      <div className="mobile-table-scroll overflow-x-auto overscroll-x-contain" tabIndex={0} aria-label="Scrollable data table">
+        <table className="w-full min-w-max text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/45">
               {columns.map((column) => (

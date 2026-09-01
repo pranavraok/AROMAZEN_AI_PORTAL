@@ -374,5 +374,5 @@ function WorkspaceContent() {
 }
 
 export default function WorkspacePage() {
-  return <Suspense fallback={<div className="min-h-screen bg-background" />}><WorkspaceContent /></Suspense>
+  return <Suspense fallback={<div className="min-h-dvh bg-background" />}><WorkspaceContent /></Suspense>
 }

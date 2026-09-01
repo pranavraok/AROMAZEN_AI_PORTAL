@@ -4,9 +4,9 @@ import { BookOpenCheck, LockKeyhole, Sparkles } from 'lucide-react'
 
 export default function LoginPage() {
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background px-4 py-6 sm:px-6 lg:p-8">
+    <div className="relative min-h-dvh overflow-hidden bg-background px-4 py-6 sm:px-6 lg:p-8">
       <div className="pointer-events-none absolute -right-52 -top-52 h-[540px] w-[540px] rounded-full bg-white/[0.035] blur-3xl" />
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl overflow-hidden rounded-[28px] border border-border bg-card shadow-[0_40px_100px_rgba(0,0,0,.35)] lg:grid-cols-[1.08fr_.92fr]">
+      <div className="mx-auto grid min-h-[calc(100dvh-4rem)] max-w-7xl overflow-hidden rounded-[28px] border border-border bg-card shadow-[0_40px_100px_rgba(0,0,0,.35)] lg:grid-cols-[1.08fr_.92fr]">
         <section className="relative hidden flex-col justify-between overflow-hidden border-r border-border bg-[#101111] p-12 lg:flex">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(255,255,255,.06),transparent_30%),linear-gradient(145deg,transparent_55%,rgba(255,255,255,.025))]" />
           <div className="relative flex items-center gap-3"><BrandMark size="md" /><div><p className="text-sm font-semibold tracking-[0.12em]">AROMAZEN</p><p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">AI workspace</p></div></div>

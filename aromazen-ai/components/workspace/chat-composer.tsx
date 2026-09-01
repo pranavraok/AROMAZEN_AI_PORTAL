@@ -92,7 +92,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
     setOpenMenu(null)
   }
 
-  return <div className="shrink-0 border-t border-transparent bg-gradient-to-t from-background via-background to-background/60 px-3 pb-4 pt-2 md:px-6">
+  return <div className="shrink-0 border-t border-transparent bg-gradient-to-t from-background via-background to-background/60 px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 md:px-6">
     <div ref={composerRef} className="relative mx-auto max-w-3xl">
       <div className="rounded-[26px] border border-border bg-card shadow-[0_18px_55px_rgba(0,0,0,0.16)] transition-all focus-within:border-foreground/25 focus-within:shadow-[0_20px_65px_rgba(0,0,0,0.22)]">
         {attachments.length > 0 && <div className="flex gap-2 overflow-x-auto px-3 pt-3">
@@ -111,7 +111,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
 
             <div className="relative">
               <Button type="button" size="icon" variant="outline" onClick={() => setOpenMenu((current) => current === 'tools' ? null : 'tools')} disabled={disabled || uploading} className="h-9 w-9 rounded-full bg-transparent" aria-label="Add files or use tools" aria-haspopup="menu" aria-expanded={openMenu === 'tools'}>{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-5 w-5" />}</Button>
-              {openMenu === 'tools' && <div role="menu" className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-64 overflow-hidden rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
+              {openMenu === 'tools' && <div role="menu" className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-[min(16rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
                 <MenuButton icon={<Upload />} label="Upload files" description="PDF, Office, text or image" disabled={mode === 'image' || attachments.length >= 8} onClick={() => fileInputRef.current?.click()} />
                 <MenuButton icon={<FolderUp />} label="Upload folder" description="Add supported files together" disabled={mode === 'image' || attachments.length >= 8} onClick={() => folderInputRef.current?.click()} />
                 <div className="my-1 border-t border-border" />
@@ -122,7 +122,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
 
             <div className="relative">
               <button type="button" onClick={() => setOpenMenu((current) => current === 'response' ? null : 'response')} disabled={disabled || mode !== 'chat'} className="inline-flex h-9 max-w-[14rem] items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-45" aria-haspopup="menu" aria-expanded={openMenu === 'response'} title="Choose response detail"><Gauge className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate">{responseOption.label}</span><span className="hidden text-muted-foreground sm:inline">· {responseOption.description}</span><ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /></button>
-              {openMenu === 'response' && <div role="menu" className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-60 rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
+              {openMenu === 'response' && <div role="menu" className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-[min(15rem,calc(100vw-5rem))] rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl">
                 <p className="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[.14em] text-muted-foreground">Response style</p>
                 {RESPONSE_OPTIONS.map((option) => <ChoiceButton key={option.value} selected={responseMode === option.value} label={option.label} description={option.description} onClick={() => { setResponseMode(option.value); setOpenMenu(null) }} />)}
               </div>}

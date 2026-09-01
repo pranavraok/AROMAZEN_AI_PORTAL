@@ -133,5 +133,5 @@ export function MarkdownContent({ content, onCitation }: MarkdownContentProps) {
     }
     blocks.push(<p key={`p-${index}`} className="whitespace-pre-wrap">{inline(paragraph.join(' '), onCitation)}</p>)
   }
-  return <div className="space-y-4 text-[15px] leading-7 text-foreground/95">{blocks}</div>
+  return <div className="min-w-0 space-y-4 break-words text-[15px] leading-7 text-foreground/95 [overflow-wrap:anywhere]">{blocks}</div>
 }
