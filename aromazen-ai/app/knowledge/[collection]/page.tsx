@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/toast-provider'
 import { ApiError } from '@/lib/api/client'
 import { api } from '@/lib/api/services'
 import type { KnowledgeCollection, KnowledgeDocument } from '@/lib/api/types'
+import { canvaEditUrlForKnowledgeTemplate } from '@/lib/template-canva-links'
 
 interface Props { params: Promise<{ collection: string }> }
 
@@ -188,7 +189,7 @@ export default function CollectionDetailPage({ params }: Props) {
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <div className="border-b border-border px-5 py-4"><h2 className="font-semibold">Documents</h2></div>
         {filteredDocs.length === 0 ? <p className="p-6 text-sm text-muted-foreground">No documents found for this filter.</p> : <div className="divide-y divide-border">
-          {filteredDocs.map((item) => { const protectedCashFlow = item.document.document_category === 'cash_flow_report'; return <div key={item.document.id} className="grid min-w-0 gap-3 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+          {filteredDocs.map((item) => { const protectedCashFlow = item.document.document_category === 'cash_flow_report'; const canvaEditUrl = canvaEditUrlForKnowledgeTemplate(item.document.document_category); return <div key={item.document.id} className="grid min-w-0 gap-3 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
             <div className="flex min-w-0 items-start gap-3">
               {protectedCashFlow ? <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-primary" /> : <FileText className="mt-0.5 h-5 w-5 shrink-0 text-primary" />}
               <div className="min-w-0 flex-1">
@@ -202,6 +203,7 @@ export default function CollectionDetailPage({ params }: Props) {
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">
               <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${protectedCashFlow || item.document.status === 'ready' ? 'bg-emerald-500/15 text-emerald-600' : item.document.status === 'failed' ? 'bg-destructive/15 text-destructive' : 'bg-amber-500/15 text-amber-700'}`}>{protectedCashFlow ? 'Protected' : item.document.status === 'ready' ? 'Ready' : item.document.status === 'failed' ? 'Failed' : item.document.status === 'uploaded' ? 'Needs processing' : 'Processing'}</span>
+              {canvaEditUrl && hasPermission('knowledge.write') && <Button className="min-w-32 flex-1 md:flex-none" variant="outline" size="sm" onClick={() => window.open(canvaEditUrl, '_blank', 'noopener,noreferrer')}>Edit in Canva <ExternalLink className="ml-1 h-3 w-3" /></Button>}
               <Button className="min-w-24 flex-1 md:flex-none" variant="outline" size="sm" onClick={() => void viewDocument(item)}>View <ExternalLink className="ml-1 h-3 w-3" /></Button>
               <Button className="min-w-11 md:min-w-0" variant="outline" size="sm" onClick={() => void downloadDocument(item)} title="Download" aria-label={`Download ${item.document.name}`}><Download className="h-3 w-3" /></Button>
             {!protectedCashFlow && item.document.status !== 'ready' && hasPermission('knowledge.write') && <Button variant="outline" size="sm" onClick={() => void processDocument(item)}>Process now</Button>}

@@ -27,6 +27,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
 from pypdf import PdfReader, PdfWriter
+from pypdf.errors import PdfReadError
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -44,6 +45,7 @@ from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, Kn
 from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
+from app.modules.payroll.engine import UNIT_ADDRESSES
 from app.modules.settings.service import provider_runtime_settings
 
 router = APIRouter(dependencies=[Depends(require_department("hr"))])
@@ -62,6 +64,7 @@ TEMPLATE_CATALOG = {
     "special_increment": ("Special Increment Letter", "Special increment", "Salary increment confirmation and compensation annexure."),
 }
 TEMPLATE_CATEGORY_PREFIX = "hr_letter_template:"
+SYSTEM_MANAGED_FIELDS = {"unit_address", "unit_name", "unit_number"}
 MULTILINE_FIELD_MARKERS = ("address", "reason", "impact", "message", "statement", "comments", "summary", "description")
 FIELD_DEFAULTS = {
     "signatory_name": "Ms. Swathi Nayak",
@@ -105,6 +108,7 @@ APPOINTMENT_REQUIRED_FIELDS = {
 
 class LetterRequest(BaseModel):
     template_key: str
+    unit_number: int = Field(default=1, ge=1, le=3)
     fields: dict[str, str] = Field(default_factory=dict)
 
 
@@ -121,6 +125,15 @@ class InterviewChecklistRequest(BaseModel):
 
 class KannadaTranslationRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
+
+
+def _fields_for_unit(fields: dict[str, str], unit_number: int) -> dict[str, str]:
+    return {
+        **fields,
+        "unit_number": str(unit_number),
+        "unit_name": f"Unit {unit_number}",
+        "unit_address": UNIT_ADDRESSES[str(unit_number)],
+    }
 
 
 def _template_category(template_key: str) -> str:
@@ -156,6 +169,8 @@ def _template_schema(template_key: str, path: Path) -> dict:
             group = salary_groups.setdefault(row_key, {"key": row_key, "label": _field_label(row_key), "columns": []})
             if column not in group["columns"]:
                 group["columns"].append(column)
+            continue
+        if key in SYSTEM_MANAGED_FIELDS:
             continue
         normal_fields.append({
             "key": key,
@@ -583,6 +598,19 @@ def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> byt
     page = source.pages[0]
     packet = io.BytesIO()
     overlay = canvas.Canvas(packet, pagesize=(float(page.mediabox.width), float(page.mediabox.height)))
+    page_width = float(page.mediabox.width)
+    unit_address = fields.get("unit_address", "")
+    overlay.setFillColor(colors.white)
+    overlay.rect(48, 716, page_width - 96, 22, stroke=0, fill=1)
+    overlay.setFillColor(colors.HexColor("#24272b"))
+    address_font_size = 8.4
+    while (
+        address_font_size > 6
+        and overlay.stringWidth(unit_address, "Helvetica", address_font_size) > page_width - 110
+    ):
+        address_font_size -= 0.2
+    overlay.setFont("Helvetica", address_font_size)
+    overlay.drawCentredString(page_width / 2, 723, unit_address)
     overlay.setFont("Helvetica", 10.5)
     overlay.drawString(458, 653, fields.get("issue_date", ""))
     overlay.drawString(78, 625, fields.get("employee_name", ""))
@@ -772,7 +800,11 @@ async def _active_template_document(session: AsyncSession, organization_id: uuid
     )
 
 
-async def _template_source(session: AsyncSession, organization_id: uuid.UUID, template_key: str) -> tuple[Path, KnowledgeDocument | None]:
+async def _template_source(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    template_key: str,
+) -> tuple[Path, KnowledgeDocument | None]:
     document = await _active_template_document(session, organization_id, template_key)
     if document:
         path = Path(get_settings().upload_storage_path) / document.stored_filename
@@ -792,7 +824,7 @@ def _template_response(template_key: str, path: Path, document: KnowledgeDocumen
         "version": document.version if document else 1,
         "source": "knowledge" if document else "built_in",
         "uploaded_at": document.created_at.isoformat() if document else None,
-        "supports_dynamic_fields": path.suffix.lower() == ".docx",
+        "supports_dynamic_fields": template_key == "offer" or path.suffix.lower() == ".docx",
         **_template_schema(template_key, path),
     }
 
@@ -836,28 +868,49 @@ async def replace_letter_template(
     if template_key not in TEMPLATE_FILES:
         raise HTTPException(status_code=404, detail="HR template not found.")
     original_filename = Path(template_file.filename or "template.docx").name
-    if Path(original_filename).suffix.lower() != ".docx":
-        raise HTTPException(status_code=422, detail="Upload a DOCX template containing {{field_name}} placeholders so its fields can be mapped automatically.")
+    extension = Path(original_filename).suffix.lower()
+    if extension != ".docx" and not (template_key == "offer" and extension == ".pdf"):
+        detail = (
+            "Upload a PDF or DOCX Offer Letter template."
+            if template_key == "offer"
+            else "Upload a DOCX template containing {{field_name}} placeholders so its fields can be mapped automatically."
+        )
+        raise HTTPException(status_code=422, detail=detail)
     content = await template_file.read()
     if len(content) > get_settings().max_upload_size_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail="The HR template is too large.")
-    validation_path = Path(get_settings().upload_storage_path) / f"hr-template-validation-{uuid.uuid4()}.docx"
+    validation_path = (
+        Path(get_settings().upload_storage_path)
+        / f"hr-template-validation-{uuid.uuid4()}{extension}"
+    )
     validation_path.parent.mkdir(parents=True, exist_ok=True)
     validation_path.write_bytes(content)
     try:
-        tokens = _template_tokens(validation_path)
-        if not tokens:
-            raise ValueError("missing_placeholders")
-        extract_text(validation_path, ".docx")
-    except (ValueError, ExtractionError) as error:
-        raise HTTPException(status_code=422, detail="No usable {{field_name}} placeholders were found in this DOCX template.") from error
+        if extension == ".docx":
+            tokens = _template_tokens(validation_path)
+            if not tokens:
+                raise ValueError("missing_placeholders")
+            extract_text(validation_path, ".docx")
+        elif len(PdfReader(validation_path).pages) != 1:
+            raise ValueError("offer_pdf_page_count")
+    except (ValueError, ExtractionError, PdfReadError) as error:
+        detail = (
+            "Upload a valid one-page Offer Letter PDF."
+            if extension == ".pdf"
+            else "No usable {{field_name}} placeholders were found in this DOCX template."
+        )
+        raise HTTPException(status_code=422, detail=detail) from error
     finally:
         validation_path.unlink(missing_ok=True)
     documents = await replace_department_uploads(session, user, "hr", [DepartmentUpload(
         f"hr-letter-template:{template_key}",
         content,
         original_filename,
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        (
+            "application/pdf"
+            if extension == ".pdf"
+            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ),
         _template_category(template_key),
     )])
     document = documents[0]
@@ -932,7 +985,7 @@ def _send_email(payload: SendLetterRequest, pdf_bytes: bytes) -> None:
     message["Subject"] = payload.subject.strip()
     message.set_content(payload.message.strip())
     employee = re.sub(r"[^A-Za-z0-9_-]+", "-", payload.fields.get("employee_name", "employee")).strip("-") or "employee"
-    message.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=f"{payload.template_key}-{employee}.pdf")
+    message.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=f"{payload.template_key}-unit-{payload.unit_number}-{employee}.pdf")
     client = smtplib.SMTP_SSL if settings.zoho_smtp_security.strip().lower() == "ssl" else smtplib.SMTP
     with client(settings.zoho_smtp_host, settings.zoho_smtp_port, timeout=45) as smtp:
         smtp.ehlo()
@@ -949,8 +1002,9 @@ async def preview_letter(payload: LetterRequest, user: User = Depends(require_pe
     if payload.template_key not in TEMPLATE_FILES:
         raise HTTPException(status_code=404, detail="HR template not found.")
     template_path, _ = await _template_source(session, user.organization_id, payload.template_key)
+    letter_fields = _fields_for_unit(payload.fields, payload.unit_number)
     try:
-        pdf = await run_in_threadpool(_generate_pdf, payload.template_key, payload.fields, template_path)
+        pdf = await run_in_threadpool(_generate_pdf, payload.template_key, letter_fields, template_path)
     except ValueError as error:
         if str(error).startswith("missing_fields:"):
             missing = str(error).split(":", 1)[1].replace("_", " ").replace(",", ", ")
@@ -964,7 +1018,7 @@ async def preview_letter(payload: LetterRequest, user: User = Depends(require_pe
     except subprocess.SubprocessError as error:
         logger.exception("hr_letter_preview_converter_failed", template_key=payload.template_key)
         raise HTTPException(status_code=500, detail="The server document converter timed out. Please try again.") from error
-    filename = f"{payload.template_key}-{payload.fields.get('employee_name', 'employee')}.pdf"
+    filename = f"{payload.template_key}-unit-{payload.unit_number}-{payload.fields.get('employee_name', 'employee')}.pdf"
     return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"'})
 
 
@@ -985,8 +1039,9 @@ async def send_letter(payload: SendLetterRequest, user: User = Depends(require_p
     if payload.template_key not in TEMPLATE_FILES:
         raise HTTPException(status_code=404, detail="HR template not found.")
     template_path, _ = await _template_source(session, user.organization_id, payload.template_key)
+    letter_fields = _fields_for_unit(payload.fields, payload.unit_number)
     try:
-        pdf = await run_in_threadpool(_generate_pdf, payload.template_key, payload.fields, template_path)
+        pdf = await run_in_threadpool(_generate_pdf, payload.template_key, letter_fields, template_path)
         await run_in_threadpool(_send_email, payload, pdf)
     except ValueError as error:
         if str(error).startswith("missing_fields:"):
@@ -1003,7 +1058,7 @@ async def send_letter(payload: SendLetterRequest, user: User = Depends(require_p
             raise HTTPException(status_code=500, detail="The server could not convert the letter to PDF. Please try again or contact the administrator.") from error
         raise HTTPException(status_code=502, detail="The letter could not be emailed. Please verify Zoho Mail and try again.") from error
     sent_at = datetime.now(timezone.utc).isoformat()
-    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="hr.letter_sent", target_type="hr_letter", target_id=payload.template_key, metadata_json={"recipient": str(payload.recipient_email), "employee": payload.fields.get("employee_name", ""), "subject": payload.subject.strip()}))
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="hr.letter_sent", target_type="hr_letter", target_id=payload.template_key, metadata_json={"recipient": str(payload.recipient_email), "employee": payload.fields.get("employee_name", ""), "subject": payload.subject.strip(), "unit_number": payload.unit_number}))
     session.add(AIUsageEvent(organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, operation="hr_letter_email", provider="zoho", model="smtp", status="completed"))
     await session.commit()
     return {"status": "sent", "sent_at": sent_at}
