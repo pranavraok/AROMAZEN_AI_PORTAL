@@ -4,6 +4,7 @@ import { AuthProvider } from '@/components/auth/auth-provider'
 import { ToastProvider } from '@/components/ui/toast-provider'
 import { ServiceWorkerRegistrar } from '@/components/service-worker-registrar'
 import { InstallPromptProvider } from '@/components/install-prompt-provider'
+import { MobileAppLaunch } from '@/components/mobile-app-launch'
 
 export const metadata: Metadata = {
   title: 'Aromazen AI | Intelligence for modern fragrance teams',
@@ -29,7 +30,8 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
-        <link rel="manifest" href="/manifest.json?v=4" />
+        <script dangerouslySetInnerHTML={{ __html: "try{if((matchMedia('(display-mode: standalone)').matches||navigator.standalone===true)&&matchMedia('(max-width: 767px)').matches&&sessionStorage.getItem('aromazen:mobile-app-active')!=='1'){document.documentElement.classList.add('mobile-app-launch-pending')}}catch(e){}" }} />
+        <link rel="manifest" href="/manifest.json?v=5" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Aromazen AI" />
@@ -43,7 +45,7 @@ export default function RootLayout({
       <body className="bg-background text-foreground antialiased">
         <ServiceWorkerRegistrar />
         <InstallPromptProvider>
-        <ToastProvider><AuthProvider>{children}</AuthProvider></ToastProvider>
+        <ToastProvider><AuthProvider><MobileAppLaunch />{children}</AuthProvider></ToastProvider>
         </InstallPromptProvider>
       </body>
     </html>

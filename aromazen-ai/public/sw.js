@@ -1,9 +1,11 @@
-const CACHE_NAME = 'aromazen-ai-v4';
+const CACHE_NAME = 'aromazen-ai-v5';
 const OFFLINE_URL = '/login';
 
 const PRECACHE_ASSETS = [
   '/',
-  '/manifest.json?v=4',
+  '/login',
+  '/workspace',
+  '/manifest.json?v=5',
   '/aromazen-icon-192-v4.png',
   '/aromazen-icon-512-v4.png',
   '/aromazen-icon-maskable-512-v4.png',

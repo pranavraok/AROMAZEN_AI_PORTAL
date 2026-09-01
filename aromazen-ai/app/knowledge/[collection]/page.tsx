@@ -188,18 +188,22 @@ export default function CollectionDetailPage({ params }: Props) {
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <div className="border-b border-border px-5 py-4"><h2 className="font-semibold">Documents</h2></div>
         {filteredDocs.length === 0 ? <p className="p-6 text-sm text-muted-foreground">No documents found for this filter.</p> : <div className="divide-y divide-border">
-          {filteredDocs.map((item) => { const protectedCashFlow = item.document.document_category === 'cash_flow_report'; return <div key={item.document.id} className="flex items-center gap-3 p-4">
-            {protectedCashFlow ? <LockKeyhole className="h-5 w-5 shrink-0 text-primary" /> : <FileText className="h-5 w-5 shrink-0 text-primary" />}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{item.document.name}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {collectionFilter === null && <><span className="font-medium text-foreground/70">{item.collection.name}</span> · </>}{folderLabel(item.document)} · {formatSize(item.document.size_bytes)} · v{item.document.version} · {protectedCashFlow ? 'Password required to open' : `${item.document.extracted_characters.toLocaleString()} chars`}
-                {item.document.is_company_wide && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"><Shield className="h-2.5 w-2.5" />Company-wide</span>}
-              </p>
+          {filteredDocs.map((item) => { const protectedCashFlow = item.document.document_category === 'cash_flow_report'; return <div key={item.document.id} className="grid min-w-0 gap-3 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+            <div className="flex min-w-0 items-start gap-3">
+              {protectedCashFlow ? <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-primary" /> : <FileText className="mt-0.5 h-5 w-5 shrink-0 text-primary" />}
+              <div className="min-w-0 flex-1">
+                <p className="break-words text-sm font-medium [overflow-wrap:anywhere] sm:truncate" title={item.document.name}>{item.document.name}</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+                  {collectionFilter === null && <><span className="max-w-full break-words font-medium text-foreground/70">{item.collection.name}</span><span aria-hidden="true">·</span></>}
+                  <span>{folderLabel(item.document)}</span><span aria-hidden="true">·</span><span>{formatSize(item.document.size_bytes)}</span><span aria-hidden="true">·</span><span>v{item.document.version}</span><span aria-hidden="true">·</span><span>{protectedCashFlow ? 'Password required to open' : `${item.document.extracted_characters.toLocaleString()} chars`}</span>
+                  {item.document.is_company_wide && <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"><Shield className="h-2.5 w-2.5" />Company-wide</span>}
+                </div>
+              </div>
             </div>
-            <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${protectedCashFlow || item.document.status === 'ready' ? 'bg-emerald-500/15 text-emerald-600' : item.document.status === 'failed' ? 'bg-destructive/15 text-destructive' : 'bg-amber-500/15 text-amber-700'}`}>{protectedCashFlow ? 'Protected' : item.document.status === 'ready' ? 'Ready' : item.document.status === 'failed' ? 'Failed' : item.document.status === 'uploaded' ? 'Needs processing' : 'Processing'}</span>
-            <Button variant="outline" size="sm" onClick={() => void viewDocument(item)}>View <ExternalLink className="ml-1 h-3 w-3" /></Button>
-            <Button variant="outline" size="sm" onClick={() => void downloadDocument(item)} title="Download"><Download className="h-3 w-3" /></Button>
+            <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">
+              <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${protectedCashFlow || item.document.status === 'ready' ? 'bg-emerald-500/15 text-emerald-600' : item.document.status === 'failed' ? 'bg-destructive/15 text-destructive' : 'bg-amber-500/15 text-amber-700'}`}>{protectedCashFlow ? 'Protected' : item.document.status === 'ready' ? 'Ready' : item.document.status === 'failed' ? 'Failed' : item.document.status === 'uploaded' ? 'Needs processing' : 'Processing'}</span>
+              <Button className="min-w-24 flex-1 md:flex-none" variant="outline" size="sm" onClick={() => void viewDocument(item)}>View <ExternalLink className="ml-1 h-3 w-3" /></Button>
+              <Button className="min-w-11 md:min-w-0" variant="outline" size="sm" onClick={() => void downloadDocument(item)} title="Download" aria-label={`Download ${item.document.name}`}><Download className="h-3 w-3" /></Button>
             {!protectedCashFlow && item.document.status !== 'ready' && hasPermission('knowledge.write') && <Button variant="outline" size="sm" onClick={() => void processDocument(item)}>Process now</Button>}
             {hasPermission('knowledge.write') && !item.document.is_company_wide && <Button variant="outline" size="sm" onClick={async () => {
               if (!accessToken) return
@@ -209,6 +213,7 @@ export default function CollectionDetailPage({ params }: Props) {
                 notify('success', 'Made company-wide.')
               } catch { notify('error', 'Unable to update document.') }
             }}><Shield className="mr-1 h-3 w-3" />Make company-wide</Button>}
+            </div>
           </div> })}
         </div>}
       </div>

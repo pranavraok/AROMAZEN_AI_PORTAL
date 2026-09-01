@@ -121,11 +121,11 @@ export function ForgotPasswordFlow({ open, onClose }: ForgotPasswordFlowProps) {
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           {step !== 'done' && step !== 'email' ? (
-            <button type="button" onClick={handleBack} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+            <button type="button" onClick={handleBack} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Go back">
               <ArrowLeft className="h-4 w-4" />
             </button>
           ) : <div />}
-          <button type="button" onClick={handleClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+          <button type="button" onClick={handleClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Close password reset">
             <X className="h-4 w-4" />
           </button>
         </div>

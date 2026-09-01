@@ -359,6 +359,13 @@ table tbody tr:hover { background: rgba(255,255,255,.018); }
 .app-shell { width: 100%; min-height: 100svh; }
 .mobile-drawer-open,
 .mobile-drawer-open body { overflow: hidden; overscroll-behavior: none; }
+.mobile-splash-open,
+.mobile-splash-open body { overflow: hidden; overscroll-behavior: none; }
+.mobile-app-splash { display: none; }
+@media (max-width: 767px) {
+  .mobile-app-splash-visible,
+  html.mobile-app-launch-pending .mobile-app-splash { display: grid; }
+}
 .mobile-drawer-edge { touch-action: pan-y; }
 #app-sidebar { touch-action: pan-y; will-change: transform; }
 .app-main > * { min-width: 0; }
@@ -369,6 +376,38 @@ table tbody tr:hover { background: rgba(255,255,255,.018); }
 .mobile-table-scroll { scrollbar-gutter: stable; }
 .mobile-table-scroll,
 .docx-paper-scroll { -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
+
+html:has(.fixed.inset-0.z-50),
+body:has(.fixed.inset-0.z-50),
+.app-main:has(.fixed.inset-0.z-50) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.fixed.inset-0.z-50 {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.fixed.inset-0.z-50 > * {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+@keyframes mobile-splash-enter {
+  from { opacity: 0; transform: scale(.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes mobile-splash-progress {
+  from { transform: translateX(-105%); }
+  to { transform: translateX(105%); }
+}
+
+.mobile-splash-mark { animation: mobile-splash-enter .45s cubic-bezier(.2,.8,.2,1) both; }
+.mobile-splash-progress { width: 55%; animation: mobile-splash-progress 1.15s ease-in-out infinite; }
 
 @media (max-width: 479px) {
   .app-main > .space-y-6,
@@ -383,6 +422,12 @@ table tbody tr:hover { background: rgba(255,255,255,.018); }
   .top-bar { padding-inline: 8px; }
   .top-bar > button:first-child { width: 36px; }
   .app-main .group.max-w-\[82\%\] { max-width: 92%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-splash-mark,
+  .mobile-splash-progress { animation: none; }
+  .mobile-splash-progress { width: 100%; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
