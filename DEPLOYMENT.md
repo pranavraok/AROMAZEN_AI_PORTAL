@@ -86,6 +86,14 @@ Run the OpenSSL command separately for the PostgreSQL, Redis, JWT and backup pas
 
 Add the approved first owner email and temporary 12+ character password. Add Zoho and AI credentials only when they are available.
 
+The legacy `ZOHO_SMTP_*` values are automatically treated as the mailbox for the department named by the address (for example, `hr@...` maps to Human Resources). To add more department mailboxes later, set `ZOHO_DEPARTMENT_ACCOUNTS_JSON` to a one-line JSON object keyed by department slug. Each entry accepts `email`, `username` (optional when it matches email), `password`, `from_email`, `from_name`, `host`, `port`, and `security`. For example:
+
+```text
+ZOHO_DEPARTMENT_ACCOUNTS_JSON={"accounts":{"email":"accounts@aromazenind.com","password":"ACCOUNT_APP_PASSWORD"}}
+```
+
+Keep this value only in the protected server environment. Admin and Super Admin accounts can select any configured mailbox; other employees can use only the mailbox matching both their department and logged-in email address. Password-reset OTPs always use the Human Resources mailbox.
+
 ## 5. Configure the subdomain
 
 In the existing DNS provider/Cloudflare zone:

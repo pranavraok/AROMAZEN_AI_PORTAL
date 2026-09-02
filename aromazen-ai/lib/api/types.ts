@@ -82,6 +82,8 @@ export interface ChatMessage {
 }
 
 export interface EmailDraft {
+  sender_key?: string
+  sender_email?: string
   to: string[]
   cc: string[]
   bcc: string[]
@@ -124,9 +126,10 @@ export interface CreateChatMessageRequest {
   attachment_ids?: string[]
   mode?: 'chat' | 'image' | 'email'
   response_mode?: 'auto' | 'quick' | 'standard' | 'deep' | 'essential'
+  sender_key?: string
 }
 
-export interface SendEmailRequest extends Omit<EmailDraft, 'status' | 'sent_at'> { message_id: string }
+export interface SendEmailRequest extends Omit<EmailDraft, 'status' | 'sent_at' | 'sender_email'> { message_id: string }
 
 export interface PayrollRecipient {
   id: string
@@ -522,12 +525,20 @@ export interface OrganizationSettings {
   exchange_rate_updated_at: string
   providers: { key: 'auto' | 'openai' | 'anthropic'; name: string; connected: boolean; models: string[] }[]
   zoho_email_connected: boolean
+  email_mailboxes: EmailMailboxStatus[]
   storage_bytes: number
   knowledge_documents: number
   generated_documents: number
   max_upload_size_mb: number
   max_excel_upload_size_mb: number
   updated_at: string | null
+}
+
+export interface EmailMailboxStatus {
+  key: string
+  department_slug: string
+  department_name: string
+  email: string
 }
 
 export type GstReconciliationStatus = 'matched' | 'mismatch' | 'books_only' | 'portal_only' | 'incomplete_books' | 'duplicate'

@@ -4,11 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.currency import usd_to_inr, usd_to_inr_rate
+from app.core.email_access import mailboxes_available_for_user
 from app.db.session import get_db_session
 from app.modules.identity.authorization import get_current_user, require_permissions
 from app.modules.identity.models import AuditEvent, DocumentGeneration, KnowledgeDocument, Organization, User
 from app.modules.identity.service import permission_keys_for_user
-from app.modules.settings.schemas import OrganizationSettingsResponse, ProviderStatus, UpdateOrganizationSettingsRequest
+from app.modules.settings.schemas import EmailMailboxStatus, OrganizationSettingsResponse, ProviderStatus, UpdateOrganizationSettingsRequest
 from app.modules.settings.service import organization_settings
 
 router = APIRouter()
@@ -19,6 +20,7 @@ async def response_for(session: AsyncSession, user: User) -> OrganizationSetting
     value = await organization_settings(session, user.organization_id)
     exchange_rate = await usd_to_inr_rate()
     config = get_settings()
+    email_mailboxes = await mailboxes_available_for_user(session, user, config)
     storage_bytes = await session.scalar(select(func.coalesce(func.sum(KnowledgeDocument.size_bytes), 0)).where(KnowledgeDocument.organization_id == user.organization_id)) or 0
     knowledge_documents = await session.scalar(select(func.count(KnowledgeDocument.id)).where(KnowledgeDocument.organization_id == user.organization_id)) or 0
     generated_documents = await session.scalar(select(func.count(DocumentGeneration.id)).where(DocumentGeneration.organization_id == user.organization_id)) or 0
@@ -36,7 +38,8 @@ async def response_for(session: AsyncSession, user: User) -> OrganizationSetting
             ProviderStatus(key="openai", name="OpenAI", connected=bool(config.openai_api_key), models=[config.openai_chat_model, config.openai_embedding_model, config.openai_transcription_model]),
             ProviderStatus(key="anthropic", name="Anthropic", connected=bool(config.anthropic_api_key), models=[config.anthropic_default_model, config.anthropic_fast_model]),
         ],
-        zoho_email_connected=bool(config.zoho_smtp_username and config.zoho_smtp_password and (config.zoho_from_email or config.zoho_smtp_username)),
+        zoho_email_connected=bool(email_mailboxes),
+        email_mailboxes=[EmailMailboxStatus(**mailbox.public_payload()) for mailbox in email_mailboxes],
         storage_bytes=int(storage_bytes), knowledge_documents=int(knowledge_documents), generated_documents=int(generated_documents),
         max_upload_size_mb=config.max_upload_size_mb, max_excel_upload_size_mb=config.max_excel_upload_size_mb, updated_at=value.updated_at,
     )

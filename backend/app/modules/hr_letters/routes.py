@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from app.core.config import get_settings
+from app.core.email_access import EMAIL_NOT_SET_DETAIL, EmailMailbox, resolve_mailbox_for_user
 from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_cost
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.db.session import get_db_session
@@ -66,6 +67,7 @@ TEMPLATE_CATALOG = {
 }
 TEMPLATE_CATEGORY_PREFIX = "hr_letter_template:"
 SYSTEM_MANAGED_FIELDS = {"unit_address", "unit_name", "unit_number"}
+PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}")
 MULTILINE_FIELD_MARKERS = ("address", "reason", "impact", "message", "statement", "comments", "summary", "description")
 FIELD_DEFAULTS = {
     "signatory_name": "Ms. Swathi Nayak",
@@ -155,8 +157,11 @@ def _field_label(key: str) -> str:
 
 
 def _template_tokens(path: Path) -> list[str]:
+    if path.suffix.lower() == ".pdf":
+        detected = _pdf_template_tokens(path)
+        return detected or list(OFFER_FIELDS)
     if path.suffix.lower() != ".docx":
-        return list(OFFER_FIELDS) if path.suffix.lower() == ".pdf" else []
+        return []
     document = Document(path)
     tokens: list[str] = []
     for paragraph in _paragraphs(document):
@@ -164,6 +169,21 @@ def _template_tokens(path: Path) -> list[str]:
             cleaned = key.strip()
             if cleaned and cleaned not in tokens:
                 tokens.append(cleaned)
+    return tokens
+
+
+def _pdf_template_tokens(path: Path) -> list[str]:
+    tokens: list[str] = []
+    try:
+        with pdfplumber.open(path) as template_pdf:
+            for page in template_pdf.pages:
+                for word in page.extract_words():
+                    for match in PLACEHOLDER_PATTERN.finditer(str(word.get("text", ""))):
+                        key = match.group(1).lower()
+                        if key not in tokens:
+                            tokens.append(key)
+    except Exception as error:
+        logger.warning("pdf_template_token_detection_failed", path=str(path), error=str(error))
     return tokens
 
 
@@ -619,47 +639,51 @@ def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> byt
     font_scale = min(scale_x, scale_y)
 
     def display_value(key: str) -> str:
-        value = fields.get(key, "").strip()
-        if key in OFFER_DATE_FIELDS:
+        value = re.sub(r"\s+", " ", fields.get(key, "")).strip()
+        if key in OFFER_DATE_FIELDS or "date" in key.lower().split("_"):
             date_match = re.fullmatch(r"(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})", value)
             if date_match:
                 value = f"{int(date_match.group(1)):02d}-{int(date_match.group(2)):02d}-{date_match.group(3)}"
-        if key == "employee_name" and value and not value.endswith(","):
-            value = f"{value},"
         return value
 
     unit_address = display_value("unit_address")
-    placeholder_pattern = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}")
-    placeholder_words: list[tuple[dict, re.Match[str]]] = []
-    expanded_line_keys: set[str] = set()
+    placeholder_words: list[tuple[dict, re.Match[str], bool]] = []
     try:
         with pdfplumber.open(source_path) as template_pdf:
             template_page = template_pdf.pages[0]
-            expanded_lines: dict[str, tuple[dict, re.Match[str]]] = {}
+            expanded_lines: list[tuple[dict, re.Match[str]]] = []
             for line in template_page.extract_text_lines(strip=True, return_chars=False):
-                line_match = placeholder_pattern.search(str(line.get("text", "")))
-                if not line_match:
+                line_text = str(line.get("text", ""))
+                line_matches = list(PLACEHOLDER_PATTERN.finditer(line_text))
+                if len(line_matches) != 1 or line_text.strip() == line_matches[0].group(0):
                     continue
-                line_key = line_match.group(1).lower()
-                if line_key in {"issue_date", "employee_name", "interview_date"}:
-                    expanded_lines[line_key] = (line, line_match)
-                    expanded_line_keys.add(line_key)
-            seen_keys: set[str] = set()
+                expanded_lines.append((line, line_matches[0]))
+            used_expanded_lines: set[int] = set()
             for word in template_page.extract_words():
-                match = placeholder_pattern.search(str(word.get("text", "")))
+                match = PLACEHOLDER_PATTERN.search(str(word.get("text", "")))
                 if not match:
                     continue
                 key = match.group(1).lower()
-                if key not in {*OFFER_FIELDS, *SYSTEM_MANAGED_FIELDS} or key in seen_keys:
+                expanded_index = next((
+                    index
+                    for index, (line, line_match) in enumerate(expanded_lines)
+                    if line_match.group(1).lower() == key
+                    and abs(float(line["top"]) - float(word["top"])) <= 2 * scale_y
+                    and float(line["x0"]) - 2 * scale_x <= float(word["x0"]) <= float(line["x1"]) + 2 * scale_x
+                ), None)
+                if expanded_index is not None:
+                    if expanded_index not in used_expanded_lines:
+                        line, line_match = expanded_lines[expanded_index]
+                        placeholder_words.append((line, line_match, True))
+                        used_expanded_lines.add(expanded_index)
                     continue
-                placeholder_words.append(expanded_lines.get(key, (word, match)))
-                seen_keys.add(key)
+                placeholder_words.append((word, match, False))
     except Exception as error:
         logger.warning("offer_pdf_placeholder_detection_failed", error=str(error))
 
     overlay.setFillColor(colors.white)
     if placeholder_words:
-        for word, match in placeholder_words:
+        for word, match, _ in placeholder_words:
             key = match.group(1).lower()
             word_top = float(word["top"])
             word_bottom = float(word["bottom"])
@@ -679,16 +703,20 @@ def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> byt
             )
 
         overlay.setFillColor(colors.HexColor("#24272b"))
-        for word, match in placeholder_words:
+        for word, match, expanded_line in placeholder_words:
             key = match.group(1).lower()
             raw_text = str(word["text"])
-            value = f"{raw_text[:match.start()]}{display_value(key)}{raw_text[match.end():]}"
+            replacement = display_value(key)
+            suffix = raw_text[match.end():]
+            if key == "employee_name" and raw_text.lstrip().lower().startswith("dear ") and replacement and not suffix.lstrip().startswith(","):
+                replacement = f"{replacement},"
+            value = f"{raw_text[:match.start()]}{replacement}{suffix}"
             font_size = (8.4 if key == "unit_address" else 10.5) * font_scale
             maximum_width = (
                 page_width - 110 * scale_x
                 if key == "unit_address"
                 else page_width - float(word["x0"]) - 75 * scale_x
-                if key in expanded_line_keys
+                if expanded_line
                 else OFFER_PDF_FIELD_WIDTHS.get(key, 220) * scale_x
             )
             minimum_font_size = 6 * font_scale
@@ -724,7 +752,8 @@ def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> byt
         overlay.drawCentredString(page_width / 2, 723 * scale_y, unit_address)
         overlay.setFont("Helvetica", 10.5 * font_scale)
         overlay.drawString(458 * scale_x, 653 * scale_y, display_value("issue_date"))
-        overlay.drawString(78 * scale_x, 625 * scale_y, display_value("employee_name"))
+        employee_name = display_value("employee_name")
+        overlay.drawString(78 * scale_x, 625 * scale_y, f"{employee_name}," if employee_name else "")
         overlay.drawString(264 * scale_x, 601 * scale_y, display_value("interview_date"))
         overlay.drawString(60 * scale_x, 510 * scale_y, display_value("designation"))
         overlay.drawString(310 * scale_x, 510 * scale_y, display_value("joining_date"))
@@ -1004,9 +1033,11 @@ async def replace_letter_template(
             extract_text(validation_path, ".docx")
         elif len(PdfReader(validation_path).pages) != 1:
             raise ValueError("offer_pdf_page_count")
+        elif not _pdf_template_tokens(validation_path):
+            raise ValueError("offer_pdf_missing_placeholders")
     except (ValueError, ExtractionError, PdfReadError) as error:
         detail = (
-            "Upload a valid one-page Offer Letter PDF."
+            "Upload a valid one-page Offer Letter PDF containing {{field_name}} placeholders."
             if extension == ".pdf"
             else "No usable {{field_name}} placeholders were found in this DOCX template."
         )
@@ -1083,28 +1114,22 @@ async def translate_kannada(
     return {"translation": translation}
 
 
-def _send_email(payload: SendLetterRequest, pdf_bytes: bytes) -> None:
-    settings = get_settings()
-    username = settings.zoho_smtp_username
-    password = settings.zoho_smtp_password
-    from_email = settings.zoho_from_email or username
-    if not username or not password or not from_email:
-        raise RuntimeError("zoho_not_configured")
+def _send_email(payload: SendLetterRequest, pdf_bytes: bytes, mailbox: EmailMailbox) -> None:
     message = EmailMessage()
-    message["From"] = formataddr((settings.zoho_from_name, from_email))
+    message["From"] = formataddr((mailbox.from_name, mailbox.email))
     message["To"] = str(payload.recipient_email)
     message["Subject"] = payload.subject.strip()
     message.set_content(payload.message.strip())
     employee = re.sub(r"[^A-Za-z0-9_-]+", "-", payload.fields.get("employee_name", "employee")).strip("-") or "employee"
     message.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=f"{payload.template_key}-unit-{payload.unit_number}-{employee}.pdf")
-    client = smtplib.SMTP_SSL if settings.zoho_smtp_security.strip().lower() == "ssl" else smtplib.SMTP
-    with client(settings.zoho_smtp_host, settings.zoho_smtp_port, timeout=45) as smtp:
+    client = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
+    with client(mailbox.host, mailbox.port, timeout=45) as smtp:
         smtp.ehlo()
-        if settings.zoho_smtp_security.strip().lower() == "starttls":
+        if mailbox.security == "starttls":
             smtp.starttls()
             smtp.ehlo()
-        smtp.login(username, password)
-        smtp.send_message(message, from_addr=from_email, to_addrs=[str(payload.recipient_email)])
+        smtp.login(mailbox.username, mailbox.password)
+        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[str(payload.recipient_email)])
 
 
 @router.post("/preview")
@@ -1147,13 +1172,16 @@ async def preview_interview_checklist(payload: InterviewChecklistRequest, user: 
 @router.post("/send")
 async def send_letter(payload: SendLetterRequest, user: User = Depends(require_permissions("ai.workspace.use")), session: AsyncSession = Depends(get_db_session)) -> dict:
     await _require_hr(session, user)
+    mailbox = await resolve_mailbox_for_user(session, user, target_department_slug="human-resources")
+    if not mailbox:
+        raise HTTPException(status_code=503, detail=EMAIL_NOT_SET_DETAIL)
     if payload.template_key not in TEMPLATE_FILES:
         raise HTTPException(status_code=404, detail="HR template not found.")
     template_path, _ = await _template_source(session, user.organization_id, payload.template_key)
     letter_fields = _fields_for_unit(payload.fields, payload.unit_number)
     try:
         pdf = await run_in_threadpool(_generate_pdf, payload.template_key, letter_fields, template_path)
-        await run_in_threadpool(_send_email, payload, pdf)
+        await run_in_threadpool(_send_email, payload, pdf, mailbox)
     except ValueError as error:
         if str(error).startswith("missing_fields:"):
             missing = str(error).split(":", 1)[1].replace("_", " ").replace(",", ", ")
@@ -1169,7 +1197,7 @@ async def send_letter(payload: SendLetterRequest, user: User = Depends(require_p
             raise HTTPException(status_code=500, detail="The server could not convert the letter to PDF. Please try again or contact the administrator.") from error
         raise HTTPException(status_code=502, detail="The letter could not be emailed. Please verify Zoho Mail and try again.") from error
     sent_at = datetime.now(timezone.utc).isoformat()
-    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="hr.letter_sent", target_type="hr_letter", target_id=payload.template_key, metadata_json={"recipient": str(payload.recipient_email), "employee": payload.fields.get("employee_name", ""), "subject": payload.subject.strip(), "unit_number": payload.unit_number}))
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="hr.letter_sent", target_type="hr_letter", target_id=payload.template_key, metadata_json={"sender": mailbox.email, "recipient": str(payload.recipient_email), "employee": payload.fields.get("employee_name", ""), "subject": payload.subject.strip(), "unit_number": payload.unit_number}))
     session.add(AIUsageEvent(organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, operation="hr_letter_email", provider="zoho", model="smtp", status="completed"))
     await session.commit()
     return {"status": "sent", "sent_at": sent_at}

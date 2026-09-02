@@ -22,6 +22,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.core.currency import usd_to_inr, usd_to_inr_rate
+from app.core.email_access import EMAIL_NOT_SET_DETAIL, EmailMailbox, resolve_mailbox_for_user
 from app.db.session import SessionLocal, get_db_session
 from app.modules.ai.providers import AIProviderRouter, OpenAIImageGenerator, ProviderError, estimate_cost
 from app.modules.ai.rag import apply_structured_employee_filter, retrieve_complete_documents, structured_employee_answer
@@ -866,21 +867,15 @@ async def chat_attachment_content(
     return FileResponse(file_path, media_type=attachment.mime_type, filename=attachment.original_filename, content_disposition_type=disposition)
 
 
-def _send_zoho_message(payload: EmailSendRequest, attachments: list[AIChatAttachment]) -> None:
-    settings = get_settings()
-    username = settings.zoho_smtp_username
-    password = settings.zoho_smtp_password
-    from_email = settings.zoho_from_email or username
-    if not username or not password or not from_email:
-        raise RuntimeError("zoho_not_configured")
+def _send_zoho_message(payload: EmailSendRequest, attachments: list[AIChatAttachment], mailbox: EmailMailbox) -> None:
     message = EmailMessage()
-    message["From"] = formataddr((settings.zoho_from_name, from_email))
+    message["From"] = formataddr((mailbox.from_name, mailbox.email))
     message["To"] = ", ".join(str(item) for item in payload.to)
     if payload.cc:
         message["Cc"] = ", ".join(str(item) for item in payload.cc)
     message["Subject"] = payload.subject.strip()
     message.set_content(payload.body.strip())
-    storage_root = Path(settings.upload_storage_path).resolve()
+    storage_root = Path(get_settings().upload_storage_path).resolve()
     for attachment in attachments:
         candidate = (storage_root / attachment.stored_filename).resolve()
         if storage_root not in candidate.parents or not candidate.is_file():
@@ -888,17 +883,14 @@ def _send_zoho_message(payload: EmailSendRequest, attachments: list[AIChatAttach
         maintype, subtype = (attachment.mime_type.split("/", 1) + ["octet-stream"])[:2]
         message.add_attachment(candidate.read_bytes(), maintype=maintype, subtype=subtype, filename=attachment.original_filename)
     recipients = [str(item) for item in [*payload.to, *payload.cc, *payload.bcc]]
-    security = settings.zoho_smtp_security.strip().lower()
-    if security not in {"ssl", "starttls"}:
-        raise RuntimeError("unsupported_zoho_smtp_security")
-    smtp_client = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
-    with smtp_client(settings.zoho_smtp_host, settings.zoho_smtp_port, timeout=30) as smtp:
+    smtp_client = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
+    with smtp_client(mailbox.host, mailbox.port, timeout=30) as smtp:
         smtp.ehlo()
-        if security == "starttls":
+        if mailbox.security == "starttls":
             smtp.starttls()
             smtp.ehlo()
-        smtp.login(username, password)
-        smtp.send_message(message, from_addr=from_email, to_addrs=recipients)
+        smtp.login(mailbox.username, mailbox.password)
+        smtp.send_message(message, from_addr=mailbox.email, to_addrs=recipients)
 
 
 @router.post("/email/send")
@@ -907,27 +899,27 @@ async def send_email(
     user: User = Depends(require_permissions("ai.workspace.use")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    settings = get_settings()
-    if not settings.zoho_smtp_username or not settings.zoho_smtp_password or not (settings.zoho_from_email or settings.zoho_smtp_username):
-        raise HTTPException(status_code=503, detail="Zoho email is not configured yet. An administrator must add the Zoho SMTP settings on the server.")
     message = await session.get(AIMessage, payload.message_id)
     conversation = await session.get(AIConversation, message.conversation_id) if message else None
     draft = (message.artifacts_json or {}).get("email") if message else None
     if not message or message.role != "assistant" or not conversation or conversation.user_id != user.id or not isinstance(draft, dict):
         raise HTTPException(status_code=404, detail="Email draft not found.")
+    mailbox = await resolve_mailbox_for_user(session, user, payload.sender_key or draft.get("sender_key"))
+    if not mailbox:
+        raise HTTPException(status_code=503, detail=EMAIL_NOT_SET_DETAIL)
     if draft.get("status") == "sent":
         raise HTTPException(status_code=409, detail="This email draft has already been sent.")
     attachments = list(await session.scalars(select(AIChatAttachment).where(AIChatAttachment.id.in_(payload.attachment_ids)))) if payload.attachment_ids else []
     if len(attachments) != len(set(payload.attachment_ids)) or any(item.user_id != user.id or item.conversation_id != conversation.id for item in attachments):
         raise HTTPException(status_code=404, detail="One or more email attachments are unavailable.")
     try:
-        await run_in_threadpool(_send_zoho_message, payload, attachments)
+        await run_in_threadpool(_send_zoho_message, payload, attachments, mailbox)
     except (smtplib.SMTPException, OSError, RuntimeError) as error:
         logger.warning("email.zoho.failed", user_id=str(user.id), error_type=type(error).__name__)
         raise HTTPException(status_code=502, detail="Zoho could not send this email. Please check the mail configuration or try again.") from error
     sent_at = datetime.now(timezone.utc).isoformat()
-    message.artifacts_json = {**(message.artifacts_json or {}), "email": {**draft, "to": [str(item) for item in payload.to], "cc": [str(item) for item in payload.cc], "bcc": [str(item) for item in payload.bcc], "subject": payload.subject.strip(), "body": payload.body.strip(), "attachment_ids": [str(item) for item in payload.attachment_ids], "status": "sent", "sent_at": sent_at}}
-    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="workspace.email_sent", target_type="ai_message", target_id=str(message.id), metadata_json={"recipient_count": len(payload.to) + len(payload.cc) + len(payload.bcc), "attachment_count": len(attachments), "subject": payload.subject.strip()}))
+    message.artifacts_json = {**(message.artifacts_json or {}), "email": {**draft, "sender_key": mailbox.key, "sender_email": mailbox.email, "to": [str(item) for item in payload.to], "cc": [str(item) for item in payload.cc], "bcc": [str(item) for item in payload.bcc], "subject": payload.subject.strip(), "body": payload.body.strip(), "attachment_ids": [str(item) for item in payload.attachment_ids], "status": "sent", "sent_at": sent_at}}
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="workspace.email_sent", target_type="ai_message", target_id=str(message.id), metadata_json={"sender": mailbox.email, "department": mailbox.department_slug, "recipient_count": len(payload.to) + len(payload.cc) + len(payload.bcc), "attachment_count": len(attachments), "subject": payload.subject.strip()}))
     session.add(AIUsageEvent(organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, conversation_id=conversation.id, operation="email_send", provider="zoho", model="smtp", status="completed"))
     await session.commit()
     logger.info("email.zoho.sent", user_id=str(user.id), recipient_count=len(payload.to) + len(payload.cc) + len(payload.bcc), attachment_count=len(attachments))
@@ -950,6 +942,11 @@ async def stream_message(
     content = payload.content.strip()
     if not content:
         raise HTTPException(status_code=422, detail="Please enter a message.")
+    selected_mailbox = None
+    if payload.mode == "email" or _is_email_request(content):
+        selected_mailbox = await resolve_mailbox_for_user(session, user, payload.sender_key)
+        if not selected_mailbox:
+            raise HTTPException(status_code=503, detail=EMAIL_NOT_SET_DETAIL)
     if payload.mode == "image" and payload.attachment_ids:
         raise HTTPException(status_code=422, detail="Generate a new image without attachments. Image editing will be added separately.")
     conversation: AIConversation | None = None
@@ -1115,6 +1112,8 @@ async def stream_message(
                             input_tokens = provider_event.input_tokens
                             output_tokens = provider_event.output_tokens
                     draft = _parse_email_draft(raw_draft, content, attachment_ids)
+                    draft["sender_key"] = selected_mailbox.key
+                    draft["sender_email"] = selected_mailbox.email
                     answer = "I prepared this email for you. Review or edit it below, then confirm when you are ready to send."
                     latency_ms = int((time.perf_counter() - started) * 1000)
                     assistant = AIMessage(conversation_id=conversation_id, user_id=user_id, role="assistant", content=answer, citations_json=[], web_sources_json=[], artifacts_json={"email": draft}, provider=provider, model=model)

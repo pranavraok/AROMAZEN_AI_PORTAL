@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
+from app.core.email_access import configured_mailboxes
 from app.core.security import create_access_token, decode_access_token, hash_password, hash_refresh_token, new_refresh_token, verify_password
 from app.db.session import get_db_session
 from app.modules.identity.models import Department, Organization, PasswordResetOTP, RefreshSession, User
@@ -137,15 +138,12 @@ def _generate_otp() -> str:
 
 
 def _send_otp_email(to_email: str, otp_code: str) -> None:
-    """Send OTP via Zoho SMTP."""
-    settings = get_settings()
-    username = settings.zoho_smtp_username
-    password = settings.zoho_smtp_password
-    from_email = settings.zoho_from_email or username
-    if not username or not password or not from_email:
+    """Send every password-reset OTP from the shared HR mailbox."""
+    mailbox = next((item for item in configured_mailboxes() if item.department_slug == "human-resources"), None)
+    if not mailbox:
         raise RuntimeError("zoho_not_configured")
     message = EmailMessage()
-    message["From"] = formataddr((settings.zoho_from_name, from_email))
+    message["From"] = formataddr((mailbox.from_name, mailbox.email))
     message["To"] = to_email
     message["Subject"] = "AROMAZEN AI PORTAL – Password Reset OTP"
     message.set_content(
@@ -180,15 +178,14 @@ def _send_otp_email(to_email: str, otp_code: str) -> None:
         """,
         subtype="html",
     )
-    security = settings.zoho_smtp_security.strip().lower()
-    smtp_cls = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
-    with smtp_cls(settings.zoho_smtp_host, settings.zoho_smtp_port, timeout=30) as smtp:
+    smtp_cls = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
+    with smtp_cls(mailbox.host, mailbox.port, timeout=30) as smtp:
         smtp.ehlo()
-        if security == "starttls":
+        if mailbox.security == "starttls":
             smtp.starttls()
             smtp.ehlo()
-        smtp.login(username, password)
-        smtp.send_message(message, from_addr=from_email, to_addrs=[to_email])
+        smtp.login(mailbox.username, mailbox.password)
+        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[to_email])
 
 
 @router.post("/forgot-password")

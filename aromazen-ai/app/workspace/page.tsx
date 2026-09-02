@@ -10,7 +10,7 @@ import { PromptSuggestions } from '@/components/workspace/prompt-suggestions'
 import { useAuth } from '@/components/auth/auth-provider'
 import { useToast } from '@/components/ui/toast-provider'
 import { api } from '@/lib/api/services'
-import type { ChatAttachment, ChatCitation, ChatMessage as ChatMessageDto, CurrentUser, EmailDraft, UsageSummary } from '@/lib/api/types'
+import type { ChatAttachment, ChatCitation, ChatMessage as ChatMessageDto, CurrentUser, EmailDraft, EmailMailboxStatus, UsageSummary } from '@/lib/api/types'
 import { ApiError } from '@/lib/api/client'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
@@ -20,8 +20,8 @@ type WebSource = { title: string; url: string }
 type WorkspaceMessage = ChatMessageDto & { web_sources?: WebSource[]; attachments?: ChatAttachment[] }
 type StreamPayload = { conversation_id?: string; message_id?: string; message?: string; text?: string; citations?: ChatCitation[]; sources?: WebSource[]; code?: string; attachment?: ChatAttachment; usage?: UsageSummary; email?: EmailDraft; used_tokens?: number; daily_limit?: number }
 type ResponseMode = 'auto' | 'quick' | 'standard' | 'deep' | 'essential'
-type PendingRequest = { content: string; conversationId: string | null; collectionIds: string[]; attachmentIds: string[]; mode: 'chat' | 'image' | 'email'; responseMode: ResponseMode; startedAt: number }
-type SendOptions = { resume?: boolean; conversationOverride?: string | null; collectionIdsOverride?: string[] }
+type PendingRequest = { content: string; conversationId: string | null; collectionIds: string[]; attachmentIds: string[]; mode: 'chat' | 'image' | 'email'; responseMode: ResponseMode; senderKey?: string; startedAt: number }
+type SendOptions = { resume?: boolean; conversationOverride?: string | null; collectionIdsOverride?: string[]; senderKeyOverride?: string }
 
 function suggestionsFor(user: CurrentUser | null): Suggestion[] {
   if (!user) return []
@@ -142,6 +142,8 @@ function WorkspaceContent() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [pendingEmail, setPendingEmail] = useState<{ messageId: string; draft: EmailDraft } | null>(null)
   const [sendingEmail, setSendingEmail] = useState(false)
+  const [emailMailboxes, setEmailMailboxes] = useState<EmailMailboxStatus[] | null>(null)
+  const [selectedSenderKey, setSelectedSenderKey] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const activeAssistantIdRef = useRef<string | null>(null)
@@ -152,10 +154,24 @@ function WorkspaceContent() {
   const recoveryAttemptedRef = useRef(false)
   const suggestions = suggestionsFor(user)
   const firstName = user?.full_name?.split(/\s+/)[0] ?? 'there'
+  const isEmailAdmin = user?.role_names.some((role) => role === 'Admin' || role === 'Super Admin') ?? false
   const pendingKey = user ? `aromazen:pending-ai:${user.id}` : ''
   const progressMessages = ['Understanding your request', 'Planning a thorough answer', 'Checking the most relevant information', 'Reading and organizing the details', 'Verifying completeness and accuracy', 'Still working carefully on this detailed request']
   const progressIndex = Math.min(progressMessages.length - 1, Math.floor(elapsedSeconds / 10))
   const stage = isSending ? `${stageDetail || progressMessages[progressIndex]} · ${elapsedSeconds}s` : null
+
+  useEffect(() => {
+    if (!accessToken) { setEmailMailboxes(null); setSelectedSenderKey(''); return }
+    let active = true
+    void api.settings.get(accessToken)
+      .then((settings) => {
+        if (!active) return
+        setEmailMailboxes(settings.email_mailboxes)
+        setSelectedSenderKey((current) => settings.email_mailboxes.some((mailbox) => mailbox.key === current) ? current : settings.email_mailboxes[0]?.key ?? '')
+      })
+      .catch(() => { if (active) { setEmailMailboxes([]); setSelectedSenderKey('') } })
+    return () => { active = false }
+  }, [accessToken])
 
   useEffect(() => {
     if (!isSending) { setElapsedSeconds(0); return }
@@ -256,6 +272,10 @@ function WorkspaceContent() {
 
   async function sendMessage(content: string, attachments: ChatAttachment[] = [], mode: 'chat' | 'image' | 'email' = 'chat', responseMode: ResponseMode = 'quick', options: SendOptions = {}): Promise<boolean> {
     if (!accessToken || isSending) return false
+    if (mode === 'email' && emailMailboxes?.length === 0) {
+      notify('error', 'Email is not set yet for this logged-in user.')
+      return false
+    }
     const controller = new AbortController()
     abortControllerRef.current = controller
     stoppedRef.current = false
@@ -277,9 +297,9 @@ function WorkspaceContent() {
       activeConversationRef.current = requestConversationId
       // Timestamp is captured while handling a send, never during render.
       // eslint-disable-next-line react-hooks/purity
-      const pendingRequest: PendingRequest = { content, conversationId: requestConversationId, collectionIds, attachmentIds: attachments.map((attachment) => attachment.id), mode, responseMode, startedAt: Date.now() }
+      const pendingRequest: PendingRequest = { content, conversationId: requestConversationId, collectionIds, attachmentIds: attachments.map((attachment) => attachment.id), mode, responseMode, senderKey: options.senderKeyOverride || selectedSenderKey || undefined, startedAt: Date.now() }
       if (pendingKey) localStorage.setItem(pendingKey, JSON.stringify(pendingRequest))
-      const response = await api.workspace.streamMessage(accessToken, { content, conversation_id: requestConversationId, collection_ids: collectionIds, attachment_ids: pendingRequest.attachmentIds, mode, response_mode: responseMode }, controller.signal)
+      const response = await api.workspace.streamMessage(accessToken, { content, conversation_id: requestConversationId, collection_ids: collectionIds, attachment_ids: pendingRequest.attachmentIds, mode, response_mode: responseMode, sender_key: pendingRequest.senderKey }, controller.signal)
       accepted = true
       await readEventStream(response, (event, payload) => {
         if (event === 'start' && payload.conversation_id) {
@@ -360,7 +380,8 @@ function WorkspaceContent() {
       if (last.role === 'assistant') { localStorage.removeItem(pendingKey); return }
       const lastUser = [...restored].reverse().find((message) => message.role === 'user')
       if (!lastUser || lastUser.content !== pending.content) { localStorage.removeItem(pendingKey); return }
-      await sendMessage(pending.content, lastUser.attachments ?? [], pending.mode, pending.responseMode ?? 'quick', { resume: true, conversationOverride: pending.conversationId, collectionIdsOverride: pending.collectionIds })
+      if (pending.senderKey) setSelectedSenderKey(pending.senderKey)
+      await sendMessage(pending.content, lastUser.attachments ?? [], pending.mode, pending.responseMode ?? 'quick', { resume: true, conversationOverride: pending.conversationId, collectionIdsOverride: pending.collectionIds, senderKeyOverride: pending.senderKey })
     })()
     // This runs once per signed-in workspace to recover an interrupted request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -368,8 +389,8 @@ function WorkspaceContent() {
 
   return <AppLayout><div className="flex h-full min-w-0 flex-col overflow-hidden bg-background">
     <div className="flex-1 overflow-y-auto px-4 py-7 md:px-8">{isLoadingChat ? <div className="mx-auto max-w-3xl space-y-4 py-20"><div className="h-4 w-32 animate-pulse rounded bg-muted" /><div className="h-4 w-full animate-pulse rounded bg-muted/80" /><div className="h-4 w-4/5 animate-pulse rounded bg-muted/60" /></div> : messages.length === 0 ? <div className="mx-auto max-w-[760px] space-y-9 pt-8 md:pt-[9vh]"><div className="space-y-4 text-center"><BrandMark size="lg" className="mx-auto" /><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Aromazen AI</p><h1 className="text-3xl font-medium tracking-[-0.045em] text-foreground md:text-[38px]">How can I help, {firstName}?</h1><p className="mx-auto max-w-xl text-sm leading-6 text-muted-foreground">Ask a question, work with a file, create an image, send a Zoho email, or explore company knowledge available to your team.</p><p className="flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70"><LockKeyhole className="h-3 w-3" />Your workspace follows Aromazen access controls</p></div><PromptSuggestions suggestions={suggestions} onSelect={(text, mode) => void sendMessage(text, [], mode)} /></div> : <div className="mx-auto max-w-3xl space-y-9 pb-4">{messages.map((message, index) => <ChatMessage key={message.id} role={message.role} content={message.content} attachments={message.attachments} artifacts={message.artifacts} emailBusy={sendingEmail && pendingEmail?.messageId === message.id} timestamp={new Date(message.created_at)} status={message.role === 'assistant' && index === messages.length - 1 ? stage : null} webSources={message.web_sources} sources={message.citations.map((citation) => ({ documentId: citation.document_id, collectionId: citation.collection_id, name: citation.document_name, collection: citation.collection_name, page: citation.page ?? undefined, chunk: citation.chunk_index, relevance: citation.relevance ?? 0 }))} editable={!isSending}                onEdit={(revisedContent) => editMessage(message.id, revisedContent)} onOpenSource={(source) => void openCitation(source)} onOpenAttachment={(attachment) => void openAttachment(attachment)} onSendEmail={(draft) => setPendingEmail({ messageId: message.id, draft })} />)}<div ref={messagesEndRef} /></div>}</div>
-    <ChatComposer busy={isSending} onStop={() => void stopGenerating()} onSend={sendMessage} onUpload={uploadAttachment} />
-    {pendingEmail && <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Confirm email"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start justify-between gap-4"><span className="grid h-10 w-10 place-items-center rounded-full bg-amber-500/10"><AlertTriangle className="h-5 w-5 text-amber-500" /></span><button type="button" onClick={() => setPendingEmail(null)} disabled={sendingEmail} className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Cancel sending"><X className="h-4 w-4" /></button></div><h2 className="mt-4 text-lg font-semibold">Send this email through Zoho?</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">This will send the email to <span className="font-medium text-foreground">{pendingEmail.draft.to.join(', ')}</span>. Please confirm the recipient and subject are correct.</p><div className="mt-3 rounded-xl bg-muted/50 px-3 py-2 text-sm"><span className="text-muted-foreground">Subject: </span>{pendingEmail.draft.subject}</div><div className="mt-5 flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setPendingEmail(null)} disabled={sendingEmail}>Cancel</Button><Button type="button" onClick={() => void confirmEmailSend()} disabled={sendingEmail}><Mail className="mr-2 h-4 w-4" />{sendingEmail ? 'Sending…' : 'Send email'}</Button></div></div></div>}
+    <ChatComposer busy={isSending} emailAvailable={emailMailboxes?.length !== 0} emailMailboxes={emailMailboxes ?? []} selectedSenderKey={selectedSenderKey} showEmailSenderSelector={isEmailAdmin} onSenderChange={setSelectedSenderKey} onEmailUnavailable={() => notify('error', 'Email is not set yet for this logged-in user.')} onStop={() => void stopGenerating()} onSend={sendMessage} onUpload={uploadAttachment} />
+    {pendingEmail && <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Confirm email"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start justify-between gap-4"><span className="grid h-10 w-10 place-items-center rounded-full bg-amber-500/10"><AlertTriangle className="h-5 w-5 text-amber-500" /></span><button type="button" onClick={() => setPendingEmail(null)} disabled={sendingEmail} className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Cancel sending"><X className="h-4 w-4" /></button></div><h2 className="mt-4 text-lg font-semibold">Send this email through Zoho?</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">This will send the email to <span className="font-medium text-foreground">{pendingEmail.draft.to.join(', ')}</span>{pendingEmail.draft.sender_email ? <> from <span className="font-medium text-foreground">{pendingEmail.draft.sender_email}</span></> : null}. Please confirm the recipient and subject are correct.</p><div className="mt-3 rounded-xl bg-muted/50 px-3 py-2 text-sm"><span className="text-muted-foreground">Subject: </span>{pendingEmail.draft.subject}</div><div className="mt-5 flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setPendingEmail(null)} disabled={sendingEmail}>Cancel</Button><Button type="button" onClick={() => void confirmEmailSend()} disabled={sendingEmail}><Mail className="mr-2 h-4 w-4" />{sendingEmail ? 'Sending…' : 'Send email'}</Button></div></div></div>}
   </div></AppLayout>
 }
 

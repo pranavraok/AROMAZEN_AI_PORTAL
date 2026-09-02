@@ -4,11 +4,12 @@ import { Check, ChevronDown, FileText, FolderUp, Gauge, Image as ImageIcon, Load
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { VoiceInputButton } from '@/components/voice-input-button'
-import type { ChatAttachment } from '@/lib/api/types'
+import type { ChatAttachment, EmailMailboxStatus } from '@/lib/api/types'
 
 type ChatMode = 'chat' | 'image' | 'email'
 type ResponseMode = 'auto' | 'quick' | 'standard' | 'deep' | 'essential'
 type OpenMenu = 'tools' | 'response' | null
+const EMPTY_EMAIL_MAILBOXES: EmailMailboxStatus[] = []
 
 const RESPONSE_OPTIONS: { value: ResponseMode; label: string; description: string }[] = [
   { value: 'auto', label: 'Auto', description: 'Adapts to your query' },
@@ -21,12 +22,18 @@ const RESPONSE_OPTIONS: { value: ResponseMode; label: string; description: strin
 interface ChatComposerProps {
   disabled?: boolean
   busy?: boolean
+  emailAvailable?: boolean
+  emailMailboxes?: EmailMailboxStatus[]
+  selectedSenderKey?: string
+  showEmailSenderSelector?: boolean
   onStop?: () => void
+  onEmailUnavailable?: () => void
+  onSenderChange?: (senderKey: string) => void
   onSend: (message: string, attachments: ChatAttachment[], mode: ChatMode, responseMode: ResponseMode) => Promise<boolean>
   onUpload: (file: File) => Promise<ChatAttachment | null>
 }
 
-export function ChatComposer({ disabled = false, busy = false, onStop, onSend, onUpload }: ChatComposerProps) {
+export function ChatComposer({ disabled = false, busy = false, emailAvailable = true, emailMailboxes = EMPTY_EMAIL_MAILBOXES, selectedSenderKey = '', showEmailSenderSelector = false, onStop, onEmailUnavailable, onSenderChange, onSend, onUpload }: ChatComposerProps) {
   const [message, setMessage] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(false)
@@ -87,6 +94,11 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
   }
 
   function chooseMode(nextMode: ChatMode) {
+    if (nextMode === 'email' && !emailAvailable) {
+      setOpenMenu(null)
+      onEmailUnavailable?.()
+      return
+    }
     setMode(nextMode)
     if (nextMode === 'image') setAttachments([])
     setOpenMenu(null)
@@ -102,7 +114,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
             <button type="button" onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))} className="rounded-md p-0.5 text-muted-foreground hover:bg-background hover:text-foreground" aria-label={`Remove ${attachment.name}`}><X className="h-3.5 w-3.5" /></button>
           </div>)}
         </div>}
-        {mode !== 'chat' && <div className="px-4 pt-3"><span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">{mode === 'image' ? <ImageIcon className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}{mode === 'image' ? 'Create image' : 'Email'}<button type="button" onClick={() => setMode('chat')} aria-label={`Exit ${mode} mode`}><X className="h-3 w-3" /></button></span></div>}
+        {mode !== 'chat' && <div className="flex flex-wrap items-center gap-2 px-4 pt-3"><span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">{mode === 'image' ? <ImageIcon className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}{mode === 'image' ? 'Create image' : 'Email'}<button type="button" onClick={() => setMode('chat')} aria-label={`Exit ${mode} mode`}><X className="h-3 w-3" /></button></span>{mode === 'email' && showEmailSenderSelector && emailMailboxes.length > 0 && <label className="flex items-center gap-2 text-xs text-muted-foreground"><span>Send from</span><select aria-label="Email sender" value={selectedSenderKey} onChange={(event) => onSenderChange?.(event.target.value)} className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground">{emailMailboxes.map((mailbox) => <option key={mailbox.key} value={mailbox.key}>{mailbox.department_name} · {mailbox.email}</option>)}</select></label>}</div>}
         <textarea value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void handleSend() } }} disabled={disabled} placeholder={mode === 'image' ? 'Describe the image you want to create…' : attachments.length ? 'Ask anything about your attached files…' : mode === 'email' ? 'Describe the email you want to prepare…' : 'Message AI Assistant…'} className="max-h-40 min-h-16 w-full resize-none bg-transparent px-5 pb-2 pt-4 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60" rows={1} />
         <div className="flex items-center justify-between gap-2 px-3 pb-3">
           <div className="flex min-w-0 items-center gap-1.5">
@@ -116,7 +128,7 @@ export function ChatComposer({ disabled = false, busy = false, onStop, onSend, o
                 <MenuButton icon={<FolderUp />} label="Upload folder" description="Add supported files together" disabled={mode === 'image' || attachments.length >= 8} onClick={() => folderInputRef.current?.click()} />
                 <div className="my-1 border-t border-border" />
                 <MenuButton icon={<ImageIcon />} label="Create image" description="Generate a new visual" active={mode === 'image'} onClick={() => chooseMode(mode === 'image' ? 'chat' : 'image')} />
-                <MenuButton icon={<Mail />} label="Prepare email" description="Draft and send through Zoho" active={mode === 'email'} disabled={mode === 'image'} onClick={() => chooseMode(mode === 'email' ? 'chat' : 'email')} />
+                <MenuButton icon={<Mail />} label="Prepare email" description={emailAvailable ? 'Draft and send through Zoho' : 'Email is not set yet'} active={mode === 'email'} disabled={mode === 'image'} onClick={() => chooseMode(mode === 'email' ? 'chat' : 'email')} />
               </div>}
             </div>
 

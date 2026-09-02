@@ -10,6 +10,13 @@ class ProviderStatus(BaseModel):
     models: list[str]
 
 
+class EmailMailboxStatus(BaseModel):
+    key: str
+    department_slug: str
+    department_name: str
+    email: str
+
+
 class OrganizationSettingsResponse(BaseModel):
     organization_name: str
     platform_name: str
@@ -26,6 +33,7 @@ class OrganizationSettingsResponse(BaseModel):
     exchange_rate_updated_at: datetime
     providers: list[ProviderStatus]
     zoho_email_connected: bool
+    email_mailboxes: list[EmailMailboxStatus]
     storage_bytes: int
     knowledge_documents: int
     generated_documents: int

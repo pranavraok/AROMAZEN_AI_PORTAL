@@ -22,6 +22,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from app.core.config import get_settings
+from app.core.email_access import EMAIL_NOT_SET_DETAIL, EmailMailbox, resolve_mailbox_for_user
 from app.db.session import SessionLocal, get_db_session
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User, collection_departments
@@ -323,6 +324,8 @@ async def update_batch_email(
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     await _ensure_hr_access(user, session)
+    if not await resolve_mailbox_for_user(session, user, target_department_slug="human-resources"):
+        raise HTTPException(status_code=503, detail=EMAIL_NOT_SET_DETAIL)
     batch = await session.get(PayrollBatch, batch_id)
     if not batch or batch.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Payroll batch not found.")
@@ -362,35 +365,26 @@ def _render_email(value: str, item: PayrollRecipient, month_label: str) -> str:
     return value.replace("{employee_name}", item.employee_name).replace("{month}", month_label)
 
 
-def _send_message(item: PayrollRecipient, batch: PayrollBatch) -> None:
-    settings = get_settings()
-    username = settings.zoho_smtp_username
-    password = settings.zoho_smtp_password
-    from_email = settings.zoho_from_email or username
-    if not username or not password or not from_email:
-        raise RuntimeError("Zoho Mail is not configured.")
+def _send_message(item: PayrollRecipient, batch: PayrollBatch, mailbox: EmailMailbox) -> None:
     month_label = datetime.strptime(batch.payroll_month, "%Y-%m").strftime("%B %Y")
     message = EmailMessage()
-    message["From"] = formataddr((settings.zoho_from_name, from_email))
+    message["From"] = formataddr((mailbox.from_name, mailbox.email))
     message["To"] = item.personal_email
     message["Subject"] = _render_email(batch.email_subject or DEFAULT_EMAIL_SUBJECT, item, month_label)
     message.set_content(_render_email(batch.email_body or DEFAULT_EMAIL_BODY, item, month_label))
-    path = Path(settings.upload_storage_path) / item.pdf_stored_filename
+    path = Path(get_settings().upload_storage_path) / item.pdf_stored_filename
     message.add_attachment(path.read_bytes(), maintype="application", subtype="pdf", filename=item.pdf_original_filename)
-    security = settings.zoho_smtp_security.strip().lower()
-    if security not in {"ssl", "starttls"}:
-        raise RuntimeError("Unsupported Zoho SMTP security mode.")
-    smtp_client = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
-    with smtp_client(settings.zoho_smtp_host, settings.zoho_smtp_port, timeout=45) as smtp:
+    smtp_client = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
+    with smtp_client(mailbox.host, mailbox.port, timeout=45) as smtp:
         smtp.ehlo()
-        if security == "starttls":
+        if mailbox.security == "starttls":
             smtp.starttls()
             smtp.ehlo()
-        smtp.login(username, password)
-        smtp.send_message(message, from_addr=from_email, to_addrs=[item.personal_email])
+        smtp.login(mailbox.username, mailbox.password)
+        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[item.personal_email])
 
 
-async def _deliver_batch(batch_id: uuid.UUID, recipient_ids: list[uuid.UUID]) -> None:
+async def _deliver_batch(batch_id: uuid.UUID, recipient_ids: list[uuid.UUID], mailbox: EmailMailbox) -> None:
     for recipient_id in recipient_ids:
         async with SessionLocal() as session:
             batch = await session.get(PayrollBatch, batch_id)
@@ -402,7 +396,7 @@ async def _deliver_batch(batch_id: uuid.UUID, recipient_ids: list[uuid.UUID]) ->
             item.error_message = None
             await session.commit()
             try:
-                await run_in_threadpool(_send_message, item, batch)
+                await run_in_threadpool(_send_message, item, batch, mailbox)
                 item.status = "sent"
                 item.sent_at = datetime.now(timezone.utc)
             except Exception as error:
@@ -426,9 +420,9 @@ async def _queue_delivery(batch_id: uuid.UUID, retry_failed: bool, background_ta
     batch = await session.get(PayrollBatch, batch_id)
     if not batch or batch.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Payroll batch not found.")
-    settings = get_settings()
-    if not settings.zoho_smtp_username or not settings.zoho_smtp_password or not (settings.zoho_from_email or settings.zoho_smtp_username):
-        raise HTTPException(status_code=503, detail="The HR Zoho Mail account is not configured on the server.")
+    mailbox = await resolve_mailbox_for_user(session, user, target_department_slug="human-resources")
+    if not mailbox:
+        raise HTTPException(status_code=503, detail=EMAIL_NOT_SET_DETAIL)
     if batch.status == "sending":
         raise HTTPException(status_code=409, detail="This payroll batch is already being sent.")
     target_status = "failed" if retry_failed else "pending"
@@ -442,9 +436,9 @@ async def _queue_delivery(batch_id: uuid.UUID, retry_failed: bool, background_ta
         for recipient in recipients:
             recipient.status = "pending"
             recipient.error_message = None
-    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.failed_retried" if retry_failed else "payroll.batch_send_started", target_type="payroll_batch", target_id=str(batch_id), metadata_json={"recipient_count": len(recipients)}))
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.failed_retried" if retry_failed else "payroll.batch_send_started", target_type="payroll_batch", target_id=str(batch_id), metadata_json={"sender": mailbox.email, "recipient_count": len(recipients)}))
     await session.commit()
-    background_tasks.add_task(_deliver_batch, batch_id, [item.id for item in recipients])
+    background_tasks.add_task(_deliver_batch, batch_id, [item.id for item in recipients], mailbox)
     return await _batch_response(session, batch)
 
 

@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     zoho_smtp_password: str | None = None
     zoho_from_email: str | None = None
     zoho_from_name: str = "AROMAZEN INDIA"
+    zoho_department_accounts_json: str | None = None
     usd_to_inr_fallback_rate: float = 95.0
     currency_rate_cache_seconds: int = 3600
     login_rate_limit_per_minute: int = 10
