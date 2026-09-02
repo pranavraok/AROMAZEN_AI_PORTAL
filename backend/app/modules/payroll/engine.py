@@ -7,6 +7,7 @@ from pathlib import Path
 from email_validator import EmailNotValidError, validate_email
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
+import pdfplumber
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -66,6 +67,43 @@ HEADER_ALIASES = {
     "net": "net_wages", "netsalary": "net_wages", "netwages": "net_wages", "netsalaryinwords": "net_wages_words",
 }
 
+SALARY_TEMPLATE_ALIASES = {
+    "basicg": "basic_gross", "basice": "basic_earnings",
+    "hrag": "hra_gross", "hrae": "hra_earnings",
+    "specialg": "special_allowance_gross", "speciale": "special_allowance_earnings",
+    "otg": "overtime_gross", "ote": "overtime_earnings",
+    "variableg": "variable_pay_gross", "variablee": "variable_pay_earnings",
+    "totalg": "total_gross", "totale": "total_earnings",
+    "esided": "esi_deduction", "ptax": "professional_tax",
+    "otherded": "other_deductions", "dedtotal": "deduction_total",
+    "netsalary": "net_wages", "netsalarywords": "net_wages_words",
+}
+SALARY_PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}")
+SALARY_RIGHT_ALIGNED_FIELDS = {
+    "basic_g", "basic_e", "hra_g", "hra_e", "special_g", "special_e",
+    "ot_g", "ot_e", "variable_g", "variable_e", "total_g", "total_e",
+    "pf", "esi_ded", "p_tax", "loan", "advance", "other_ded", "tds", "ded_total",
+    "basic_gross", "basic_earnings", "hra_gross", "hra_earnings",
+    "special_allowance_gross", "special_allowance_earnings", "overtime_gross",
+    "overtime_earnings", "variable_pay_gross", "variable_pay_earnings",
+    "total_gross", "total_earnings", "esi_deduction", "professional_tax",
+    "other_deductions", "deduction_total",
+}
+SALARY_CENTERED_FIELDS = {
+    "unit_address", "month", "salary_month", "payroll_month", "salary_period",
+    "employee_name", "employee_code", "unit", "uan", "designation", "esi_number",
+    "date_of_joining", "days", "present_days", "lop", "ot_hours", "net_salary",
+    "net_salary_words", "net_wages", "net_wages_words",
+}
+SALARY_FIELD_WIDTHS = {
+    "unit_address": 500, "month": 390, "salary_month": 390, "payroll_month": 390,
+    "salary_period": 390, "employee_name": 130, "employee_code": 130,
+    "unit": 115, "uan": 100, "designation": 120, "esi_number": 100,
+    "date_of_joining": 130, "days": 130, "present_days": 130, "lop": 130,
+    "ot_hours": 130, "net_salary": 400, "net_salary_words": 390,
+    "net_wages": 400, "net_wages_words": 390,
+}
+
 
 def create_excel_template() -> bytes:
     approved_template = Path(__file__).resolve().parents[2] / "assets" / "payroll" / "AROMAZEN_Salary_Upload_Template.xlsx"
@@ -82,15 +120,15 @@ def create_excel_template() -> bytes:
         cell.fill = PatternFill("solid", fgColor="111827")
     for index, (_, label) in enumerate(COLUMNS, 1):
         sheet.column_dimensions[sheet.cell(1, index).column_letter].width = max(14, min(32, len(label) + 3))
-    sample = {"employee_name": "Sample Employee", "personal_email": "employee@example.com", "date_of_birth": date(1992, 5, 18), "employee_code": "EMP001", "unit": "Mangalore Unit", "unit_address": "B-105/106, Industrial Area, Baikampady, Mangalore - 575 011", "designation": "Executive", "date_of_joining": date(2022, 1, 10)}
+    sample = {"employee_name": "Sample Employee", "personal_email": "employee@example.com", "date_of_birth": date(1992, 5, 18), "employee_code": "EMP001", "unit": 1, "unit_address": "", "designation": "Executive", "date_of_joining": date(2022, 1, 10)}
     sheet.append([sample.get(key, "") for key, _ in COLUMNS])
     sheet["C2"].number_format = "DD-MM-YYYY"
     sheet["H2"].number_format = "DD-MM-YYYY"
     note = workbook.create_sheet("Instructions")
     instructions = [
         "AROMAZEN Salary Slip Upload",
-        "Use one row per employee. Employee name, personal email, date of birth, employee code, unit, days and present days are mandatory.",
-        "Enter Unit 1, 2 or 3. The approved unit address and PDF template are selected automatically.",
+        "Use one row per employee. Employee name, personal email, date of birth, employee code, Unit 1, 2 or 3, days and present days are mandatory. Unit Address can be left blank.",
+        "The approved address is matched automatically from the Unit value and one salary-slip master is used for every employee.",
         "PDF password: first 4 letters of employee name in uppercase + four-digit birth year.",
         "Only Days, Present Days, LOP and OT Hours are filled by the Employee Leave Calculator.",
         "All salary amounts, totals, deductions, Net Salary and Net Salary in Words are used exactly as uploaded.",
@@ -203,10 +241,31 @@ def salary_template_form_fields(template: Path | bytes) -> list[str]:
     return list((reader.get_fields() or {}).keys())
 
 
+def salary_template_placeholder_fields(template: Path | bytes) -> list[str]:
+    source = io.BytesIO(template) if isinstance(template, bytes) else template
+    try:
+        with pdfplumber.open(source) as document:
+            return list(dict.fromkeys(
+                match.group(1).strip()
+                for page in document.pages
+                for match in SALARY_PLACEHOLDER_PATTERN.finditer(page.extract_text() or "")
+            ))
+    except Exception:
+        return []
+
+
+def salary_template_fields(template: Path | bytes) -> list[str]:
+    return list(dict.fromkeys([
+        *salary_template_form_fields(template),
+        *salary_template_placeholder_fields(template),
+    ]))
+
+
 def _salary_form_values(field_names: list[str], details: dict, payroll_month: str) -> dict[str, str]:
     aliases = {_normalise_header(key): key for key, _ in COLUMNS}
     aliases.update({_normalise_header(label): key for key, label in COLUMNS})
     aliases.update(HEADER_ALIASES)
+    aliases.update(SALARY_TEMPLATE_ALIASES)
     month_date = datetime.strptime(payroll_month, "%Y-%m")
     month_label = month_date.strftime("%B %Y")
     values: dict[str, str] = {}
@@ -219,6 +278,70 @@ def _salary_form_values(field_names: list[str], details: dict, payroll_month: st
         if key:
             values[field_name] = str(details.get(key, ""))
     return values
+
+
+def _salary_placeholder_pdf(template_path: Path, details: dict, payroll_month: str) -> bytes | None:
+    source = PdfReader(str(template_path))
+    page = source.pages[0]
+    page_width, page_height = float(page.mediabox.width), float(page.mediabox.height)
+    placeholders: list[tuple[dict, re.Match[str]]] = []
+    try:
+        with pdfplumber.open(template_path) as document:
+            template_page = document.pages[0]
+            for word in template_page.extract_words():
+                match = SALARY_PLACEHOLDER_PATTERN.search(str(word.get("text", "")))
+                if match:
+                    placeholders.append((word, match))
+    except Exception:
+        return None
+    if not placeholders:
+        return None
+
+    field_names = [match.group(1).strip() for _, match in placeholders]
+    values = _salary_form_values(field_names, details, payroll_month)
+    packet = io.BytesIO()
+    overlay = canvas.Canvas(packet, pagesize=(page_width, page_height))
+    for word, match in placeholders:
+        key = match.group(1).strip().lower()
+        overlay.setFillColor(colors.HexColor("#eceff1") if key in {"total_g", "total_e", "ded_total", "total_gross", "total_earnings", "deduction_total"} else colors.white)
+        top, bottom = float(word["top"]), float(word["bottom"])
+        overlay.rect(
+            float(word["x0"]) - 2,
+            page_height - bottom - 2,
+            float(word["x1"]) - float(word["x0"]) + 4,
+            bottom - top + 4,
+            stroke=0,
+            fill=1,
+        )
+
+    overlay.setFillColor(colors.black)
+    for word, match in placeholders:
+        key = match.group(1).strip()
+        normalized_key = key.lower()
+        value = values.get(key, str(details.get(key, "")))
+        x0, x1 = float(word["x0"]), float(word["x1"])
+        baseline = page_height - float(word["bottom"])
+        maximum_width = SALARY_FIELD_WIDTHS.get(normalized_key, 135)
+        font_size = 7.2 if normalized_key not in SALARY_RIGHT_ALIGNED_FIELDS else 6.8
+        if normalized_key == "unit_address":
+            font_size = 6.6
+        while font_size > 5.2 and overlay.stringWidth(value, "Helvetica", font_size) > maximum_width:
+            font_size -= 0.2
+        overlay.setFont("Helvetica", font_size)
+        if normalized_key in SALARY_RIGHT_ALIGNED_FIELDS:
+            overlay.drawRightString(x1, baseline, value)
+        elif normalized_key in SALARY_CENTERED_FIELDS:
+            overlay.drawCentredString((x0 + x1) / 2, baseline, value)
+        else:
+            overlay.drawString(x0, baseline, value)
+    overlay.save()
+    packet.seek(0)
+    page.merge_page(PdfReader(packet).pages[0])
+    writer = PdfWriter()
+    writer.add_page(page)
+    output = io.BytesIO()
+    writer.write(output)
+    return output.getvalue()
 
 
 def read_salary_excel(content: bytes) -> list[dict]:
@@ -265,7 +388,7 @@ def read_salary_excel(content: bytes) -> list[dict]:
                 raise ValueError("Personal Email is invalid.") from error
             birth_year = _birth_year(values.get("date_of_birth"))
             unit = _unit_number(values.get("unit"), values.get("unit_address"))
-            details.update(personal_email=email, date_of_birth=str(birth_year), unit=unit, unit_address=_text(values.get("unit_address")) or UNIT_ADDRESSES[unit])
+            details.update(personal_email=email, date_of_birth=str(birth_year), unit=unit, unit_address=UNIT_ADDRESSES[unit])
             for key in MONEY_FIELDS:
                 details[key] = f"{_money(values.get(key)):.2f}"
             days = _money(values.get("days"))
@@ -504,6 +627,17 @@ def generate_salary_pdf(details: dict, payroll_month: str, output_path: Path, pa
             writer.clone_document_from_reader(template_reader)
             for page in writer.pages:
                 writer.update_page_form_field_values(page, form_values, auto_regenerate=True)
+            writer.encrypt(password, algorithm="AES-256")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with output_path.open("wb") as file:
+                writer.write(file)
+            return
+        placeholder_pdf = _salary_placeholder_pdf(template_path, details, payroll_month)
+        if placeholder_pdf is not None:
+            reader = PdfReader(io.BytesIO(placeholder_pdf))
+            writer = PdfWriter()
+            for rendered_page in reader.pages:
+                writer.add_page(rendered_page)
             writer.encrypt(password, algorithm="AES-256")
             output_path.parent.mkdir(parents=True, exist_ok=True)
             with output_path.open("wb") as file:

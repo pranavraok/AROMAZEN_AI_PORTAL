@@ -30,7 +30,7 @@ from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.storage import organized_storage_name
 from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
 from app.modules.payroll.attendance_rules import DEFAULT_LATE_GRACE_MINUTES, apply_monthly_late_policy
-from app.modules.payroll.engine import COLUMNS, create_excel_template, generate_salary_pdf, password_for, read_salary_excel, salary_template_form_fields, validate_template_pdf
+from app.modules.payroll.engine import COLUMNS, create_excel_template, generate_salary_pdf, password_for, read_salary_excel, salary_template_fields, validate_template_pdf
 
 router = APIRouter(dependencies=[Depends(require_department("hr"))])
 
@@ -44,6 +44,8 @@ The PDF password is the first four letters of your name in uppercase followed by
 Regards,
 HR Department
 AROMAZEN PVT LTD"""
+SALARY_TEMPLATE_SOURCE_KEY = "salary-slip-template:master"
+DEFAULT_SALARY_TEMPLATE = Path(__file__).resolve().parents[2] / "assets" / "payroll" / "AROMAZEN_SalarySlip_Master.pdf"
 
 
 class EmailDraftUpdate(BaseModel):
@@ -80,6 +82,24 @@ async def _knowledge_unit_templates(session: AsyncSession, organization_id: uuid
     return result
 
 
+async def _knowledge_salary_template(session: AsyncSession, organization_id: uuid.UUID) -> KnowledgeDocument | None:
+    return await session.scalar(
+        select(KnowledgeDocument)
+        .join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id)
+        .join(collection_departments, collection_departments.c.collection_id == KnowledgeCollection.id)
+        .join(Department, Department.id == collection_departments.c.department_id)
+        .where(
+            KnowledgeDocument.organization_id == organization_id,
+            KnowledgeDocument.status == "ready",
+            KnowledgeDocument.document_category == "salary_slip_template",
+            KnowledgeDocument.source_key == SALARY_TEMPLATE_SOURCE_KEY,
+            KnowledgeCollection.status == "active",
+            Department.slug.in_(["hr", "human-resources"]),
+        )
+        .order_by(KnowledgeDocument.version.desc(), KnowledgeDocument.created_at.desc())
+    )
+
+
 async def _ensure_hr_access(user: User, session: AsyncSession) -> None:
     roles = await role_keys_for_user(session, user.id)
     if roles.intersection({"owner", "super_admin"}):
@@ -109,7 +129,7 @@ async def _batch_response(session: AsyncSession, batch: PayrollBatch, include_re
         "status": batch.status, "total_count": batch.total_count, "sent_count": batch.sent_count,
         "failed_count": batch.failed_count, "pending_count": max(batch.total_count - batch.sent_count - batch.failed_count, 0),
         "created_at": batch.created_at.isoformat(), "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
-        "template_name": "Selected automatically by unit",
+        "template_name": "One master; unit address selected from Excel",
         "email_subject": batch.email_subject or DEFAULT_EMAIL_SUBJECT,
         "email_body": batch.email_body or DEFAULT_EMAIL_BODY,
         "duplicate_email_count": batch.duplicate_email_count,
@@ -127,10 +147,15 @@ def _template_response(template: PayrollTemplate) -> dict:
     return {"id": str(template.id), "name": template.name, "original_filename": template.original_filename, "is_active": template.is_active, "created_at": template.created_at.isoformat(), "unit_number": _unit_from_template_name(template.original_filename), "source": "legacy"}
 
 
-def _knowledge_template_response(unit: int, document: KnowledgeDocument) -> dict:
+def _knowledge_template_response(document: KnowledgeDocument) -> dict:
     path = Path(get_settings().upload_storage_path) / document.stored_filename
-    fields = salary_template_form_fields(path) if path.is_file() else []
-    return {"id": str(document.id), "name": f"Unit {unit}", "original_filename": document.original_filename, "is_active": True, "created_at": document.created_at.isoformat(), "unit_number": unit, "source": "Human Resources knowledge", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
+    fields = salary_template_fields(path) if path.is_file() else []
+    return {"id": str(document.id), "name": "Salary slip master", "original_filename": document.original_filename, "is_active": True, "created_at": document.created_at.isoformat(), "unit_number": None, "source": "Human Resources knowledge", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
+
+
+def _built_in_template_response() -> dict:
+    fields = salary_template_fields(DEFAULT_SALARY_TEMPLATE)
+    return {"id": "built-in", "name": "Salary slip master", "original_filename": DEFAULT_SALARY_TEMPLATE.name, "is_active": True, "created_at": datetime.fromtimestamp(DEFAULT_SALARY_TEMPLATE.stat().st_mtime, timezone.utc).isoformat(), "unit_number": None, "source": "Built-in starter", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
 
 
 @router.get("/templates")
@@ -139,23 +164,19 @@ async def list_templates(
     session: AsyncSession = Depends(get_db_session),
 ) -> list[dict]:
     await _ensure_hr_access(user, session)
-    templates = await _knowledge_unit_templates(session, user.organization_id)
-    return [_knowledge_template_response(unit, document) for unit, document in sorted(templates.items())]
+    template = await _knowledge_salary_template(session, user.organization_id)
+    if template and (Path(get_settings().upload_storage_path) / template.stored_filename).is_file():
+        return [_knowledge_template_response(template)]
+    return [_built_in_template_response()]
 
 
 @router.post("/templates")
 async def upload_template(
-    template_name: str = Form(""),
-    unit_number: int | None = Form(None),
     template_file: UploadFile = File(...),
     user: User = Depends(require_permissions("users.manage")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     await _ensure_hr_access(user, session)
-    name = template_name.strip()
-    inferred_unit = unit_number or _unit_from_template_name(template_file.filename or "") or _unit_from_template_name(name)
-    if inferred_unit not in {1, 2, 3}:
-        raise HTTPException(status_code=422, detail="Select Unit 1, Unit 2 or Unit 3 for this salary-slip template.")
     if Path(template_file.filename or "").suffix.lower() != ".pdf":
         raise HTTPException(status_code=422, detail="Export the Canva template as an A4 portrait PDF before uploading.")
     content = await template_file.read()
@@ -165,16 +186,19 @@ async def upload_template(
         validate_template_pdf(content)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    canonical_name = f"UNIT-{inferred_unit}_SalarySlip.pdf"
+    detected_fields = salary_template_fields(content)
+    if not detected_fields:
+        raise HTTPException(status_code=422, detail="Use an editable Canva PDF containing {{field_name}} placeholders or named PDF form fields.")
+    canonical_name = "AROMAZEN_SalarySlip_Master.pdf"
     templates = await replace_department_uploads(session, user, "hr", [DepartmentUpload(
-        f"salary-slip-template:unit-{inferred_unit}",
+        SALARY_TEMPLATE_SOURCE_KEY,
         content,
         canonical_name,
         "application/pdf",
         "salary_slip_template",
     )])
     template = templates[0]
-    return _knowledge_template_response(inferred_unit, template)
+    return _knowledge_template_response(template)
 
 
 @router.post("/templates/{template_id}/activate")
@@ -197,16 +221,22 @@ async def activate_template(
 
 @router.get("/templates/{template_id}/content")
 async def template_content(
-    template_id: uuid.UUID,
+    template_id: str,
     user: User = Depends(require_permissions("users.manage")),
     session: AsyncSession = Depends(get_db_session),
 ) -> FileResponse:
     await _ensure_hr_access(user, session)
-    document = await session.get(KnowledgeDocument, template_id)
-    if document and document.organization_id == user.organization_id and _unit_from_template_name(document.original_filename):
+    if template_id == "built-in":
+        return FileResponse(DEFAULT_SALARY_TEMPLATE, media_type="application/pdf", filename=DEFAULT_SALARY_TEMPLATE.name, content_disposition_type="inline")
+    try:
+        identifier = uuid.UUID(template_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail="Salary-slip template not found.") from error
+    document = await session.get(KnowledgeDocument, identifier)
+    if document and document.organization_id == user.organization_id and document.source_key == SALARY_TEMPLATE_SOURCE_KEY:
         stored_filename, original_filename = document.stored_filename, document.original_filename
     else:
-        template = await session.get(PayrollTemplate, template_id)
+        template = await session.get(PayrollTemplate, identifier)
         if not template or template.organization_id != user.organization_id:
             raise HTTPException(status_code=404, detail="Salary-slip template not found.")
         stored_filename, original_filename = template.stored_filename, template.original_filename
@@ -244,12 +274,12 @@ async def create_batch(
         employee_rows = read_salary_excel(content)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    unit_templates = await _knowledge_unit_templates(session, user.organization_id)
+    salary_template = await _knowledge_salary_template(session, user.organization_id)
     used_units = sorted({int(item["details"]["unit"]) for item in employee_rows})
-    missing_units = [unit for unit in used_units if unit not in unit_templates]
-    if missing_units:
-        names = ", ".join(f"UNIT-{unit}_SalarySlip.pdf" for unit in missing_units)
-        raise HTTPException(status_code=422, detail=f"Upload the missing template(s) to the HR Knowledge Base: {names}.")
+    template_path = Path(get_settings().upload_storage_path) / salary_template.stored_filename if salary_template else DEFAULT_SALARY_TEMPLATE
+    template_name = salary_template.original_filename if salary_template and template_path.is_file() else DEFAULT_SALARY_TEMPLATE.name
+    if not template_path.is_file():
+        template_path = DEFAULT_SALARY_TEMPLATE
     duplicate_email_count = sum(count - 1 for count in Counter(item["personal_email"] for item in employee_rows).values() if count > 1)
     batch_id = uuid.uuid4()
     workbook_name = organized_storage_name(
@@ -274,10 +304,7 @@ async def create_batch(
             category=f"{payroll_month}/batches/{batch_id}/salary-slips",
             identifier=recipient_id,
         )
-        unit = int(item["details"]["unit"])
-        template = unit_templates[unit]
-        item["details"]["template_name"] = template.original_filename
-        template_path = Path(get_settings().upload_storage_path) / template.stored_filename
+        item["details"]["template_name"] = template_name
         pdf_path = Path(get_settings().upload_storage_path) / pdf_name
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         generate_salary_pdf(item["details"], payroll_month, pdf_path, password_for(item["employee_name"], item["birth_year"]), template_path)

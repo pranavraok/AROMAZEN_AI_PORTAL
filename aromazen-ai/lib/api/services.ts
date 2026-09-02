@@ -150,8 +150,8 @@ export const api = {
   payroll: {
     template: (accessToken: string) => apiFileRequest('/payroll/template', accessToken),
     templates: (accessToken: string) => apiRequest<PayrollTemplate[]>('/payroll/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
-    uploadTemplate: (accessToken: string, unitNumber: number, file: File) => {
-      const form = new FormData(); form.append('template_name', `Unit ${unitNumber}`); form.append('unit_number', String(unitNumber)); form.append('template_file', file)
+    uploadTemplate: (accessToken: string, file: File) => {
+      const form = new FormData(); form.append('template_file', file)
       return apiRequest<PayrollTemplate>('/payroll/templates', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
     activateTemplate: (accessToken: string, templateId: string) => apiRequest<PayrollTemplate>(`/payroll/templates/${templateId}/activate`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),

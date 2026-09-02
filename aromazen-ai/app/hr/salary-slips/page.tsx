@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, Download, Eye, FileSpreadsheet, FileText, LoaderCircle, RefreshCw, Send, ShieldCheck, Upload, X, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, FileSpreadsheet, FileText, LoaderCircle, RefreshCw, Send, ShieldCheck, Upload, X, XCircle } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/toast-provider'
 import { api } from '@/lib/api/services'
 import type { PayrollBatch, PayrollRecipient, PayrollTemplate } from '@/lib/api/types'
 import { ApiError } from '@/lib/api/client'
+import { canvaEditUrlForSalarySlip } from '@/lib/template-canva-links'
 
 function monthLabel(value: string) { const [year, month] = value.split('-').map(Number); return new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)) }
 function money(value: string | number) { const amount = Number(value); return Number.isFinite(amount) ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount) : String(value) }
@@ -31,7 +32,9 @@ export default function SalarySlipsPage() {
   const [body, setBody] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState<'upload' | 'save' | 'send' | 'retry' | null>(null)
-  const [templateUploadUnit, setTemplateUploadUnit] = useState<number | null>(null)
+  const [replacingTemplate, setReplacingTemplate] = useState(false)
+  const template = templates[0] ?? null
+  const canvaEditUrl = canvaEditUrlForSalarySlip()
   const canUse = user?.department_name === 'Human Resources' || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
   const recipients = useMemo(() => batch?.recipients ?? [], [batch?.recipients])
   const finished = (batch?.sent_count ?? 0) + (batch?.failed_count ?? 0)
@@ -66,15 +69,15 @@ export default function SalarySlipsPage() {
     catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to open template.') }
   }
 
-  async function replaceTemplate(unit: number, file: File | null) {
+  async function replaceTemplate(file: File | null) {
     if (!accessToken || !file) return
-    setTemplateUploadUnit(unit)
+    setReplacingTemplate(true)
     try {
-      const next = await api.payroll.uploadTemplate(accessToken, unit, file)
-      setTemplates((items) => [...items.filter((item) => item.unit_number !== unit), next].sort((left, right) => Number(left.unit_number) - Number(right.unit_number)))
-      notify('success', `Unit ${unit} salary-slip template is active and saved in Human Resources Knowledge.`)
+      const next = await api.payroll.uploadTemplate(accessToken, file)
+      setTemplates([next])
+      notify('success', 'The salary-slip master is active for all units and saved in Human Resources Knowledge.')
     } catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to replace this salary-slip template.') }
-    finally { setTemplateUploadUnit(null) }
+    finally { setReplacingTemplate(false) }
   }
 
   async function downloadSalaryTemplate() {
@@ -135,12 +138,9 @@ export default function SalarySlipsPage() {
     <section className="flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold">Need to calculate Present Days and LOP?</h2><p className="mt-1 text-sm text-muted-foreground">Merge salary details with attendance and shifts first, review the leave calculation, then upload that downloaded Excel here.</p></div><Link href="/hr/leave-calculator" className={buttonVariants()}>Open Leave Calculator</Link></section>
 
     <details className="rounded-2xl border border-border bg-card" open>
-      <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Payslip template library <span className="ml-1 text-xs font-normal text-muted-foreground">{templates.length}/3 ready · stored in Human Resources Knowledge</span></summary>
-      <div className="grid gap-3 border-t border-border p-4 md:grid-cols-3">
-      {[1, 2, 3].map((unit) => {
-        const template = templates.find((item) => item.unit_number === unit)
-        return <div key={unit} className="rounded-2xl border border-border bg-card p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="h-5 w-5" /></span><div><p className="font-semibold">Unit {unit}</p><p className="text-xs text-muted-foreground">{template ? `${template.original_filename} · ${template.supports_dynamic_fields ? `${template.detected_fields.length} mapped PDF fields` : 'fixed-layout compatibility'}` : 'Template missing'}</p></div></div>{template ? <Check className="h-4 w-4 text-emerald-400" /> : <X className="h-4 w-4 text-red-400" />}</div><div className="mt-4 flex gap-2">{template && <Button size="sm" variant="outline" onClick={() => void viewTemplate(template)}><Eye className="mr-1.5 h-4 w-4" />View</Button>}{hasPermission('knowledge.write') && <label className={buttonVariants({ size: 'sm', variant: template ? 'outline' : 'default' })}><input hidden type="file" accept=".pdf,application/pdf" disabled={templateUploadUnit !== null} onChange={(event) => { void replaceTemplate(unit, event.target.files?.[0] ?? null); event.target.value = '' }} />{templateUploadUnit === unit ? <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}{template ? 'Replace' : 'Upload'}</label>}</div>{template && !template.supports_dynamic_fields && <p className="mt-3 text-[11px] leading-4 text-amber-400">For automatic field remapping after layout changes, upload a fillable PDF whose field names match the salary Excel headings.</p>}</div>
-      })}
+      <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Payslip template library <span className="ml-1 text-xs font-normal text-muted-foreground">{template ? '1/1 ready' : 'Template required'} · {template?.source === 'Human Resources knowledge' ? 'stored in Human Resources Knowledge' : 'built-in approved master'}</span></summary>
+      <div className="border-t border-border p-4">
+        <div className="rounded-2xl border border-border bg-card p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="h-5 w-5" /></span><div><p className="font-semibold">Salary slip master</p><p className="text-xs text-muted-foreground">{template ? `${template.original_filename} · ${template.detected_fields.length} mapped PDF fields` : 'Upload the approved editable Canva PDF'}</p></div></div>{template ? <Check className="h-4 w-4 text-emerald-400" /> : <X className="h-4 w-4 text-red-400" />}</div><p className="mt-3 text-xs leading-5 text-muted-foreground">One master applies to all employees. Unit and unit address are read from each Excel row and filled automatically—no unit selection is required.</p><div className="mt-4 flex flex-wrap gap-2">{template && <Button size="sm" variant="outline" onClick={() => void viewTemplate(template)}><Eye className="mr-1.5 h-4 w-4" />View template</Button>}{hasPermission('knowledge.write') && <><Button size="sm" variant="outline" onClick={() => window.open(canvaEditUrl, '_blank', 'noopener,noreferrer')}><ExternalLink className="mr-1.5 h-4 w-4" />Edit in Canva</Button><label className={buttonVariants({ size: 'sm', variant: template ? 'outline' : 'default' })}><input hidden type="file" accept=".pdf,application/pdf" disabled={replacingTemplate} onChange={(event) => { void replaceTemplate(event.target.files?.[0] ?? null); event.target.value = '' }} />{replacingTemplate ? <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}{replacingTemplate ? 'Mapping fields' : template ? 'Replace master' : 'Upload master'}</label></>}</div></div>
       </div>
     </details>
 
@@ -148,7 +148,7 @@ export default function SalarySlipsPage() {
       <div className="grid gap-3 md:grid-cols-[12rem_1fr_auto]">
         <label className="space-y-1.5"><span className="text-xs text-muted-foreground">Payroll month</span><input type="month" value={payrollMonth} onChange={(event) => setPayrollMonth(event.target.value)} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" /></label>
         <label className="space-y-1.5"><span className="text-xs text-muted-foreground">Salary Excel</span><button type="button" onClick={() => inputRef.current?.click()} className="flex h-11 w-full items-center rounded-xl border border-dashed border-border bg-background px-3 text-left text-sm hover:border-primary/50"><FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-400" /><span className="truncate">{excel?.name ?? 'Choose .xlsx file'}</span></button><input ref={inputRef} hidden type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setExcel(event.target.files?.[0] ?? null)} /></label>
-        <Button className="self-end" disabled={!excel || !payrollMonth || templates.length < 3 || busy !== null} onClick={() => void prepare()}>{busy === 'upload' ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}{busy === 'upload' ? 'Preparing' : 'Prepare'}</Button>
+        <Button className="self-end" disabled={!excel || !payrollMonth || !template || busy !== null} onClick={() => void prepare()}>{busy === 'upload' ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}{busy === 'upload' ? 'Preparing' : 'Prepare'}</Button>
       </div>
     </section>
 
