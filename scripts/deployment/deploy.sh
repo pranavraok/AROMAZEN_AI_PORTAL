@@ -19,7 +19,12 @@ chmod 600 "$ENV_FILE"
 "${COMPOSE[@]}" build --pull
 # Recreate containers after a successful build so Docker cannot leave an older
 # image running merely because the Compose service configuration is unchanged.
-"${COMPOSE[@]}" up -d --remove-orphans --force-recreate
+if ! "${COMPOSE[@]}" up -d --remove-orphans --force-recreate; then
+    echo "Production containers did not become healthy. Showing startup diagnostics..." >&2
+    "${COMPOSE[@]}" ps >&2 || true
+    "${COMPOSE[@]}" logs --tail=200 api migrations >&2 || true
+    exit 1
+fi
 "${COMPOSE[@]}" ps
 
 echo

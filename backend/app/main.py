@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from redis.asyncio import Redis
+import structlog
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -13,6 +14,7 @@ from app.modules.document_generator.seed import seed_qa_coa_template
 from app.modules.assets.service import seed_asset_register
 
 settings = get_settings()
+logger = structlog.get_logger(__name__)
 
 
 @asynccontextmanager
@@ -24,7 +26,14 @@ async def lifespan(app: FastAPI):
     async with SessionLocal() as session:
         await bootstrap_owner(session)
         await seed_hr_letter_templates(session)
-        await seed_qa_coa_template(session)
+        try:
+            await seed_qa_coa_template(session)
+        except Exception as error:
+            # The bundled QA master is convenience data, not a prerequisite for
+            # serving requests. A storage or legacy-data problem must not make
+            # the entire production API fail its health check.
+            await session.rollback()
+            logger.exception("qa_coa_template_seed_failed", error=str(error))
         await seed_asset_register(session)
     yield
     await redis.aclose()
