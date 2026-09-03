@@ -39,7 +39,13 @@ async def seed_hr_letter_templates(session: AsyncSession) -> None:
         collection = await department_knowledge_collection(session, organization.id, "hr")
         if collection is None:
             continue
-        for asset in ASSET_ROOT.iterdir():
+        # The asset directory also contains supporting resources such as the
+        # signatures folder. Only registered master templates belong in the
+        # Knowledge Base seed loop.
+        for asset_name in TEMPLATE_KEYS:
+            asset = ASSET_ROOT / asset_name
+            if not asset.is_file():
+                continue
             display_name = asset.name.replace("-template", " Template").replace("-", " ").title().replace(".Docx", ".docx").replace(".Pdf", ".pdf")
             category = f"hr_letter_template:{TEMPLATE_KEYS[asset.name]}"
             exists = await session.scalar(
