@@ -136,6 +136,11 @@ export const api = {
       const form = new FormData(); form.append('document_type', documentType); form.append('template_file', file)
       return apiRequest<DocumentTemplate>('/document-generator/templates', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
+    replaceCoaMaster: (accessToken: string, file: File) => {
+      const form = new FormData(); form.append('template_file', file)
+      return apiRequest<DocumentTemplate>('/document-generator/templates/coa-master', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    templateContent: (accessToken: string, templateId: string) => apiFileRequest(`/document-generator/templates/${templateId}/content`, accessToken),
     schema: (accessToken: string, templateId: string) => apiRequest<DocumentTemplateSchema>(`/document-generator/templates/${templateId}/schema`, { headers: { Authorization: `Bearer ${accessToken}` } }),
     excelTemplate: (accessToken: string, templateId: string) => apiFileRequest(`/document-generator/templates/${templateId}/excel-template`, accessToken),
     transcribe: (accessToken: string, audio: File) => {
@@ -148,6 +153,7 @@ export const api = {
       return apiRequest<GeneratedDocument>('/document-generator/generate', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
     download: (accessToken: string, generationId: string) => apiFileRequest(`/document-generator/generations/${generationId}/download`, accessToken),
+    preview: (accessToken: string, generationId: string) => apiFileRequest(`/document-generator/generations/${generationId}/preview`, accessToken),
   },
   payroll: {
     template: (accessToken: string) => apiFileRequest('/payroll/template', accessToken),

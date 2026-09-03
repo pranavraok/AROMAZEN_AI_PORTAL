@@ -28,6 +28,10 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
   const permissions = new Set(user.permission_keys)
   const isPlatformAdmin = permissions.has('settings.manage') || user.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
   const department = user.department_name ?? ''
+  if (['QA', 'QA & QC', 'Quality Assurance'].includes(department)) return [
+    { icon: 'FileOutput', text: 'Create Certificate of Analysis', description: 'Use voice or manual entry with the approved QA COA master.', href: '/department-tools/qa-coa' },
+    { icon: 'BookOpenCheck', text: 'Summarise Quality Assurance knowledge', description: 'Find answers from approved QA documents.' },
+  ]
   if (department === 'R&D') return [
     { icon: 'FileOutput', text: 'Smart COA/SDS Creation', description: 'Create a polished COA or SDS through a short guided workflow.', href: '/rnd/documents' },
     { icon: 'FlaskConical', text: 'Formulation and Batch Sheet', description: 'Build a structured formula, quantities, process and batch record.', href: '/department-tools/rnd-formulation' },

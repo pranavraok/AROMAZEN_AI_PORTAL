@@ -19,6 +19,8 @@ async def department_knowledge_collection(
     department_slugs = [department_slug]
     if department_slug in {"hr", "human-resources"}:
         department_slugs = ["hr", "human-resources"]
+    elif department_slug in {"qa", "quality-assurance"}:
+        department_slugs = ["qa", "quality-assurance", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"]
     return await session.scalar(
         select(KnowledgeCollection)
         .join(collection_departments, collection_departments.c.collection_id == KnowledgeCollection.id)

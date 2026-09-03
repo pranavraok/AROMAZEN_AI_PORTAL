@@ -74,7 +74,7 @@ async def bootstrap_owner(session: AsyncSession) -> None:
     session.add(organization)
     await session.flush()
 
-    # Seed the ten canonical departments for this organization.
+    # Seed the canonical departments for this organization.
     for name, slug in [
         ("AI Labs", "ai-labs"),
         ("Production", "production"),
@@ -86,6 +86,8 @@ async def bootstrap_owner(session: AsyncSession) -> None:
         ("Accounts", "accounts"),
         ("Human Resources", "human-resources"),
         ("Graphics", "graphics"),
+        ("Quality Assurance", "quality-assurance"),
+        ("Regulatory", "regulatory"),
     ]:
         session.add(Department(organization_id=organization.id, name=name, slug=slug))
     await session.flush()

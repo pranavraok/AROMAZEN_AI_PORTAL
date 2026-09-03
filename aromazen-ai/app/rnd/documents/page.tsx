@@ -47,7 +47,7 @@ export default function RndDocumentsPage() {
   const draftSequence = useRef(0)
   const finishRequestedRef = useRef(false)
   const selected = useMemo(() => templates.find((item) => item.id === templateId), [templateId, templates])
-  const canUseGenerator = ['R&D', 'QA & QC'].includes(user?.department_name ?? '') || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
+  const canUseGenerator = ['R&D', 'QA', 'QA & QC', 'Quality Assurance'].includes(user?.department_name ?? '') || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
   const canUploadTemplate = Boolean(canUseGenerator)
   const steps = schema?.document_type === 'sds' ? ['Product', 'Ingredients', 'Safety', 'Properties', 'Review'] : ['Product', 'Test results', 'Review']
   const sdsKnownFields = new Set(Object.values(SDS_SECTIONS).flat())
@@ -55,11 +55,12 @@ export default function RndDocumentsPage() {
   useEffect(() => {
     if (!accessToken || !canUseGenerator) return
     void api.documentGenerator.templates(accessToken).then((items) => {
-      setTemplates(items)
+      const visibleItems = items.filter((item) => item.source_key !== 'qa-coa-master')
+      setTemplates(visibleItems)
       const requestedType = new URLSearchParams(window.location.search).get('type')
       if (requestedType === 'coa' || requestedType === 'sds') setTemplateUploadType(requestedType)
-      const requestedTemplate = items.find((item) => item.document_type === requestedType)
-      const initialTemplate = requestedTemplate ?? items[0]
+      const requestedTemplate = visibleItems.find((item) => item.document_type === requestedType)
+      const initialTemplate = requestedTemplate ?? visibleItems[0]
       if (initialTemplate) setTemplateId(initialTemplate.id)
     }).catch((reason) => notify('error', reason instanceof ApiError ? reason.message : 'Unable to load Word templates.'))
   }, [accessToken, canUseGenerator, notify])
@@ -177,7 +178,7 @@ export default function RndDocumentsPage() {
   }
   async function downloadGenerated() { if (!accessToken || !generated) return; try { const file = await api.documentGenerator.download(accessToken, generated.id); saveFile(file.blob, file.filename) } catch (reason) { notify('error', reason instanceof ApiError ? reason.message : 'Unable to download the Word document.') } }
 
-  if (!canUseGenerator) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="max-w-md text-center"><h1 className="text-2xl font-semibold">Access restricted</h1><p className="mt-2 text-muted-foreground">SDS and COA creation is available only to the R&amp;D and QA &amp; QC departments, Super Admin, and Admin.</p></div></main></AppLayout>
+  if (!canUseGenerator) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="max-w-md text-center"><h1 className="text-2xl font-semibold">Access restricted</h1><p className="mt-2 text-muted-foreground">SDS and COA creation is available only to the R&amp;D and Quality Assurance departments, Super Admin, and Admin.</p></div></main></AppLayout>
 
   return <AppLayout><div className="space-y-5 p-4 md:p-6"><PageHeader title="Smart COA/SDS Creation" description="Choose a document, add the available facts, review and download." />
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">

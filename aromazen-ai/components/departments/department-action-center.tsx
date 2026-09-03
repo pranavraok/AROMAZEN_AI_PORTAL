@@ -30,7 +30,7 @@ type DepartmentAction = {
 function departmentKind(department: Pick<Department, 'name' | 'slug'>) {
   const value = `${department.name} ${department.slug}`.toLowerCase()
   if (/human resources|human-resources|\bhr\b/.test(value)) return 'hr'
-  if (/\bqa\b.*\bqc\b|quality assurance.*quality control/.test(value)) return 'qa_qc'
+  if (/\bqa\b|quality assurance/.test(value)) return 'qa_qc'
   if (/accounts?/.test(value)) return 'accounts'
   if (/inventory/.test(value)) return 'inventory'
   return 'general'
@@ -46,8 +46,7 @@ const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'accounts' | 'inventory', Dep
     { key: 'custom-letters', title: 'Custom Letters', description: 'Upload occasional masters and map their {{fields}} automatically.', href: '/department-tools/hr-custom-letters', icon: WandSparkles, employeeAccess: true },
   ],
   qa_qc: [
-    { key: 'sds', title: 'Safety Data Sheet (SDS)', description: 'Create, review and download an approved-format SDS draft.', href: '/rnd/documents?type=sds', icon: FileText, employeeAccess: true },
-    { key: 'coa', title: 'Certificate of Analysis (COA)', description: 'Create, review and download an approved-format COA draft.', href: '/rnd/documents?type=coa', icon: ClipboardCheck, employeeAccess: true },
+    { key: 'coa', title: 'Certificate of Analysis (COA)', description: 'Use voice or manual entry to prepare, review, print and download the approved COA.', href: '/department-tools/qa-coa', icon: ClipboardCheck, employeeAccess: true },
   ],
   accounts: [
     { key: 'cash-flow', title: 'Cash Flow Report', description: 'Upload monthly files and generate the protected report.', href: '/accounts/cash-flow', icon: WalletCards },

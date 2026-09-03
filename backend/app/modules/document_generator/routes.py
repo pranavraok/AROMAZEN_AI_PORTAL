@@ -5,6 +5,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -25,6 +26,7 @@ from app.modules.settings.service import provider_runtime_settings
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.storage import organized_storage_name
 from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
+from app.modules.hr_letters.routes import _convert_docx_to_pdf
 
 router = APIRouter(dependencies=[Depends(require_department("r-d"))])
 
@@ -191,7 +193,10 @@ def _normalize_coa_value(parameter: str, column: str, value: str) -> str:
     return text[:2000]
 
 
-DOCUMENT_DEPARTMENT_SLUGS = {"r-d", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"}
+DOCUMENT_DEPARTMENT_SLUGS = {"r-d", "qa", "quality-assurance", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"}
+QA_DEPARTMENT_SLUGS = {"qa", "quality-assurance", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"}
+QA_COA_MASTER_SOURCE = "qa-coa-master"
+QA_COA_CANVA_URL = "https://www.canva.com/d/22DzkdhTpOfj6CV"
 
 
 async def _require_document_department(session: AsyncSession, user: User) -> str:
@@ -200,8 +205,17 @@ async def _require_document_department(session: AsyncSession, user: User) -> str
         return "r-d"
     department = await session.get(Department, user.department_id) if user.department_id else None
     if not department or department.slug not in DOCUMENT_DEPARTMENT_SLUGS:
-        raise HTTPException(status_code=403, detail="SDS and COA creation is limited to the R&D and QA & QC departments.")
+        raise HTTPException(status_code=403, detail="SDS and COA creation is limited to the R&D and Quality Assurance departments.")
     return department.slug
+
+
+async def _require_qa_department(session: AsyncSession, user: User) -> None:
+    roles = await role_keys_for_user(session, user.id)
+    if roles.intersection({"owner", "super_admin"}):
+        return
+    department = await session.get(Department, user.department_id) if user.department_id else None
+    if not department or department.slug not in QA_DEPARTMENT_SLUGS:
+        raise HTTPException(status_code=403, detail="This master template is restricted to the Quality Assurance department.")
 
 
 def _type_for(name: str, source_key: str | None = None) -> str:
@@ -262,7 +276,12 @@ async def list_templates(user: User = Depends(require_permissions("ai.workspace.
     ).order_by(KnowledgeDocument.created_at.desc())
     result = []
     for document, collection in (await session.execute(query)).all():
-        result.append({"id": str(document.id), "name": document.original_filename, "collection_name": collection.name, "document_type": _type_for(document.original_filename, document.source_key)})
+        result.append({
+            "id": str(document.id), "name": document.original_filename,
+            "collection_name": collection.name, "document_type": _type_for(document.original_filename, document.source_key),
+            "version": document.version, "source_key": document.source_key,
+            "external_edit_url": document.external_edit_url,
+        })
     return result
 
 
@@ -303,7 +322,56 @@ async def upload_template(
         "name": document.original_filename,
         "collection_name": collection.name if collection else "R&D",
         "document_type": document_type,
+        "version": document.version,
+        "source_key": document.source_key,
+        "external_edit_url": document.external_edit_url,
     }
+
+
+@router.post("/templates/coa-master")
+async def replace_qa_coa_master(
+    template_file: UploadFile = File(...),
+    user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read", "knowledge.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _require_qa_department(session, user)
+    original_name = Path(template_file.filename or "").name
+    if Path(original_name).suffix.lower() != ".docx":
+        raise HTTPException(status_code=422, detail="The COA master must be a DOCX Word file.")
+    settings = get_settings()
+    content = await template_file.read(settings.max_upload_size_mb * 1024 * 1024 + 1)
+    if not content or len(content) > settings.max_upload_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"The template is empty or exceeds the {settings.max_upload_size_mb} MB limit.")
+    try:
+        WordDocument(io.BytesIO(content))
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="The uploaded file is not a valid DOCX Word document.") from exc
+    document = (await replace_department_uploads(session, user, "quality-assurance", [DepartmentUpload(
+        QA_COA_MASTER_SOURCE,
+        content,
+        "AROMAZEN COA Master.docx",
+        template_file.content_type or "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        document_category="document_template",
+    )]))[0]
+    document.external_edit_url = QA_COA_CANVA_URL
+    await session.commit()
+    collection = await session.get(KnowledgeCollection, document.collection_id)
+    return {
+        "id": str(document.id), "name": document.original_filename,
+        "collection_name": collection.name if collection else "Quality Assurance",
+        "document_type": "coa", "version": document.version,
+        "source_key": document.source_key, "external_edit_url": document.external_edit_url,
+    }
+
+
+@router.get("/templates/{template_id}/content")
+async def template_content(template_id: str, user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> FileResponse:
+    await _require_document_department(session, user)
+    document, _ = await _template(session, user, template_id)
+    path = Path(get_settings().upload_storage_path) / document.stored_filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="The stored Word template is unavailable.")
+    return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=document.original_filename)
 
 
 @router.get("/templates/{template_id}/schema")
@@ -568,3 +636,23 @@ async def download(generation_id: str, user: User = Depends(require_permissions(
     if not path.is_file():
         raise HTTPException(status_code=404, detail="The generated file is unavailable.")
     return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=generation.output_original_filename)
+
+
+@router.get("/generations/{generation_id}/preview")
+async def preview_generation(generation_id: str, user: User = Depends(require_permissions("ai.workspace.use")), session: AsyncSession = Depends(get_db_session)) -> StreamingResponse:
+    await _require_document_department(session, user)
+    generation = await session.get(DocumentGeneration, generation_id)
+    roles = await role_keys_for_user(session, user.id)
+    if not generation or generation.organization_id != user.organization_id or (generation.user_id != user.id and not roles.intersection({"owner", "super_admin"})):
+        raise HTTPException(status_code=404, detail="Generated document not found.")
+    path = Path(get_settings().upload_storage_path) / generation.output_stored_filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="The generated file is unavailable.")
+    try:
+        with TemporaryDirectory(prefix="coa-preview-") as directory:
+            pdf_path = _convert_docx_to_pdf(path, Path(directory))
+            pdf_bytes = pdf_path.read_bytes()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="PDF preview is unavailable because document conversion is not configured.") from exc
+    pdf_name = f"{Path(generation.output_original_filename).stem}.pdf"
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{pdf_name}"'})

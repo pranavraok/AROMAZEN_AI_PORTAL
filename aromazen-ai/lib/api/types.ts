@@ -410,7 +410,7 @@ export interface AssetMaintenanceEvent {
   created_at: string
 }
 
-export interface DocumentTemplate { id: string; name: string; collection_name: string; document_type: 'coa' | 'sds' }
+export interface DocumentTemplate { id: string; name: string; collection_name: string; document_type: 'coa' | 'sds'; version?: number; source_key?: string | null; external_edit_url?: string | null }
 export interface DocumentField { key: string; label: string; required: boolean }
 export interface DocumentTemplateSchema { document_type: 'coa' | 'sds'; fields: DocumentField[]; row_fields: string[]; default_rows: Record<string, string>[]; can_edit_filename: boolean }
 export interface GeneratedDocument { id: string; filename: string; status: 'draft'; warnings: string[] }
