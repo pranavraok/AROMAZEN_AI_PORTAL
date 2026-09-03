@@ -198,7 +198,10 @@ def generate_docx(template: Path, output: Path, document_type: str, fields: dict
         warnings.append("Missing required information: " + ", ".join(missing))
     if document_type == "coa":
         if document.tables:
-            _fill_coa_rows(document.tables[0], rows)
+            # QA may edit parameter names and add or remove test rows directly
+            # in the portal, so the generated table mirrors the submitted
+            # three-column structure instead of locking the master row labels.
+            _replace_table_rows(document.tables[0], rows, ["parameter", "specification", "result"])
         if not any(row.get("specification") or row.get("result") for row in rows):
             warnings.append("COA test parameters were retained, but their specification and result values are blank.")
     else:
