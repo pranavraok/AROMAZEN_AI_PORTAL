@@ -20,7 +20,12 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from docx import Document
 from docx.oxml.ns import qn
 from docx.shared import Pt
+import pdfplumber
 from pypdf import PdfReader
+from pypdf import PdfWriter
+from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUTES_PATH = ROOT / "app/modules/hr_letters/routes.py"
@@ -39,6 +44,11 @@ def load_generator():
     tree = ast.parse(ROUTES_PATH.read_text(encoding="utf-8"))
     constant_names = {
         "TEMPLATE_FILES",
+        "SIGNATURE_ASSET_ROOT",
+        "OFFER_SIGNERS",
+        "OFFER_COMPANY_SEAL",
+        "OFFER_DATE_FIELDS",
+        "OFFER_PDF_FIELD_WIDTHS",
         "EXPECTED_APPOINTMENT_PAGE_COUNT",
         "KANNADA_FONT_NAME",
         "APPOINTMENT_REQUIRED_FIELDS",
@@ -56,6 +66,7 @@ def load_generator():
         "_convert_with_microsoft_word",
         "_convert_docx_to_pdf",
         "_trim_appointment_footer_overflow",
+        "_offer_pdf",
         "_generate_pdf",
     }
     nodes = []
@@ -72,13 +83,18 @@ def load_generator():
         "ZipFile": ZipFile,
         "Path": Path,
         "PdfReader": PdfReader,
+        "PdfWriter": PdfWriter,
         "Pt": Pt,
         "ASSET_ROOT": ASSET_ROOT,
+        "ImageReader": ImageReader,
+        "canvas": canvas,
+        "colors": colors,
         "io": io,
         "logger": TestLogger(),
         "os": os,
         "qn": qn,
         "re": re,
+        "pdfplumber": pdfplumber,
         "shutil": shutil,
         "subprocess": subprocess,
         "sys": sys,
@@ -89,7 +105,6 @@ def load_generator():
         "datetime": datetime,
         "escape": escape,
         "timezone": timezone,
-        "_offer_pdf": lambda fields: b"",
     }
     module = ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[]))
     exec(compile(module, str(ROUTES_PATH), "exec"), namespace)
@@ -149,6 +164,24 @@ def main() -> None:
     generator = load_generator()
     output_dir = ROOT.parent / "tmp" / "hr-letters-qa"
     output_dir.mkdir(parents=True, exist_ok=True)
+    offer_fields = {
+        "unit_address": "Plot No. B 105/106, Baikampady Industrial Area, Mangalore, Karnataka - 575011",
+        "issue_date": "03/09/2026",
+        "employee_name": "Sample Candidate",
+        "interview_date": "01/09/2026",
+        "designation": "Quality Executive",
+        "joining_date": "15/09/2026",
+    }
+    for signer_key, signer in generator["OFFER_SIGNERS"].items():
+        offer_output = output_dir / f"offer-{signer_key}.pdf"
+        offer_output.write_bytes(generator["_generate_pdf"]("offer", offer_fields, None, signer_key))
+        offer_reader = PdfReader(offer_output)
+        offer_text = "\n".join(page.extract_text() or "" for page in offer_reader.pages)
+        assert len(offer_reader.pages) == 1
+        assert signer["name"] in offer_text
+        assert "Sample Candidate" in offer_text
+        print(f"PASS: generated signed and sealed Offer Letter for {signer['name']} at {offer_output}")
+
     output = output_dir / "appointment-all-fields.pdf"
     output.write_bytes(generator["_generate_pdf"]("appointment", appointment_fields()))
     reader = PdfReader(output)

@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -34,6 +35,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.errors import PdfReadError
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.utils import ImageReader
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfgen import canvas
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
@@ -56,6 +58,22 @@ from app.modules.settings.service import provider_runtime_settings
 router = APIRouter(dependencies=[Depends(require_department("hr"))])
 logger = structlog.get_logger(__name__)
 ASSET_ROOT = Path(__file__).resolve().parents[2] / "assets" / "hr_letters"
+SIGNATURE_ASSET_ROOT = ASSET_ROOT / "signatures"
+OFFER_SIGNERS = {
+    "swathi_nayak": {
+        "name": "Swathi Nayak",
+        "signature": SIGNATURE_ASSET_ROOT / "swathi-nayak.png",
+    },
+    "achyut_tendolkar": {
+        "name": "Achyut Tendolkar",
+        "signature": SIGNATURE_ASSET_ROOT / "achyut-tendolkar.png",
+    },
+    "deeksha_shettigar": {
+        "name": "Deeksha Shettigar",
+        "signature": SIGNATURE_ASSET_ROOT / "deeksha-shettigar.png",
+    },
+}
+OFFER_COMPANY_SEAL = SIGNATURE_ASSET_ROOT / "company-seal.png"
 TEMPLATE_FILES = {
     "offer": "offer-template.pdf",
     "appointment": "appointment-template.docx",
@@ -126,6 +144,7 @@ APPOINTMENT_REQUIRED_FIELDS = {
 class LetterRequest(BaseModel):
     template_key: str
     unit_number: int = Field(default=1, ge=1, le=3)
+    signer_key: Literal["swathi_nayak", "achyut_tendolkar", "deeksha_shettigar"] = "swathi_nayak"
     fields: dict[str, str] = Field(default_factory=dict)
 
 
@@ -723,7 +742,11 @@ def _trim_appointment_footer_overflow(pdf_bytes: bytes) -> bytes:
     return output.getvalue()
 
 
-def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> bytes:
+def _offer_pdf(
+    fields: dict[str, str],
+    template_path: Path | None = None,
+    signer_key: str = "swathi_nayak",
+) -> bytes:
     source_path = template_path or ASSET_ROOT / TEMPLATE_FILES["offer"]
     source = PdfReader(source_path)
     page = source.pages[0]
@@ -737,6 +760,23 @@ def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> byt
     scale_x = page_width / 595.276
     scale_y = page_height / 841.89
     font_scale = min(scale_x, scale_y)
+    signer = OFFER_SIGNERS.get(signer_key, OFFER_SIGNERS["swathi_nayak"])
+    fields = {**fields, "signatory_name": signer["name"]}
+
+    def draw_contained_image(path: Path, left: float, bottom: float, maximum_width: float, maximum_height: float) -> None:
+        image = ImageReader(str(path))
+        image_width, image_height = image.getSize()
+        image_scale = min(maximum_width / image_width, maximum_height / image_height)
+        width = image_width * image_scale
+        height = image_height * image_scale
+        overlay.drawImage(
+            image,
+            left + (maximum_width - width) / 2,
+            bottom + (maximum_height - height) / 2,
+            width=width,
+            height=height,
+            mask="auto",
+        )
 
     def display_value(key: str) -> str:
         value = re.sub(r"\s+", " ", fields.get(key, "")).strip()
@@ -858,6 +898,23 @@ def _offer_pdf(fields: dict[str, str], template_path: Path | None = None) -> byt
         overlay.drawString(60 * scale_x, 510 * scale_y, display_value("designation"))
         overlay.drawString(310 * scale_x, 510 * scale_y, display_value("joining_date"))
         overlay.drawString(371 * scale_x, 192 * scale_y, display_value("signatory_name"))
+    # The Offer Letter is emailed directly, so its selected authorized signature
+    # and the company seal are applied digitally. Other HR letters are printed on
+    # physical letterhead and deliberately never pass through this path.
+    draw_contained_image(
+        signer["signature"],
+        365 * scale_x,
+        198 * scale_y,
+        112 * scale_x,
+        30 * scale_y,
+    )
+    draw_contained_image(
+        OFFER_COMPANY_SEAL,
+        492 * scale_x,
+        176 * scale_y,
+        52 * scale_x,
+        52 * scale_y,
+    )
     overlay.save()
     packet.seek(0)
     page.merge_page(PdfReader(packet).pages[0])
@@ -969,7 +1026,12 @@ def _interview_checklist_pdf(fields: dict[str, str], rows: list[dict[str, str]])
     writer.write(result)
     return result.getvalue()
 
-def _generate_pdf(template_key: str, fields: dict[str, str], template_path: Path | None = None) -> bytes:
+def _generate_pdf(
+    template_key: str,
+    fields: dict[str, str],
+    template_path: Path | None = None,
+    signer_key: str = "swathi_nayak",
+) -> bytes:
     if template_key not in TEMPLATE_FILES:
         raise ValueError("unknown_template")
     source_path = template_path or ASSET_ROOT / TEMPLATE_FILES[template_key]
@@ -977,7 +1039,7 @@ def _generate_pdf(template_key: str, fields: dict[str, str], template_path: Path
     if source_path.suffix.lower() == ".pdf":
         if template_key != "offer":
             raise ValueError("pdf_template_requires_docx")
-        return _offer_pdf(fields, source_path)
+        return _offer_pdf(fields, source_path, signer_key)
     legacy_appointment = template_key == "appointment" and _legacy_appointment_layout(Document(source_path))
     with tempfile.TemporaryDirectory(prefix="aromazen-hr-letter-") as temporary:
         workdir = Path(temporary)
@@ -1433,7 +1495,13 @@ async def preview_letter(payload: LetterRequest, user: User = Depends(require_pe
     template_path, _ = await _template_source(session, user.organization_id, payload.template_key)
     letter_fields = _fields_for_unit(payload.fields, payload.unit_number)
     try:
-        pdf = await run_in_threadpool(_generate_pdf, payload.template_key, letter_fields, template_path)
+        pdf = await run_in_threadpool(
+            _generate_pdf,
+            payload.template_key,
+            letter_fields,
+            template_path,
+            payload.signer_key,
+        )
     except ValueError as error:
         if str(error).startswith("missing_fields:"):
             missing = str(error).split(":", 1)[1].replace("_", " ").replace(",", ", ")
@@ -1500,7 +1568,13 @@ async def send_letter(payload: SendLetterRequest, user: User = Depends(require_p
     template_path, _ = await _template_source(session, user.organization_id, payload.template_key)
     letter_fields = _fields_for_unit(payload.fields, payload.unit_number)
     try:
-        pdf = await run_in_threadpool(_generate_pdf, payload.template_key, letter_fields, template_path)
+        pdf = await run_in_threadpool(
+            _generate_pdf,
+            payload.template_key,
+            letter_fields,
+            template_path,
+            payload.signer_key,
+        )
         await run_in_threadpool(_send_email, payload, pdf, mailbox)
     except ValueError as error:
         if str(error).startswith("missing_fields:"):
