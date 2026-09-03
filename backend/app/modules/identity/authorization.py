@@ -14,6 +14,7 @@ DEPARTMENT_ALIASES = {
     # Document drafting is shared by R&D and Quality Assurance.
     "r-d": {"r-d", "qa", "quality-assurance", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"},
     "quality-assurance": {"qa", "quality-assurance", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"},
+    "regulatory": {"regulatory", "regulatory-affairs"},
 }
 
 

@@ -15,6 +15,7 @@ import { HrLettersTool } from '@/components/department-tools/hr-letters-tool'
 import { HrCustomLettersTool } from '@/components/department-tools/hr-custom-letters-tool'
 import { HrInterviewTool } from '@/components/department-tools/hr-interview-tool'
 import { QaCoaTool } from '@/components/department-tools/qa-coa-tool'
+import { RegulatoryDocumentsTool } from '@/components/department-tools/regulatory-documents-tool'
 
 type Field = { key: string; label: string; placeholder?: string; type?: 'text' | 'date' | 'number' | 'textarea' | 'select'; options?: string[] }
 type ToolConfig = { department: 'R&D' | 'HR'; title: string; description: string; fields: Field[]; rowTitle: string; columns: Field[] }
@@ -106,7 +107,7 @@ function SopTool() {
 
 export default function DepartmentToolPage() {
   const { tool } = useParams<{ tool: string }>(); const { user } = useAuth(); const config = CONFIGS[tool]
-  const isQaTool = tool.startsWith('qa-'); const requiredDepartment = isQaTool ? 'Quality Assurance' : tool.startsWith('rnd-') ? 'R&D' : 'HR'; const canUse = (isQaTool ? ['QA', 'QA & QC', 'Quality Assurance'].includes(user?.department_name ?? '') : tool.startsWith('rnd-') ? user?.department_name === 'R&D' : ['HR', 'Human Resources'].includes(user?.department_name ?? '')) || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
+  const isQaTool = tool.startsWith('qa-'); const isRegulatoryTool = tool.startsWith('regulatory-'); const requiredDepartment = isQaTool ? 'Quality Assurance' : isRegulatoryTool ? 'Regulatory' : tool.startsWith('rnd-') ? 'R&D' : 'HR'; const canUse = (isQaTool ? ['QA', 'QA & QC', 'Quality Assurance'].includes(user?.department_name ?? '') : isRegulatoryTool ? ['Regulatory', 'Regulatory Affairs'].includes(user?.department_name ?? '') : tool.startsWith('rnd-') ? user?.department_name === 'R&D' : ['HR', 'Human Resources'].includes(user?.department_name ?? '')) || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
   if (!canUse) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="text-center"><h1 className="text-xl font-semibold">Access restricted</h1><p className="mt-2 text-sm text-muted-foreground">This workspace is available only to {requiredDepartment}.</p></div></main></AppLayout>
-  return <AppLayout>{tool === 'qa-coa' ? <QaCoaTool /> : tool === 'hr-letters' ? <HrLettersTool /> : tool === 'hr-custom-letters' ? <HrCustomLettersTool /> : tool === 'hr-interview' ? <HrInterviewTool /> : tool === 'hr-attendance' ? <AttendanceTool /> : tool === 'rnd-sops' ? <SopTool /> : config ? <StructuredTool config={config} /> : <main className="p-6">Tool not found.</main>}</AppLayout>
+  return <AppLayout>{tool === 'qa-coa' ? <QaCoaTool /> : tool === 'regulatory-documents' ? <RegulatoryDocumentsTool /> : tool === 'hr-letters' ? <HrLettersTool /> : tool === 'hr-custom-letters' ? <HrCustomLettersTool /> : tool === 'hr-interview' ? <HrInterviewTool /> : tool === 'hr-attendance' ? <AttendanceTool /> : tool === 'rnd-sops' ? <SopTool /> : config ? <StructuredTool config={config} /> : <main className="p-6">Tool not found.</main>}</AppLayout>
 }

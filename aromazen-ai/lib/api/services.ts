@@ -40,6 +40,10 @@ import type {
   AssetNotificationSettings,
   GstReconciliationResult,
   OpenRouterUsage,
+  RegulatoryDocumentType,
+  RegulatoryIngredient,
+  RegulatoryTemplate,
+  RegulatoryWorkflow,
 } from './types'
 
 export const api = {
@@ -186,6 +190,20 @@ export const api = {
       const form = new FormData(); form.append('payroll_month', payrollMonth); form.append('salary_file', salaryFile); form.append('attendance_file', attendanceFile); form.append('shift_rules', JSON.stringify(shifts)); form.append('adjustments_json', JSON.stringify(adjustments)); if (shiftRoster) form.append('shift_roster_file', shiftRoster)
       return apiFileRequest('/payroll/leave-calculator/merge', accessToken, { method: 'POST', body: form })
     },
+  },
+  regulatory: {
+    templates: (accessToken: string) => apiRequest<RegulatoryTemplate[]>('/regulatory/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    uploadTemplate: (accessToken: string, documentType: RegulatoryDocumentType, file: File) => { const form = new FormData(); form.append('template_file', file); return apiRequest<RegulatoryTemplate>(`/regulatory/templates/${documentType}`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } }) },
+    templateContent: (accessToken: string, documentType: RegulatoryDocumentType) => apiFileRequest(`/regulatory/templates/${documentType}/content`, accessToken),
+    createWorkflow: (accessToken: string, excel: File, coa: File) => { const form = new FormData(); form.append('regulatory_excel', excel); form.append('creation_coa', coa); return apiRequest<RegulatoryWorkflow>('/regulatory/workflows', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } }) },
+    updateWorkflow: (accessToken: string, workflowId: string, payload: { product_name: string; product_code: string; market: 'other' | 'eu'; sds_fields: Record<string, string>; ingredients: RegulatoryIngredient[] }) => apiRequest<RegulatoryWorkflow>(`/regulatory/workflows/${workflowId}`, { method: 'PATCH', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    enrich: (accessToken: string, workflowId: string) => apiRequest<RegulatoryWorkflow>(`/regulatory/workflows/${workflowId}/enrich`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    applyVoiceNotes: (accessToken: string, workflowId: string, notes: string) => apiRequest<RegulatoryWorkflow>(`/regulatory/workflows/${workflowId}/apply-voice-notes`, { method: 'POST', body: { notes }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    approve: (accessToken: string, workflowId: string, payload: { product_name: string; product_code: string; market: 'other' | 'eu'; sds_fields: Record<string, string>; ingredients: RegulatoryIngredient[] }) => apiRequest<RegulatoryWorkflow>(`/regulatory/workflows/${workflowId}/approve`, { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    generate: (accessToken: string, workflowId: string, documentType: RegulatoryDocumentType) => apiRequest<{ id: string; filename: string; document_type: RegulatoryDocumentType }>(`/regulatory/workflows/${workflowId}/generate/${documentType}`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    download: (accessToken: string, generationId: string) => apiFileRequest(`/regulatory/generations/${generationId}/download`, accessToken),
+    preview: (accessToken: string, generationId: string) => apiFileRequest(`/regulatory/generations/${generationId}/preview`, accessToken),
+    pdf: (accessToken: string, generationId: string) => apiFileRequest(`/regulatory/generations/${generationId}/pdf`, accessToken),
   },
   hrTemplates: {
     list: (accessToken: string) => apiRequest<HRTemplate[]>('/hr-letters/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),

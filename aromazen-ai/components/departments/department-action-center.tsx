@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   FileText,
   GitCompareArrows,
+  ShieldCheck,
   UserCog,
   WalletCards,
   WandSparkles,
@@ -31,12 +32,13 @@ function departmentKind(department: Pick<Department, 'name' | 'slug'>) {
   const value = `${department.name} ${department.slug}`.toLowerCase()
   if (/human resources|human-resources|\bhr\b/.test(value)) return 'hr'
   if (/\bqa\b|quality assurance/.test(value)) return 'qa_qc'
+  if (/regulatory/.test(value)) return 'regulatory'
   if (/accounts?/.test(value)) return 'accounts'
   if (/inventory/.test(value)) return 'inventory'
   return 'general'
 }
 
-const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'accounts' | 'inventory', DepartmentAction[]> = {
+const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'regulatory' | 'accounts' | 'inventory', DepartmentAction[]> = {
   hr: [
     { key: 'attendance', title: 'Attendance', description: 'Upload attendance, review exceptions and export results.', href: '/department-tools/hr-attendance', icon: CalendarCheck2, employeeAccess: true },
     { key: 'leave', title: 'Leave Calculator', description: 'Calculate leave, LOP, paid days and overtime.', href: '/hr/leave-calculator', icon: ClipboardCheck },
@@ -47,6 +49,9 @@ const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'accounts' | 'inventory', Dep
   ],
   qa_qc: [
     { key: 'coa', title: 'Certificate of Analysis (COA)', description: 'Use voice or manual entry to prepare, review, print and download the approved COA.', href: '/department-tools/qa-coa', icon: ClipboardCheck, employeeAccess: true },
+  ],
+  regulatory: [
+    { key: 'documents', title: 'Regulatory Documents', description: 'Upload Regulatory Excel and Creation COA, approve the SDS, then generate IFRA, allergen and EU REACH documents.', href: '/department-tools/regulatory-documents', icon: ShieldCheck, employeeAccess: true },
   ],
   accounts: [
     { key: 'cash-flow', title: 'Cash Flow Report', description: 'Upload monthly files and generate the protected report.', href: '/accounts/cash-flow', icon: WalletCards },

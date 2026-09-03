@@ -198,6 +198,39 @@ class DocumentGeneration(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class RegulatoryWorkflow(Base):
+    __tablename__ = "regulatory_workflows"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    product_name: Mapped[str] = mapped_column(String(300), default="")
+    product_code: Mapped[str] = mapped_column(String(160), default="")
+    market: Mapped[str] = mapped_column(String(40), default="other")
+    status: Mapped[str] = mapped_column(String(32), default="review", index=True)
+    source_files_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    sds_fields_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    ingredients_json: Mapped[list] = mapped_column(JSON, default=list)
+    generated_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class RegulatoryIngredientMaster(Base):
+    __tablename__ = "regulatory_ingredient_master"
+    __table_args__ = (UniqueConstraint("organization_id", "normalized_name", name="uq_regulatory_ingredient_org_name"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    normalized_name: Mapped[str] = mapped_column(String(300))
+    display_name: Mapped[str] = mapped_column(String(300))
+    data_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    sources_json: Mapped[list] = mapped_column(JSON, default=list)
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class PayrollBatch(Base):
     __tablename__ = "payroll_batches"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

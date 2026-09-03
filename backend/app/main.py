@@ -12,6 +12,7 @@ from app.modules.identity.service import bootstrap_owner
 from app.modules.hr_letters.seed import seed_hr_letter_templates
 from app.modules.document_generator.seed import seed_qa_coa_template
 from app.modules.assets.service import seed_asset_register
+from app.modules.regulatory.seed import seed_regulatory_templates
 
 settings = get_settings()
 logger = structlog.get_logger(__name__)
@@ -35,6 +36,11 @@ async def lifespan(app: FastAPI):
             await session.rollback()
             logger.exception("qa_coa_template_seed_failed", error=str(error))
         await seed_asset_register(session)
+        try:
+            await seed_regulatory_templates(session)
+        except Exception as error:
+            await session.rollback()
+            logger.exception("regulatory_template_seed_failed", error=str(error))
     yield
     await redis.aclose()
 
