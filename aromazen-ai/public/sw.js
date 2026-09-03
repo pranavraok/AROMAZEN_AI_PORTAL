@@ -1,15 +1,15 @@
-const CACHE_NAME = 'aromazen-ai-v5';
+const CACHE_NAME = 'aromazen-ai-v6';
 const OFFLINE_URL = '/login';
 
 const PRECACHE_ASSETS = [
   '/',
   '/login',
   '/workspace',
-  '/manifest.json?v=5',
-  '/aromazen-icon-192-v4.png',
-  '/aromazen-icon-512-v4.png',
-  '/aromazen-icon-maskable-512-v4.png',
-  '/apple-icon.png',
+  '/manifest.json?v=6',
+  '/aromazen-icon-192-v5.png',
+  '/aromazen-icon-512-v5.png',
+  '/aromazen-icon-maskable-512-v5.png',
+  '/apple-icon-v5.png',
 ];
 
 self.addEventListener('install', (event) => {

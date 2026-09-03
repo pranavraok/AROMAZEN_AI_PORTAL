@@ -31,11 +31,11 @@ export default function RootLayout({
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: "try{if((matchMedia('(display-mode: standalone)').matches||navigator.standalone===true)&&matchMedia('(max-width: 767px)').matches&&sessionStorage.getItem('aromazen:mobile-app-active')!=='1'){document.documentElement.classList.add('mobile-app-launch-pending')}}catch(e){}" }} />
-        <link rel="manifest" href="/manifest.json?v=5" />
+        <link rel="manifest" href="/manifest.json?v=6" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Aromazen AI" />
-        <link rel="apple-touch-icon" href="/apple-icon.png" />
+        <link rel="apple-touch-icon" href="/apple-icon-v5.png" />
         <link rel="icon" href="/favicon.ico?v=4" sizes="any" />
         <link rel="icon" type="image/png" sizes="32x32" href="/aromazen-favicon-light-v4.png" media="(prefers-color-scheme: light)" />
         <link rel="icon" type="image/png" sizes="32x32" href="/aromazen-favicon-dark-v4.png" media="(prefers-color-scheme: dark)" />

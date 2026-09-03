@@ -1,0 +1,42 @@
+from pydantic import BaseModel, EmailStr, Field
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    phone_number: str | None = Field(default=None, min_length=7, max_length=32)
+    password: str = Field(min_length=1, max_length=1024)
+    remember_me: bool = False
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp_code: str = Field(min_length=6, max_length=6)
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    otp_code: str = Field(min_length=6, max_length=6)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class CurrentUserResponse(BaseModel):
+    id: str
+    email: EmailStr
+    full_name: str
+    department_name: str | None = None
+    role_names: list[str]
+    permission_keys: list[str]
+    status: str
+    organization_name: str
+    platform_name: str
+    theme: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: CurrentUserResponse
