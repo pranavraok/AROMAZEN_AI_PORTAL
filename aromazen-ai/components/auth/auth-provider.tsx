@@ -102,6 +102,7 @@ export function RequireAuthenticatedApp({ children }: { children: React.ReactNod
   const isHrOnlyRoute = matchesRoute(pathname, '/hr/salary-slips')
     || matchesRoute(pathname, '/hr/leave-calculator')
     || matchesRoute(pathname, '/department-tools/hr-letters')
+    || matchesRoute(pathname, '/department-tools/hr-custom-letters')
     || matchesRoute(pathname, '/department-tools/hr-interview')
     || matchesRoute(pathname, '/department-tools/hr-attendance')
   const isDocumentGeneratorRoute = matchesRoute(pathname, '/rnd/documents')

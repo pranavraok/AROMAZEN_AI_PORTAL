@@ -18,13 +18,15 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
+from urllib.parse import urlparse
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pdfplumber
 from docx import Document
 from docx.oxml.ns import qn
 from docx.shared import Pt
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from lxml import etree
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
@@ -67,6 +69,8 @@ TEMPLATE_CATALOG = {
     "special_increment": ("Special Increment Letter", "Special increment", "Salary increment confirmation and compensation annexure."),
 }
 TEMPLATE_CATEGORY_PREFIX = "hr_letter_template:"
+CUSTOM_TEMPLATE_CATEGORY = "hr_custom_letter_template"
+CUSTOM_TEMPLATE_SOURCE_PREFIX = "hr-custom-letter-template:"
 SYSTEM_MANAGED_FIELDS = {"unit_address", "unit_name", "unit_number"}
 PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}")
 MULTILINE_FIELD_MARKERS = ("address", "reason", "impact", "message", "statement", "comments", "summary", "description")
@@ -131,6 +135,17 @@ class SendLetterRequest(LetterRequest):
     message: str = Field(min_length=1, max_length=6000)
 
 
+class CustomLetterRequest(BaseModel):
+    template_id: uuid.UUID
+    fields: dict[str, str] = Field(default_factory=dict)
+
+
+class SendCustomLetterRequest(CustomLetterRequest):
+    recipient_email: EmailStr
+    subject: str = Field(min_length=1, max_length=250)
+    message: str = Field(min_length=1, max_length=6000)
+
+
 class InterviewChecklistRequest(BaseModel):
     fields: dict[str, str] = Field(default_factory=dict)
     rows: list[dict[str, str]] = Field(default_factory=list)
@@ -153,6 +168,17 @@ def _template_category(template_key: str) -> str:
     return f"{TEMPLATE_CATEGORY_PREFIX}{template_key}"
 
 
+def _canva_edit_url(value: str | None) -> str | None:
+    if not value or not value.strip():
+        return None
+    url = value.strip()
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not (hostname == "canva.com" or hostname.endswith(".canva.com")):
+        raise HTTPException(status_code=422, detail="Enter a valid Canva HTTPS edit link.")
+    return url[:1000]
+
+
 def _field_label(key: str) -> str:
     return re.sub(r"\s+", " ", key.replace("_", " ")).strip().title()
 
@@ -166,8 +192,8 @@ def _template_tokens(path: Path) -> list[str]:
     document = Document(path)
     tokens: list[str] = []
     for paragraph in _paragraphs(document):
-        for key in re.findall(r"\{\{\s*([^}]+?)\s*\}\}", paragraph.text):
-            cleaned = key.strip()
+        for match in PLACEHOLDER_PATTERN.finditer(paragraph.text):
+            cleaned = match.group(1).strip()
             if cleaned and cleaned not in tokens:
                 tokens.append(cleaned)
     # python-docx does not expose paragraphs or tables placed inside Word text
@@ -177,12 +203,49 @@ def _template_tokens(path: Path) -> list[str]:
         for name in archive.namelist():
             if not name.startswith("word/") or not name.endswith(".xml"):
                 continue
-            xml = archive.read(name).decode("utf-8", errors="ignore")
-            for match in PLACEHOLDER_PATTERN.finditer(xml):
-                key = match.group(1).strip()
-                if key and key not in tokens:
-                    tokens.append(key)
+            try:
+                root = etree.fromstring(archive.read(name))
+            except etree.XMLSyntaxError:
+                continue
+            for paragraph in root.xpath(".//w:p", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}):
+                text = "".join(paragraph.xpath(".//w:t/text()", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}))
+                for match in PLACEHOLDER_PATTERN.finditer(text):
+                    key = match.group(1).strip()
+                    if key and key not in tokens:
+                        tokens.append(key)
     return tokens
+
+
+def _replace_xml_paragraph_tokens(paragraph, fields: dict[str, str]) -> bool:
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    nodes = paragraph.xpath(".//w:t", namespaces=namespace)
+    combined = "".join(node.text or "" for node in nodes)
+    matches = list(PLACEHOLDER_PATTERN.finditer(combined))
+    if not matches:
+        return False
+    for match in reversed(matches):
+        key = match.group(1).strip()
+        value = fields.get(key, "").strip()
+        if key.startswith("salary_") and not value:
+            value = "NIL"
+        offsets: list[tuple[int, int]] = []
+        cursor = 0
+        for node in nodes:
+            node_text = node.text or ""
+            offsets.append((cursor, cursor + len(node_text)))
+            cursor += len(node_text)
+        start_node = next(index for index, (_, right) in enumerate(offsets) if right > match.start())
+        end_node = next(index for index, (_, right) in enumerate(offsets) if right >= match.end())
+        start_left, _ = offsets[start_node]
+        end_left, _ = offsets[end_node]
+        prefix = (nodes[start_node].text or "")[: match.start() - start_left]
+        suffix = (nodes[end_node].text or "")[match.end() - end_left :]
+        nodes[start_node].text = prefix + value + (suffix if start_node == end_node else "")
+        if start_node != end_node:
+            nodes[end_node].text = suffix
+            for index in range(start_node + 1, end_node):
+                nodes[index].text = ""
+    return True
 
 
 def _replace_remaining_docx_tokens(path: Path, fields: dict[str, str]) -> None:
@@ -192,16 +255,16 @@ def _replace_remaining_docx_tokens(path: Path, fields: dict[str, str]) -> None:
         for item in source.infolist():
             data = source.read(item.filename)
             if item.filename.startswith("word/") and item.filename.endswith(".xml"):
-                xml = data.decode("utf-8", errors="strict")
-
-                def replacement(match: re.Match[str]) -> str:
-                    key = match.group(1).strip()
-                    value = fields.get(key, "").strip()
-                    if key.startswith("salary_") and not value:
-                        value = "NIL"
-                    return escape(value, quote=False)
-
-                data = PLACEHOLDER_PATTERN.sub(replacement, xml).encode("utf-8")
+                try:
+                    root = etree.fromstring(data)
+                except etree.XMLSyntaxError:
+                    root = None
+                if root is not None:
+                    changed = False
+                    for paragraph in root.xpath(".//w:p", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}):
+                        changed = _replace_xml_paragraph_tokens(paragraph, fields) or changed
+                    if changed:
+                        data = etree.tostring(root, encoding="UTF-8", xml_declaration=True, standalone=True)
             destination.writestr(item, data)
     rewritten.replace(path)
 
@@ -319,13 +382,15 @@ def _fill_docx(
     source = source_path or ASSET_ROOT / TEMPLATE_FILES[template_key]
     document = Document(source)
     for paragraph in _paragraphs(document):
-        for key in set(re.findall(r"\{\{([^}]+)\}\}", paragraph.text)):
+        matches = list(PLACEHOLDER_PATTERN.finditer(paragraph.text))
+        for match in reversed(matches):
+            key = match.group(1).strip()
             value = fields.get(key, "").strip()
             if key.startswith("salary_") and not value:
                 value = "NIL"
             _replace_token(
                 paragraph,
-                f"{{{{{key}}}}}",
+                match.group(0),
                 value,
                 font_name=KANNADA_FONT_NAME if key.endswith("_kannada") else None,
                 # Keep the exact size defined by the approved Word template.
@@ -956,6 +1021,13 @@ def _generate_pdf(template_key: str, fields: dict[str, str], template_path: Path
         return pdf_bytes
 
 
+def _generate_custom_pdf(template_path: Path, fields: dict[str, str]) -> bytes:
+    with tempfile.TemporaryDirectory(prefix="aromazen-hr-custom-letter-") as temporary:
+        workdir = Path(temporary)
+        docx_path = _fill_docx("custom", fields, workdir, source_path=template_path)
+        return _convert_docx_to_pdf(docx_path, workdir).read_bytes()
+
+
 async def _require_hr(session: AsyncSession, user: User) -> None:
     department = await session.get(Department, user.department_id) if user.department_id else None
     roles = await role_keys_for_user(session, user.id)
@@ -986,6 +1058,81 @@ async def _template_source(
         if path.is_file():
             return path, document
     return ASSET_ROOT / TEMPLATE_FILES[template_key], None
+
+
+async def _custom_template_document(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    template_id: uuid.UUID,
+) -> KnowledgeDocument:
+    document = await session.scalar(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.id == template_id,
+            KnowledgeDocument.organization_id == organization_id,
+            KnowledgeDocument.document_category == CUSTOM_TEMPLATE_CATEGORY,
+            KnowledgeDocument.status == "ready",
+        )
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Custom HR template not found.")
+    return document
+
+
+def _custom_template_path(document: KnowledgeDocument) -> Path:
+    path = Path(get_settings().upload_storage_path) / document.stored_filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="The custom HR template file is unavailable.")
+    return path
+
+
+def _custom_template_response(document: KnowledgeDocument) -> dict:
+    path = _custom_template_path(document)
+    return {
+        "id": str(document.id),
+        "title": Path(document.original_filename).stem,
+        "filename": document.original_filename,
+        "version": document.version,
+        "uploaded_at": document.created_at.isoformat(),
+        "canva_edit_url": document.external_edit_url,
+        **_template_schema("custom", path),
+    }
+
+
+def _custom_pdf_filename(document: KnowledgeDocument) -> str:
+    stem = re.sub(r"[^A-Za-z0-9_-]+", "-", Path(document.original_filename).stem).strip("-")
+    return f"{stem or 'custom-hr-letter'}.pdf"
+
+
+async def _validated_custom_template_upload(template_file: UploadFile) -> tuple[str, bytes]:
+    original_filename = Path(template_file.filename or "custom-template.docx").name
+    if Path(original_filename).suffix.lower() != ".docx":
+        raise HTTPException(
+            status_code=422,
+            detail="Upload a DOCX master containing {{field_name}} placeholders.",
+        )
+    content = await template_file.read()
+    if not content:
+        raise HTTPException(status_code=422, detail="The custom HR template is empty.")
+    if len(content) > get_settings().max_upload_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="The custom HR template is too large.")
+    validation_path = (
+        Path(get_settings().upload_storage_path)
+        / f"hr-custom-template-validation-{uuid.uuid4()}.docx"
+    )
+    validation_path.parent.mkdir(parents=True, exist_ok=True)
+    validation_path.write_bytes(content)
+    try:
+        if not _template_tokens(validation_path):
+            raise ValueError("missing_placeholders")
+        extract_text(validation_path, ".docx")
+    except (ValueError, ExtractionError) as error:
+        raise HTTPException(
+            status_code=422,
+            detail="No usable {{field_name}} placeholders were found in this DOCX template.",
+        ) from error
+    finally:
+        validation_path.unlink(missing_ok=True)
+    return original_filename, content
 
 
 def _template_response(template_key: str, path: Path, document: KnowledgeDocument | None) -> dict:
@@ -1095,6 +1242,95 @@ async def replace_letter_template(
     return _template_response(template_key, destination, document)
 
 
+@router.get("/custom-templates")
+async def list_custom_letter_templates(
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[dict]:
+    await _require_hr(session, user)
+    documents = await session.scalars(
+        select(KnowledgeDocument)
+        .where(
+            KnowledgeDocument.organization_id == user.organization_id,
+            KnowledgeDocument.document_category == CUSTOM_TEMPLATE_CATEGORY,
+            KnowledgeDocument.status == "ready",
+        )
+        .order_by(KnowledgeDocument.created_at.desc())
+    )
+    result = []
+    for document in documents:
+        try:
+            result.append(_custom_template_response(document))
+        except HTTPException:
+            logger.warning("hr_custom_template_file_missing", document_id=str(document.id))
+    return result
+
+
+@router.post("/custom-templates", status_code=201)
+async def create_custom_letter_template(
+    template_file: UploadFile = File(...),
+    canva_edit_url: str = Form(""),
+    user: User = Depends(require_permissions("knowledge.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _require_hr(session, user)
+    normalized_canva_url = _canva_edit_url(canva_edit_url)
+    original_filename, content = await _validated_custom_template_upload(template_file)
+    template_id = uuid.uuid4()
+    documents = await replace_department_uploads(session, user, "hr", [DepartmentUpload(
+        f"{CUSTOM_TEMPLATE_SOURCE_PREFIX}{template_id}",
+        content,
+        original_filename,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        CUSTOM_TEMPLATE_CATEGORY,
+    )])
+    document = documents[0]
+    document.external_edit_url = normalized_canva_url
+    await session.commit()
+    return _custom_template_response(document)
+
+
+@router.post("/custom-templates/{template_id}")
+async def replace_custom_letter_template(
+    template_id: uuid.UUID,
+    template_file: UploadFile = File(...),
+    canva_edit_url: str | None = Form(default=None),
+    user: User = Depends(require_permissions("knowledge.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _require_hr(session, user)
+    current = await _custom_template_document(session, user.organization_id, template_id)
+    normalized_canva_url = _canva_edit_url(canva_edit_url) if canva_edit_url is not None else None
+    original_filename, content = await _validated_custom_template_upload(template_file)
+    documents = await replace_department_uploads(session, user, "hr", [DepartmentUpload(
+        current.source_key or f"{CUSTOM_TEMPLATE_SOURCE_PREFIX}{current.id}",
+        content,
+        original_filename,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        CUSTOM_TEMPLATE_CATEGORY,
+    )])
+    document = documents[0]
+    if canva_edit_url is not None:
+        document.external_edit_url = normalized_canva_url
+    await session.commit()
+    return _custom_template_response(document)
+
+
+@router.get("/custom-templates/{template_id}/content")
+async def custom_letter_template_content(
+    template_id: uuid.UUID,
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> FileResponse:
+    await _require_hr(session, user)
+    document = await _custom_template_document(session, user.organization_id, template_id)
+    return FileResponse(
+        _custom_template_path(document),
+        filename=document.original_filename,
+        content_disposition_type="inline",
+    )
+
+
 @router.post("/translate-kannada")
 async def translate_kannada(
     payload: KannadaTranslationRequest,
@@ -1167,6 +1403,28 @@ def _send_email(payload: SendLetterRequest, pdf_bytes: bytes, mailbox: EmailMail
         smtp.send_message(message, from_addr=mailbox.email, to_addrs=[str(payload.recipient_email)])
 
 
+def _send_custom_email(
+    payload: SendCustomLetterRequest,
+    pdf_bytes: bytes,
+    mailbox: EmailMailbox,
+    attachment_name: str,
+) -> None:
+    message = EmailMessage()
+    message["From"] = formataddr((mailbox.from_name, mailbox.email))
+    message["To"] = str(payload.recipient_email)
+    message["Subject"] = payload.subject.strip()
+    message.set_content(payload.message.strip())
+    message.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=attachment_name)
+    client = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
+    with client(mailbox.host, mailbox.port, timeout=45) as smtp:
+        smtp.ehlo()
+        if mailbox.security == "starttls":
+            smtp.starttls()
+            smtp.ehlo()
+        smtp.login(mailbox.username, mailbox.password)
+        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[str(payload.recipient_email)])
+
+
 @router.post("/preview")
 async def preview_letter(payload: LetterRequest, user: User = Depends(require_permissions("ai.workspace.use")), session: AsyncSession = Depends(get_db_session)) -> StreamingResponse:
     await _require_hr(session, user)
@@ -1191,6 +1449,33 @@ async def preview_letter(payload: LetterRequest, user: User = Depends(require_pe
         raise HTTPException(status_code=500, detail="The server document converter timed out. Please try again.") from error
     filename = f"{payload.template_key}-unit-{payload.unit_number}-{payload.fields.get('employee_name', 'employee')}.pdf"
     return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"'})
+
+
+@router.post("/custom-preview")
+async def preview_custom_letter(
+    payload: CustomLetterRequest,
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> StreamingResponse:
+    await _require_hr(session, user)
+    document = await _custom_template_document(session, user.organization_id, payload.template_id)
+    template_path = _custom_template_path(document)
+    try:
+        pdf = await run_in_threadpool(_generate_custom_pdf, template_path, payload.fields)
+    except RuntimeError as error:
+        if str(error) == "document_converter_unavailable":
+            raise HTTPException(status_code=503, detail="The server document converter is unavailable. Please contact the administrator.") from error
+        logger.exception("hr_custom_letter_preview_failed", template_id=str(payload.template_id), error=str(error))
+        raise HTTPException(status_code=500, detail="The custom letter could not be converted to PDF.") from error
+    except subprocess.SubprocessError as error:
+        logger.exception("hr_custom_letter_preview_converter_failed", template_id=str(payload.template_id))
+        raise HTTPException(status_code=500, detail="The server document converter timed out. Please try again.") from error
+    filename = _custom_pdf_filename(document)
+    return StreamingResponse(
+        io.BytesIO(pdf),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/interview-preview")
@@ -1234,5 +1519,55 @@ async def send_letter(payload: SendLetterRequest, user: User = Depends(require_p
     sent_at = datetime.now(timezone.utc).isoformat()
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="hr.letter_sent", target_type="hr_letter", target_id=payload.template_key, metadata_json={"sender": mailbox.email, "recipient": str(payload.recipient_email), "employee": payload.fields.get("employee_name", ""), "subject": payload.subject.strip(), "unit_number": payload.unit_number}))
     session.add(AIUsageEvent(organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, operation="hr_letter_email", provider="zoho", model="smtp", status="completed"))
+    await session.commit()
+    return {"status": "sent", "sent_at": sent_at}
+
+
+@router.post("/custom-send")
+async def send_custom_letter(
+    payload: SendCustomLetterRequest,
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _require_hr(session, user)
+    mailbox = await resolve_mailbox_for_user(session, user, target_department_slug="human-resources")
+    if not mailbox:
+        raise HTTPException(status_code=503, detail=EMAIL_NOT_SET_DETAIL)
+    document = await _custom_template_document(session, user.organization_id, payload.template_id)
+    template_path = _custom_template_path(document)
+    attachment_name = _custom_pdf_filename(document)
+    try:
+        pdf = await run_in_threadpool(_generate_custom_pdf, template_path, payload.fields)
+        await run_in_threadpool(_send_custom_email, payload, pdf, mailbox, attachment_name)
+    except RuntimeError as error:
+        if str(error) == "document_converter_unavailable":
+            raise HTTPException(status_code=503, detail="The server document converter is unavailable. Please contact the administrator.") from error
+        raise HTTPException(status_code=502, detail="The custom letter could not be emailed. Please verify Zoho Mail and try again.") from error
+    except (smtplib.SMTPException, OSError) as error:
+        logger.warning("hr_custom_letter_email_failed", template_id=str(payload.template_id), error=str(error))
+        raise HTTPException(status_code=502, detail="The custom letter could not be emailed. Please verify Zoho Mail and try again.") from error
+    sent_at = datetime.now(timezone.utc).isoformat()
+    session.add(AuditEvent(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="hr.custom_letter_sent",
+        target_type="hr_custom_letter",
+        target_id=str(document.id),
+        metadata_json={
+            "sender": mailbox.email,
+            "recipient": str(payload.recipient_email),
+            "template": document.original_filename,
+            "subject": payload.subject.strip(),
+        },
+    ))
+    session.add(AIUsageEvent(
+        organization_id=user.organization_id,
+        user_id=user.id,
+        department_id=user.department_id,
+        operation="hr_custom_letter_email",
+        provider="zoho",
+        model="smtp",
+        status="completed",
+    ))
     await session.commit()
     return {"status": "sent", "sent_at": sent_at}

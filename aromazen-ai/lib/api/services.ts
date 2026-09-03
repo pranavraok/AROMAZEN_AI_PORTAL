@@ -28,6 +28,7 @@ import type {
   SendEmailRequest,
   PayrollBatch,
   PayrollTemplate,
+  HRCustomTemplate,
   HRTemplate,
   AttendanceAnalysis,
   AttendanceShiftRule,
@@ -187,6 +188,16 @@ export const api = {
       return apiRequest<HRTemplate>(`/hr-letters/templates/${templateKey}`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
     content: (accessToken: string, templateKey: string) => apiFileRequest(`/hr-letters/templates/${templateKey}/content`, accessToken),
+    customList: (accessToken: string) => apiRequest<HRCustomTemplate[]>('/hr-letters/custom-templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    customCreate: (accessToken: string, file: File, canvaEditUrl: string) => {
+      const form = new FormData(); form.append('template_file', file); form.append('canva_edit_url', canvaEditUrl)
+      return apiRequest<HRCustomTemplate>('/hr-letters/custom-templates', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    customReplace: (accessToken: string, templateId: string, file: File, canvaEditUrl?: string) => {
+      const form = new FormData(); form.append('template_file', file); if (canvaEditUrl !== undefined) form.append('canva_edit_url', canvaEditUrl)
+      return apiRequest<HRCustomTemplate>(`/hr-letters/custom-templates/${templateId}`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    customContent: (accessToken: string, templateId: string) => apiFileRequest(`/hr-letters/custom-templates/${templateId}/content`, accessToken),
   },
   admin: {
     users: (accessToken: string) => apiRequest<AdminUser[]>('/admin/users', { headers: { Authorization: `Bearer ${accessToken}` } }),

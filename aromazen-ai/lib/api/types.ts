@@ -58,6 +58,7 @@ export interface KnowledgeDocument {
   reminder_owner: string | null
   is_company_wide: boolean
   source_key: string | null
+  external_edit_url: string | null
 }
 
 export interface ChatCitation {
@@ -204,6 +205,18 @@ export interface HRTemplate {
   source: 'knowledge' | 'built_in'
   uploaded_at: string | null
   supports_dynamic_fields: boolean
+  detected_field_count: number
+  fields: HRTemplateField[]
+  salary_rows: HRTemplateSalaryRow[]
+}
+
+export interface HRCustomTemplate {
+  id: string
+  title: string
+  filename: string
+  version: number
+  uploaded_at: string
+  canva_edit_url: string | null
   detected_field_count: number
   fields: HRTemplateField[]
   salary_rows: HRTemplateSalaryRow[]

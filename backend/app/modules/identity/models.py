@@ -159,6 +159,7 @@ class KnowledgeDocument(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     document_category: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     source_key: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    external_edit_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     expiry_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     reminder_days_before: Mapped[int] = mapped_column(default=30)
     reminder_owner: Mapped[str | None] = mapped_column(String(160), nullable=True)

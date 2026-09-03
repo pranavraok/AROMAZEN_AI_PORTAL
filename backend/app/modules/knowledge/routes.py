@@ -57,6 +57,7 @@ def _document_response(item: KnowledgeDocument) -> dict:
         "extracted_characters": item.extracted_characters,
         "document_category": item.document_category,
         "source_key": item.source_key,
+        "external_edit_url": item.external_edit_url,
         "expiry_date": item.expiry_date.isoformat() if item.expiry_date else None,
         "reminder_days_before": item.reminder_days_before,
         "reminder_owner": item.reminder_owner,

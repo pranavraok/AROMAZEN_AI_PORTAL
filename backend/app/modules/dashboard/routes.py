@@ -193,6 +193,7 @@ async def dashboard_overview(
                 HRActionItem(key="letters", title="HR letters & templates", description="View, replace and use approved employee-letter templates.", href="/department-tools/hr-letters"),
                 HRActionItem(key="payroll", title="Salary slips & templates", description="Manage the salary-slip master, drafts and failed deliveries.", href="/hr/salary-slips", count=open_payroll_batches, tone="warning" if open_payroll_batches else "default"),
                 HRActionItem(key="knowledge", title="Rules and reminders", description="Open HR documents, licences and renewal dates.", href="/knowledge/test?categories=license,attendance_rule,leave_rule,hr_policy", count=due_reminders, tone="danger" if overdue_documents else "warning" if due_reminders else "default"),
+                HRActionItem(key="custom_letters", title="Custom letters", description="Upload occasional Word masters and map their {{fields}} automatically.", href="/department-tools/hr-custom-letters"),
             ],
         )
 

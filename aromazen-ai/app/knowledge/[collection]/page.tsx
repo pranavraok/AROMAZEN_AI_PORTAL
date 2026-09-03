@@ -26,6 +26,7 @@ const FOLDER_DEFINITIONS = [
   { key: 'hr_policy', label: 'HR policy', icon: Shield },
   { key: 'other', label: 'Other', icon: Folder },
   { key: 'department_upload', label: 'Department uploads', icon: Folder },
+  { key: 'hr_custom_letter_template', label: 'Custom HR templates', icon: FileText },
 ] as const
 
 function formatSize(bytes: number) {
@@ -36,6 +37,7 @@ function folderLabel(doc: KnowledgeDocument) {
   const cat = doc.document_category ?? 'general'
   if (cat.startsWith('other:')) return cat.slice(6)
   if (cat.startsWith('hr_letter_template:')) return `HR letter template · ${cat.slice('hr_letter_template:'.length).replaceAll('_', ' ')}`
+  if (cat === 'hr_custom_letter_template') return 'Custom HR letter template'
   if (cat === 'salary_slip_template') return 'Salary-slip template'
   if (cat === 'document_template') return 'Document template'
   if (cat === 'department_upload') return doc.source_key ? `Department upload · ${doc.source_key.replaceAll(':', ' · ').replaceAll('-', ' ')}` : 'Department upload'
@@ -217,7 +219,7 @@ export default function CollectionDetailPage({ params }: Props) {
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <div className="border-b border-border px-5 py-4"><h2 className="font-semibold">Documents</h2></div>
         {filteredDocs.length === 0 ? <p className="p-6 text-sm text-muted-foreground">No documents found for this filter.</p> : <div className="divide-y divide-border">
-          {filteredDocs.map((item) => { const protectedCashFlow = item.document.document_category === 'cash_flow_report'; const canvaEditUrl = canvaEditUrlForKnowledgeTemplate(item.document.document_category); return <div key={item.document.id} className="grid min-w-0 gap-3 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+          {filteredDocs.map((item) => { const protectedCashFlow = item.document.document_category === 'cash_flow_report'; const canvaEditUrl = item.document.external_edit_url ?? canvaEditUrlForKnowledgeTemplate(item.document.document_category); return <div key={item.document.id} className="grid min-w-0 gap-3 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
             <div className="flex min-w-0 items-start gap-3">
               {protectedCashFlow ? <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-primary" /> : <FileText className="mt-0.5 h-5 w-5 shrink-0 text-primary" />}
               <div className="min-w-0 flex-1">

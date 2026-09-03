@@ -12,6 +12,7 @@ import {
   GitCompareArrows,
   UserCog,
   WalletCards,
+  WandSparkles,
 } from 'lucide-react'
 import type { Department } from '@/lib/api/types'
 
@@ -42,6 +43,7 @@ const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'accounts' | 'inventory', Dep
     { key: 'letters', title: 'HR Letters', description: 'Prepare, review, download and email approved letters.', href: '/department-tools/hr-letters', icon: FileText, employeeAccess: true },
     { key: 'payroll', title: 'Payroll & Salary Slips', description: 'Prepare salary slips and manage delivery results.', href: '/hr/salary-slips', icon: WalletCards },
     { key: 'rules', title: 'Rules & Reminders', description: 'Review HR rules, licences and renewal reminders.', href: '/knowledge/rules-reminders', icon: BookOpen, employeeAccess: true },
+    { key: 'custom-letters', title: 'Custom Letters', description: 'Upload occasional masters and map their {{fields}} automatically.', href: '/department-tools/hr-custom-letters', icon: WandSparkles, employeeAccess: true },
   ],
   qa_qc: [
     { key: 'sds', title: 'Safety Data Sheet (SDS)', description: 'Create, review and download an approved-format SDS draft.', href: '/rnd/documents?type=sds', icon: FileText, employeeAccess: true },
