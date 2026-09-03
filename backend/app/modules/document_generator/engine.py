@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
+from docx.text.paragraph import Paragraph
 from openpyxl import load_workbook
 
 
@@ -104,6 +105,50 @@ def _rename_labelled_paragraphs(part, document_type: str, labels: dict[str, str]
             replacement = str(labels.get(key, "")).strip() if key else ""
             if replacement and replacement != match.group(1):
                 _replace_text_range(paragraph, match.start(1), match.end(1), replacement[:160])
+
+
+def _remove_hidden_labelled_fields(document, document_type: str, hidden_keys: set[str]) -> None:
+    if not hidden_keys:
+        return
+    aliases = _field_aliases(document_type)
+    phrases = sorted(aliases, key=len, reverse=True)
+    pattern = "|".join(re.escape(phrase).replace(r"\ ", r"\s+") for phrase in phrases)
+    for paragraph in list(document.paragraphs):
+        original = paragraph.text
+        matches = list(re.finditer(rf"(?i)\b({pattern})\s*:", original))
+        if not matches:
+            continue
+        matched = [(match, aliases.get(normalise(match.group(1)))) for match in matches]
+        if not any(key in hidden_keys for _, key in matched):
+            continue
+        kept_segments = []
+        for index, (match, key) in enumerate(matched):
+            segment_end = matches[index + 1].start() if index + 1 < len(matches) else len(original)
+            if key not in hidden_keys:
+                kept_segments.append(original[match.start():segment_end].strip())
+        if kept_segments:
+            _set_text_preserving_first_run(paragraph, original[:matches[0].start()] + "\t\t".join(kept_segments))
+        elif paragraph._p.xpath(".//w:drawing"):
+            _replace_text_range(paragraph, 0, len(original), "")
+        else:
+            paragraph._p.getparent().remove(paragraph._p)
+
+
+def _insert_custom_fields(document, custom_fields: list[dict[str, str]], template_element=None) -> None:
+    if not custom_fields or not document.tables:
+        return
+    if template_element is None:
+        return
+    table_element = document.tables[0]._tbl
+    for item in custom_fields:
+        label = str(item.get("label", "")).strip()
+        value = str(item.get("value", "")).strip()
+        if not label:
+            continue
+        element = deepcopy(template_element)
+        paragraph = Paragraph(element, document._body)
+        _set_text_preserving_first_run(paragraph, f"{label[:160]}\t: {value[:4000]}")
+        table_element.addprevious(element)
 
 
 def _replace_multiple_labelled_values(paragraph, document_type: str, fields: dict[str, str]) -> set[str]:
@@ -209,9 +254,17 @@ def _fill_coa_rows(table, supplied_rows: list[dict[str, str]]) -> None:
             row.cells[2].text = str(values.get("result", ""))
 
 
-def generate_docx(template: Path, output: Path, document_type: str, fields: dict[str, str], rows: list[dict[str, str]], field_labels: dict[str, str] | None = None, column_labels: dict[str, str] | None = None) -> list[str]:
+def generate_docx(template: Path, output: Path, document_type: str, fields: dict[str, str], rows: list[dict[str, str]], field_labels: dict[str, str] | None = None, column_labels: dict[str, str] | None = None, hidden_field_keys: set[str] | None = None, custom_fields: list[dict[str, str]] | None = None) -> list[str]:
     document = Document(template)
     warnings: list[str] = []
+    custom_field_template = None
+    if document_type == "coa":
+        aliases = _field_aliases("coa")
+        source_paragraph = next(
+            (paragraph for paragraph in document.paragraphs if aliases.get(normalise(paragraph.text.split(":", 1)[0])) == "quantity"),
+            None,
+        )
+        custom_field_template = deepcopy(source_paragraph._p) if source_paragraph is not None else None
     rendered_fields = dict(fields)
     if document_type == "coa" and rendered_fields.get("date"):
         try:
@@ -225,7 +278,8 @@ def generate_docx(template: Path, output: Path, document_type: str, fields: dict
                 for paragraph in cell.paragraphs:
                     replaced.update(_replace_labelled_paragraphs(type("Part", (), {"paragraphs": [paragraph]})(), document_type, rendered_fields))
     definitions = COA_FIELDS if document_type == "coa" else SDS_FIELDS
-    missing = [label for key, label, required in definitions if required and not str(fields.get(key, "")).strip()]
+    hidden = hidden_field_keys or set()
+    missing = [label for key, label, required in definitions if required and key not in hidden and not str(fields.get(key, "")).strip()]
     if missing:
         warnings.append("Missing required information: " + ", ".join(missing))
     if document_type == "coa":
@@ -251,11 +305,14 @@ def generate_docx(template: Path, output: Path, document_type: str, fields: dict
         if not rows:
             warnings.append("No SDS composition rows were supplied; the composition table is blank.")
         warnings.append("SDS documents require review and approval by a qualified safety/regulatory person before issue.")
+    _remove_hidden_labelled_fields(document, document_type, hidden_field_keys or set())
     _rename_labelled_paragraphs(document, document_type, field_labels or {})
     for table in document.tables:
         for row in table.rows:
             for cell in row.cells:
                 _rename_labelled_paragraphs(type("Part", (), {"paragraphs": cell.paragraphs})(), document_type, field_labels or {})
+    if document_type == "coa":
+        _insert_custom_fields(document, custom_fields or [], custom_field_template)
     if not replaced:
         warnings.append("No labelled fields were found in this template; verify the generated document carefully.")
     output.parent.mkdir(parents=True, exist_ok=True)

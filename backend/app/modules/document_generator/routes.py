@@ -527,7 +527,7 @@ async def draft_from_notes(payload: DraftNotesRequest, user: User = Depends(requ
 @router.post("/generate")
 async def generate(
     template_document_id: str = Form(...), document_type: str = Form(...), fields_json: str = Form("{}"), rows_json: str = Form("[]"),
-    field_labels_json: str = Form("{}"), column_labels_json: str = Form("{}"), output_filename: str | None = Form(None), excel_file: UploadFile | None = File(None), user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session),
+    field_labels_json: str = Form("{}"), column_labels_json: str = Form("{}"), hidden_field_keys_json: str = Form("[]"), custom_fields_json: str = Form("[]"), output_filename: str | None = Form(None), excel_file: UploadFile | None = File(None), user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     document_department_slug = await _require_document_department(session, user)
     document, _ = await _template(session, user, template_document_id)
@@ -539,9 +539,11 @@ async def generate(
         manual_rows = json.loads(rows_json)
         field_labels = json.loads(field_labels_json)
         column_labels = json.loads(column_labels_json)
+        hidden_field_keys = json.loads(hidden_field_keys_json)
+        custom_fields = json.loads(custom_fields_json)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail="The form data is invalid.") from exc
-    if not isinstance(manual_fields, dict) or not isinstance(manual_rows, list) or not isinstance(field_labels, dict) or not isinstance(column_labels, dict):
+    if not isinstance(manual_fields, dict) or not isinstance(manual_rows, list) or not isinstance(field_labels, dict) or not isinstance(column_labels, dict) or not isinstance(hidden_field_keys, list) or not isinstance(custom_fields, list):
         raise HTTPException(status_code=422, detail="The form data is invalid.")
     storage = Path(get_settings().upload_storage_path)
     excel_fields: dict[str, str] = {}
@@ -606,7 +608,10 @@ async def generate(
     (storage / output_stored).parent.mkdir(parents=True, exist_ok=True)
     safe_field_labels = {str(key): str(value)[:160] for key, value in field_labels.items() if str(value).strip()}
     safe_column_labels = {str(key): str(value)[:160] for key, value in column_labels.items() if str(value).strip()}
-    warnings = generate_docx(template_path, storage / output_stored, document_type, fields, rows, safe_field_labels, safe_column_labels)
+    allowed_field_keys = {item["key"] for item in field_schema(document_type, template_path)}
+    safe_hidden_field_keys = {str(key) for key in hidden_field_keys if str(key) in allowed_field_keys}
+    safe_custom_fields = [{"label": str(item.get("label", ""))[:160], "value": str(item.get("value", ""))[:4000]} for item in custom_fields[:50] if isinstance(item, dict) and str(item.get("label", "")).strip()]
+    warnings = generate_docx(template_path, storage / output_stored, document_type, fields, rows, safe_field_labels, safe_column_labels, safe_hidden_field_keys, safe_custom_fields)
     if document_type == "coa" and fields.get("manufacturing_date") and fields.get("expiry_date"):
         try:
             manufacturing = datetime.strptime(fields["manufacturing_date"], "%d %B %Y")
