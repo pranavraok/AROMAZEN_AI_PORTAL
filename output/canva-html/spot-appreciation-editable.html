@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><style>
+@page { size: A4; margin: 0; }
+* { box-sizing: border-box; }
+body { margin: 0; background: white; color: #111; font-family: Arial, "Noto Sans Kannada", sans-serif; }
+.page { position: relative; width: 816px; height: 1056px; padding: 165px 66px 110px 90px; overflow: hidden; background: white; }
+.page.dense { padding-top: 165px; }
+.content { font-size: 13.4px; line-height: 1.2; }
+.content p { white-space: normal; }
+.spacer { height: 12px; }
+.list-label { display: inline-block; min-width: 30px; font-weight: 700; }
+.acknowledgement { position: absolute; left: 90px; bottom: 62px; width: 320px; font-size: 11px; line-height: 1.15; }
+.page-number { position: absolute; right: 66px; bottom: 48px; font-size: 11px; }
+table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 7px 0; font-size: 10.2px; line-height: 1.1; }
+th, td { border: 1px solid #111; padding: 3px 5px; vertical-align: middle; overflow-wrap: anywhere; }
+th { background: #d7d7d7; text-align: center; }
+.compact-table { font-size: 8.3px; line-height: 1.0; margin: 3px 0; }
+.compact-table th, .compact-table td { padding: 1px 3px; }
+</style></head><body><section data-document-role="page" data-label="Spot Appreciation Letter" class="page"><div class="content"><p style="text-align:right;margin:5px 0">DATE: {{issue_date}}</p><p style="text-align:center;margin:5px 0"><span style="font-weight:700;text-decoration:underline;font-size:20.3px">SPOT APPRECIATION </span><span style="font-weight:700;text-decoration:underline;font-size:20.3px">REWARD</span></p><p style="text-align:left;margin:5px 0">To,</p><p style="text-align:left;margin:5px 0">{{employee_name}}</p><p style="text-align:left;margin:5px 0">{{designation}}</p><p style="text-align:left;margin:5px 0">Aromazen Pvt Ltd</p><p style="text-align:justify;margin:5px 0">{{appreciation_reason}}</p><p style="text-align:justify;margin:5px 0">{{positive_impact}}</p><p style="text-align:justify;margin:5px 0">{{reward_statement}}</p><p style="text-align:justify;margin:5px 0">{{closing_message}}</p><p style="text-align:left;margin:5px 0">With Regards,</p><p style="text-align:left;margin:5px 0">{{signatory_name}}<br>{{signatory_title}}</p></div></section></body></html>
