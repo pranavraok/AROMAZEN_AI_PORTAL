@@ -30,6 +30,26 @@ class DocumentReminderUpdate(BaseModel):
     is_company_wide: bool | None = Field(default=None)
 
 
+class DocumentRenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=500)
+
+
+def _renamed_filename(current_name: str, requested_name: str) -> str:
+    name = requested_name.strip()
+    if not name or name in {".", ".."} or any(char in name for char in '\\/:*?"<>|') or any(ord(char) < 32 for char in name):
+        raise HTTPException(status_code=422, detail="Enter a valid file name.")
+
+    current_extension = Path(current_name).suffix
+    requested_extension = Path(name).suffix
+    if requested_extension and requested_extension.lower() != current_extension.lower():
+        raise HTTPException(status_code=422, detail=f"The file type must remain {current_extension or 'unchanged'}.")
+    if current_extension and not requested_extension:
+        name = f"{name}{current_extension}"
+    if len(name) > 500:
+        raise HTTPException(status_code=422, detail="The file name must be 500 characters or fewer.")
+    return name
+
+
 def _document_response(item: KnowledgeDocument) -> dict:
     return {
         "id": str(item.id), "name": item.original_filename, "status": item.status,
@@ -89,6 +109,27 @@ async def list_documents(collection_id: str, user: User = Depends(require_permis
         raise HTTPException(status_code=403, detail="You do not have access to this collection.")
     documents = await session.scalars(select(KnowledgeDocument).where(KnowledgeDocument.collection_id == collection.id).order_by(KnowledgeDocument.created_at.desc()))
     return [_document_response(item) for item in documents]
+
+
+@router.patch("/collections/{collection_id}/documents/{document_id}/name")
+async def rename_document(
+    collection_id: str,
+    document_id: str,
+    payload: DocumentRenameRequest,
+    user: User = Depends(require_permissions("knowledge.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    collection = await session.get(KnowledgeCollection, collection_id)
+    document = await session.get(KnowledgeDocument, document_id)
+    if not collection or not document or document.collection_id != collection.id or collection.organization_id != user.organization_id:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if not await can_access_collection(session, user, collection):
+        raise HTTPException(status_code=403, detail="You cannot rename this document.")
+
+    document.original_filename = _renamed_filename(document.original_filename, payload.name)
+    collection.updated_at = datetime.now(timezone.utc)
+    await session.commit()
+    return _document_response(document)
 
 
 @router.patch("/collections/{collection_id}/documents/{document_id}/reminder")

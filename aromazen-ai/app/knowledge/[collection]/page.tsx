@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ChevronLeft, Download, ExternalLink, FileText, Folder, Lock, LockKeyhole, Shield, Users } from 'lucide-react'
+import { Check, ChevronLeft, Download, ExternalLink, FileText, Folder, Lock, LockKeyhole, Pencil, Shield, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
@@ -60,6 +60,9 @@ export default function CollectionDetailPage({ params }: Props) {
   const [loading, setLoading] = useState(true)
   const [collectionFilter, setCollectionFilter] = useState<string | null>(null)
   const [activeFolder, setActiveFolder] = useState<string | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [savingName, setSavingName] = useState(false)
 
   useEffect(() => { void params.then(({ collection }) => setSlug(collection)) }, [params])
 
@@ -140,6 +143,31 @@ export default function CollectionDetailPage({ params }: Props) {
     } catch { notify('error', 'Unable to download document.') }
   }
 
+  function beginRename(document: KnowledgeDocument) {
+    setRenamingId(document.id)
+    setRenameValue(document.name)
+  }
+
+  function cancelRename() {
+    setRenamingId(null)
+    setRenameValue('')
+  }
+
+  async function saveDocumentName(item: { document: KnowledgeDocument; collection: KnowledgeCollection }) {
+    if (!accessToken || !renameValue.trim() || savingName) return
+    setSavingName(true)
+    try {
+      const updated = await api.knowledge.renameDocument(accessToken, item.collection.id, item.document.id, renameValue)
+      setDocsWithCollection((current) => current.map((pair) => pair.document.id === updated.id ? { ...pair, document: updated } : pair))
+      cancelRename()
+      notify('success', `Renamed to ${updated.name}.`)
+    } catch (reason) {
+      notify('error', reason instanceof ApiError ? reason.message : 'Unable to rename this document.')
+    } finally {
+      setSavingName(false)
+    }
+  }
+
   const currentCollection = allCollections.find((c) => c.id === collectionFilter)
 
   return <AppLayout><div className="space-y-6 p-6">
@@ -193,7 +221,14 @@ export default function CollectionDetailPage({ params }: Props) {
             <div className="flex min-w-0 items-start gap-3">
               {protectedCashFlow ? <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-primary" /> : <FileText className="mt-0.5 h-5 w-5 shrink-0 text-primary" />}
               <div className="min-w-0 flex-1">
-                <p className="break-words text-sm font-medium [overflow-wrap:anywhere] sm:truncate" title={item.document.name}>{item.document.name}</p>
+                {renamingId === item.document.id ? <div className="flex max-w-xl items-center gap-1.5">
+                  <input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void saveDocumentName(item); if (event.key === 'Escape') cancelRename() }} disabled={savingName} aria-label={`Rename ${item.document.name}`} className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                  <Button variant="outline" size="sm" disabled={savingName || !renameValue.trim()} onClick={() => void saveDocumentName(item)} title="Save name" aria-label="Save file name"><Check className="h-3.5 w-3.5" /></Button>
+                  <Button variant="outline" size="sm" disabled={savingName} onClick={cancelRename} title="Cancel rename" aria-label="Cancel rename"><X className="h-3.5 w-3.5" /></Button>
+                </div> : <div className="flex min-w-0 items-center gap-1.5">
+                  <p className="min-w-0 break-words text-sm font-medium [overflow-wrap:anywhere] sm:truncate" title={item.document.name}>{item.document.name}</p>
+                  {hasPermission('knowledge.write') && <button type="button" onClick={() => beginRename(item.document)} className="shrink-0 rounded p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground" title="Rename file" aria-label={`Rename ${item.document.name}`}><Pencil className="h-3.5 w-3.5" /></button>}
+                </div>}
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
                   {collectionFilter === null && <><span className="max-w-full break-words font-medium text-foreground/70">{item.collection.name}</span><span aria-hidden="true">·</span></>}
                   <span>{folderLabel(item.document)}</span><span aria-hidden="true">·</span><span>{formatSize(item.document.size_bytes)}</span><span aria-hidden="true">·</span><span>v{item.document.version}</span><span aria-hidden="true">·</span><span>{protectedCashFlow ? 'Password required to open' : `${item.document.extracted_characters.toLocaleString()} chars`}</span>

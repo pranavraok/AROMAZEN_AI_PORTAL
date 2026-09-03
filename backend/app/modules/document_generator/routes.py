@@ -204,7 +204,11 @@ async def _require_document_department(session: AsyncSession, user: User) -> str
     return department.slug
 
 
-def _type_for(name: str) -> str:
+def _type_for(name: str, source_key: str | None = None) -> str:
+    if source_key and source_key.startswith("document-generator-template:"):
+        template_type = source_key.split(":", 2)[1]
+        if template_type in {"coa", "sds"}:
+            return template_type
     return "sds" if "sds" in name.lower() else "coa"
 
 
@@ -258,7 +262,7 @@ async def list_templates(user: User = Depends(require_permissions("ai.workspace.
     ).order_by(KnowledgeDocument.created_at.desc())
     result = []
     for document, collection in (await session.execute(query)).all():
-        result.append({"id": str(document.id), "name": document.original_filename, "collection_name": collection.name, "document_type": _type_for(document.original_filename)})
+        result.append({"id": str(document.id), "name": document.original_filename, "collection_name": collection.name, "document_type": _type_for(document.original_filename, document.source_key)})
     return result
 
 
@@ -306,7 +310,7 @@ async def upload_template(
 async def template_schema(template_id: str, user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> dict:
     await _require_document_department(session, user)
     document, _ = await _template(session, user, template_id)
-    document_type = _type_for(document.original_filename)
+    document_type = _type_for(document.original_filename, document.source_key)
     row_fields = (["parameter", "specification", "result"] if document_type == "coa" else ["name", "cas_number", "ec_number", "concentration", "classification", "notes"])
     template_path = Path(get_settings().upload_storage_path) / document.stored_filename
     roles = await role_keys_for_user(session, user.id)
@@ -318,7 +322,7 @@ async def template_schema(template_id: str, user: User = Depends(require_permiss
 async def excel_template(template_id: str, user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> StreamingResponse:
     await _require_document_department(session, user)
     document, _ = await _template(session, user, template_id)
-    document_type = _type_for(document.original_filename)
+    document_type = _type_for(document.original_filename, document.source_key)
     workbook = Workbook()
     fields_sheet = workbook.active
     fields_sheet.title = "Fields"
@@ -391,7 +395,7 @@ async def transcribe_draft_audio(
 async def draft_from_notes(payload: DraftNotesRequest, user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> dict:
     await _require_document_department(session, user)
     document, _ = await _template(session, user, payload.template_document_id)
-    document_type = _type_for(document.original_filename)
+    document_type = _type_for(document.original_filename, document.source_key)
     template_path = Path(get_settings().upload_storage_path) / document.stored_filename
     schema = field_schema(document_type, template_path)
     allowed_fields = {item["key"] for item in schema}
@@ -458,7 +462,7 @@ async def generate(
 ) -> dict:
     document_department_slug = await _require_document_department(session, user)
     document, _ = await _template(session, user, template_document_id)
-    actual_type = _type_for(document.original_filename)
+    actual_type = _type_for(document.original_filename, document.source_key)
     if document_type not in {"coa", "sds"} or document_type != actual_type:
         raise HTTPException(status_code=422, detail="The selected document type does not match this template.")
     try:
