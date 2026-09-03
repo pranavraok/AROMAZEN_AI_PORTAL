@@ -6,6 +6,7 @@ import { AlertTriangle, Check, CheckCircle2, ChevronDown, Download, ExternalLink
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { InfoTip } from '@/components/ui/info-tip'
 import { useAuth } from '@/components/auth/auth-provider'
 import { useToast } from '@/components/ui/toast-provider'
 import { api } from '@/lib/api/services'
@@ -132,17 +133,10 @@ export default function SalarySlipsPage() {
 
   if (!canUse) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="text-center"><ShieldCheck className="mx-auto h-10 w-10 text-muted-foreground" /><h1 className="mt-3 text-xl font-semibold">Access restricted</h1></div></main></AppLayout>
 
-  return <AppLayout><main className="space-y-5 p-4 md:p-6">
-    <PageHeader title="Salary slips" description="Upload the reviewed salary-ready Excel, prepare every PDF and send through HR email." actions={<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void downloadSalaryTemplate()}><Download className="mr-2 h-4 w-4" />Final salary template</Button><Link href="/hr/leave-calculator" className={buttonVariants({ variant: 'outline' })}><FileSpreadsheet className="mr-2 h-4 w-4" />Leave calculator</Link></div>} />
+  return <AppLayout><main className="space-y-4 p-4 md:p-6">
+    <PageHeader title="Salary slips" actions={<div className="flex flex-wrap items-center gap-2"><InfoTip label="Salary slip workflow" align="right">Upload the reviewed salary Excel, prepare the PDFs, review them and send through HR email. Use Leave Calculator first when Present Days or LOP must be calculated.</InfoTip><Button size="sm" variant="outline" onClick={() => void downloadSalaryTemplate()}><Download className="mr-1.5 h-4 w-4" />Salary template</Button><Link href="/hr/leave-calculator" className={buttonVariants({ size: 'sm', variant: 'outline' })}><FileSpreadsheet className="mr-1.5 h-4 w-4" />Leave calculator</Link></div>} />
 
-    <section className="flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold">Need to calculate Present Days and LOP?</h2><p className="mt-1 text-sm text-muted-foreground">Merge salary details with attendance and shifts first, review the leave calculation, then upload that downloaded Excel here.</p></div><Link href="/hr/leave-calculator" className={buttonVariants()}>Open Leave Calculator</Link></section>
-
-    <details className="rounded-2xl border border-border bg-card" open>
-      <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Payslip template library <span className="ml-1 text-xs font-normal text-muted-foreground">{template ? '1/1 ready' : 'Template required'} · {template?.source === 'Human Resources knowledge' ? 'stored in Human Resources Knowledge' : 'built-in approved master'}</span></summary>
-      <div className="border-t border-border p-4">
-        <div className="rounded-2xl border border-border bg-card p-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><FileText className="h-5 w-5" /></span><div><p className="font-semibold">Salary slip master</p><p className="text-xs text-muted-foreground">{template ? `${template.original_filename} · ${template.detected_fields.length} mapped PDF fields` : 'Upload the approved editable Canva PDF'}</p></div></div>{template ? <Check className="h-4 w-4 text-emerald-400" /> : <X className="h-4 w-4 text-red-400" />}</div><p className="mt-3 text-xs leading-5 text-muted-foreground">One master applies to all employees. Unit and unit address are read from each Excel row and filled automatically—no unit selection is required.</p><div className="mt-4 flex flex-wrap gap-2">{template && <Button size="sm" variant="outline" onClick={() => void viewTemplate(template)}><Eye className="mr-1.5 h-4 w-4" />View template</Button>}{hasPermission('knowledge.write') && <><Button size="sm" variant="outline" onClick={() => window.open(canvaEditUrl, '_blank', 'noopener,noreferrer')}><ExternalLink className="mr-1.5 h-4 w-4" />Edit in Canva</Button><label className={buttonVariants({ size: 'sm', variant: template ? 'outline' : 'default' })}><input hidden type="file" accept=".pdf,application/pdf" disabled={replacingTemplate} onChange={(event) => { void replaceTemplate(event.target.files?.[0] ?? null); event.target.value = '' }} />{replacingTemplate ? <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}{replacingTemplate ? 'Mapping fields' : template ? 'Replace master' : 'Upload master'}</label></>}</div></div>
-      </div>
-    </details>
+    <section className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-2"><FileText className="size-4 shrink-0 text-primary" /><p className="truncate text-sm font-medium">{template?.original_filename ?? 'Salary slip master required'}</p>{template ? <Check className="size-4 shrink-0 text-emerald-400" /> : <X className="size-4 shrink-0 text-red-400" />}<InfoTip label="Salary slip master details">{template ? `${template.detected_fields.length} mapped PDF fields · ${template.source}. ` : ''}One master applies to every employee. Unit and address are taken automatically from each Excel row.</InfoTip></div><div className="flex shrink-0 flex-wrap gap-2">{template && <Button size="sm" variant="outline" onClick={() => void viewTemplate(template)}><Eye className="mr-1.5 h-4 w-4" />View</Button>}{hasPermission('knowledge.write') && <><Button size="sm" variant="outline" onClick={() => window.open(canvaEditUrl, '_blank', 'noopener,noreferrer')}><ExternalLink className="mr-1.5 h-4 w-4" />Canva</Button><label className={buttonVariants({ size: 'sm', variant: template ? 'outline' : 'default' })}><input hidden type="file" accept=".pdf,application/pdf" disabled={replacingTemplate} onChange={(event) => { void replaceTemplate(event.target.files?.[0] ?? null); event.target.value = '' }} />{replacingTemplate ? <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}{replacingTemplate ? 'Mapping' : template ? 'Replace' : 'Upload'}</label></>}</div></section>
 
     <section className="rounded-2xl border border-border bg-card p-4 md:p-5">
       <div className="grid gap-3 md:grid-cols-[12rem_1fr_auto]">
@@ -153,11 +147,10 @@ export default function SalarySlipsPage() {
     </section>
 
     {batch && <>
-      <details className="rounded-2xl border border-border bg-card"><summary className="cursor-pointer p-4 text-sm font-medium">Email message <span className="ml-1 text-xs font-normal text-muted-foreground">Optional edit</span></summary><div className="border-t border-border p-4 md:p-5">
+      <details className="rounded-2xl border border-border bg-card"><summary className="flex cursor-pointer list-none items-center gap-2 p-4 text-sm font-medium">Email message <InfoTip label="Email message help">Optional. You can use {'{employee_name}'} and {'{month}'} in the message.</InfoTip></summary><div className="border-t border-border p-4 md:p-5">
         <div className="mb-3 flex items-center justify-end"><Button size="sm" variant="outline" disabled={busy !== null || batch.status === 'sending'} onClick={() => void saveEmail()}>{busy === 'save' ? 'Saving' : 'Save changes'}</Button></div>
         <input value={subject} maxLength={240} onChange={(event) => setSubject(event.target.value)} className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm" aria-label="Email subject" />
         <textarea value={body} maxLength={8000} onChange={(event) => setBody(event.target.value)} rows={7} className="mt-3 w-full resize-y rounded-xl border border-border bg-background p-3 text-sm leading-6" aria-label="Email body" />
-        <p className="mt-2 text-xs text-muted-foreground">Use {'{employee_name}'} and {'{month}'}.</p>
       </div></details>
 
       <section className="rounded-2xl border border-border bg-card p-4 md:p-5">
