@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pdfplumber
 from docx import Document
@@ -169,7 +170,40 @@ def _template_tokens(path: Path) -> list[str]:
             cleaned = key.strip()
             if cleaned and cleaned not in tokens:
                 tokens.append(cleaned)
+    # python-docx does not expose paragraphs or tables placed inside Word text
+    # boxes. Include their raw OOXML text so uploaded templates remain fully
+    # data-driven even when Canva/Word uses positioned elements.
+    with ZipFile(path) as archive:
+        for name in archive.namelist():
+            if not name.startswith("word/") or not name.endswith(".xml"):
+                continue
+            xml = archive.read(name).decode("utf-8", errors="ignore")
+            for match in PLACEHOLDER_PATTERN.finditer(xml):
+                key = match.group(1).strip()
+                if key and key not in tokens:
+                    tokens.append(key)
     return tokens
+
+
+def _replace_remaining_docx_tokens(path: Path, fields: dict[str, str]) -> None:
+    """Fill placeholders stored in text boxes and other OOXML-only elements."""
+    rewritten = path.with_name(f"{path.stem}-rewritten{path.suffix}")
+    with ZipFile(path) as source, ZipFile(rewritten, "w", ZIP_DEFLATED) as destination:
+        for item in source.infolist():
+            data = source.read(item.filename)
+            if item.filename.startswith("word/") and item.filename.endswith(".xml"):
+                xml = data.decode("utf-8", errors="strict")
+
+                def replacement(match: re.Match[str]) -> str:
+                    key = match.group(1).strip()
+                    value = fields.get(key, "").strip()
+                    if key.startswith("salary_") and not value:
+                        value = "NIL"
+                    return escape(value, quote=False)
+
+                data = PLACEHOLDER_PATTERN.sub(replacement, xml).encode("utf-8")
+            destination.writestr(item, data)
+    rewritten.replace(path)
 
 
 def _pdf_template_tokens(path: Path) -> list[str]:
@@ -435,6 +469,7 @@ def _fill_docx(
                 formatting.space_after = Pt(formatting.space_after.pt * appointment_scale)
     output = workdir / f"{template_key}.docx"
     document.save(output)
+    _replace_remaining_docx_tokens(output, fields)
     return output
 
 

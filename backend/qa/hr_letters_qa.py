@@ -13,7 +13,9 @@ import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from docx import Document
 from docx.oxml.ns import qn
@@ -40,10 +42,14 @@ def load_generator():
         "EXPECTED_APPOINTMENT_PAGE_COUNT",
         "KANNADA_FONT_NAME",
         "APPOINTMENT_REQUIRED_FIELDS",
+        "PLACEHOLDER_PATTERN",
     }
     function_names = {
         "_paragraphs",
+        "_template_tokens",
+        "_legacy_appointment_layout",
         "_replace_token",
+        "_replace_remaining_docx_tokens",
         "_fill_docx",
         "_validate_letter_fields",
         "_convert_with_libreoffice",
@@ -62,6 +68,8 @@ def load_generator():
             nodes.append(node)
     namespace = {
         "Document": Document,
+        "ZIP_DEFLATED": ZIP_DEFLATED,
+        "ZipFile": ZipFile,
         "Path": Path,
         "PdfReader": PdfReader,
         "Pt": Pt,
@@ -79,6 +87,7 @@ def load_generator():
         "urllib": urllib,
         "uuid": uuid,
         "datetime": datetime,
+        "escape": escape,
         "timezone": timezone,
         "_offer_pdf": lambda fields: b"",
     }
@@ -162,6 +171,54 @@ def main() -> None:
     long_output.write_bytes(generator["_generate_pdf"]("appointment", long_fields))
     assert len(PdfReader(long_output).pages) == generator["EXPECTED_APPOINTMENT_PAGE_COUNT"]
     print("PASS: compact retry kept a long-address appointment at 10 pages")
+
+    spot_fields = {
+        "issue_date": "12/08/2026",
+        "employee_name": "Ananya Krishnamurthy Rao",
+        "designation": "Senior Quality Assurance Executive",
+        "appreciation_reason": "Your alertness and proactive approach are greatly appreciated.",
+        "positive_impact": "Your contribution prevented production downtime and supported the whole team.",
+        "reward_statement": "Please accept this spot appreciation reward.",
+        "closing_message": "Thank you for your dedication and excellent work.",
+        "signatory_name": "Mrs. Deeksha",
+        "signatory_title": "Accounts & HR Head",
+    }
+    spot_output = output_dir / "spot-appreciation-all-fields.pdf"
+    spot_output.write_bytes(generator["_generate_pdf"]("spot_appreciation", spot_fields))
+    spot_reader = PdfReader(spot_output)
+    assert len(spot_reader.pages) == 1
+    assert "{{" not in "\n".join(page.extract_text() or "" for page in spot_reader.pages)
+    print("PASS: generated 1-page letterhead-safe Spot Appreciation PDF")
+
+    special_template = ASSET_ROOT / "special-increment-template.docx"
+    special_tokens = generator["_template_tokens"](special_template)
+    assert len([token for token in special_tokens if token.startswith("salary_")]) == 37
+    special_fields = {
+        token: (
+            "1,000"
+            if token.startswith("salary_")
+            else {
+                "issue_date": "12/08/2026",
+                "employee_name": "Ananya Krishnamurthy Rao",
+                "effective_date": "01/09/2026",
+                "revised_salary": "45,000/-",
+                "appt_ref": "APL/HR/APPT/2026/0812",
+                "appt_date": "12/08/2026",
+                "signatory_name": "Ms. Swathi Nayak",
+                "signatory_title": "Human Resources",
+            }.get(token, "Sample value")
+        )
+        for token in special_tokens
+    }
+    special_output = output_dir / "special-increment-all-fields.pdf"
+    special_output.write_bytes(generator["_generate_pdf"]("special_increment", special_fields))
+    special_reader = PdfReader(special_output)
+    special_text = "\n".join(page.extract_text() or "" for page in special_reader.pages)
+    assert len(special_reader.pages) == 3
+    assert "{{" not in special_text
+    assert "Basic Salary" in special_text
+    assert "Cost To Company" in special_text
+    print("PASS: generated 3-page Special Increment PDF with a fully mapped compensation annexure")
 
 
 if __name__ == "__main__":
