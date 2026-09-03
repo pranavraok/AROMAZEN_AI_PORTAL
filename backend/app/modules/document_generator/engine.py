@@ -74,6 +74,38 @@ def _replace_value_after_colon(paragraph, value: str) -> None:
         target.text += value
 
 
+def _replace_text_range(paragraph, start: int, end: int, value: str) -> None:
+    """Replace a text range without removing non-text runs such as anchored artwork."""
+    cursor = 0
+    inserted = False
+    for run in paragraph.runs:
+        original = run.text
+        run_end = cursor + len(original)
+        if run_end <= start or cursor >= end:
+            cursor = run_end
+            continue
+        prefix = original[:max(0, start - cursor)] if cursor <= start else ""
+        suffix = original[max(0, end - cursor):] if cursor < end <= run_end else ""
+        run.text = prefix + (value if not inserted else "") + suffix
+        inserted = True
+        cursor = run_end
+
+
+def _rename_labelled_paragraphs(part, document_type: str, labels: dict[str, str]) -> None:
+    if not labels:
+        return
+    aliases = _field_aliases(document_type)
+    phrases = sorted(aliases, key=len, reverse=True)
+    pattern = "|".join(re.escape(phrase).replace(r"\ ", r"\s+") for phrase in phrases)
+    for paragraph in part.paragraphs:
+        matches = list(re.finditer(rf"(?i)\b({pattern})\s*(?=:)", paragraph.text))
+        for match in reversed(matches):
+            key = aliases.get(normalise(match.group(1)))
+            replacement = str(labels.get(key, "")).strip() if key else ""
+            if replacement and replacement != match.group(1):
+                _replace_text_range(paragraph, match.start(1), match.end(1), replacement[:160])
+
+
 def _replace_multiple_labelled_values(paragraph, document_type: str, fields: dict[str, str]) -> set[str]:
     """Fill two or more labels sharing one paragraph without deleting later labels.
 
@@ -177,7 +209,7 @@ def _fill_coa_rows(table, supplied_rows: list[dict[str, str]]) -> None:
             row.cells[2].text = str(values.get("result", ""))
 
 
-def generate_docx(template: Path, output: Path, document_type: str, fields: dict[str, str], rows: list[dict[str, str]]) -> list[str]:
+def generate_docx(template: Path, output: Path, document_type: str, fields: dict[str, str], rows: list[dict[str, str]], field_labels: dict[str, str] | None = None, column_labels: dict[str, str] | None = None) -> list[str]:
     document = Document(template)
     warnings: list[str] = []
     rendered_fields = dict(fields)
@@ -202,6 +234,10 @@ def generate_docx(template: Path, output: Path, document_type: str, fields: dict
             # in the portal, so the generated table mirrors the submitted
             # three-column structure instead of locking the master row labels.
             _replace_table_rows(document.tables[0], rows, ["parameter", "specification", "result"])
+            for index, key in enumerate(("parameter", "specification", "result")):
+                replacement = str((column_labels or {}).get(key, "")).strip()
+                if replacement and index < len(document.tables[0].rows[0].cells):
+                    document.tables[0].rows[0].cells[index].text = replacement[:160]
         if not any(row.get("specification") or row.get("result") for row in rows):
             warnings.append("COA test parameters were retained, but their specification and result values are blank.")
     else:
@@ -215,6 +251,11 @@ def generate_docx(template: Path, output: Path, document_type: str, fields: dict
         if not rows:
             warnings.append("No SDS composition rows were supplied; the composition table is blank.")
         warnings.append("SDS documents require review and approval by a qualified safety/regulatory person before issue.")
+    _rename_labelled_paragraphs(document, document_type, field_labels or {})
+    for table in document.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                _rename_labelled_paragraphs(type("Part", (), {"paragraphs": cell.paragraphs})(), document_type, field_labels or {})
     if not replaced:
         warnings.append("No labelled fields were found in this template; verify the generated document carefully.")
     output.parent.mkdir(parents=True, exist_ok=True)

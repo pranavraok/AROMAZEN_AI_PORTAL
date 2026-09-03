@@ -36,14 +36,22 @@ def test_seeded_qa_coa_master_maps_fields_and_editable_rows(tmp_path: Path) -> N
             {"parameter": "Acid Value", "specification": "Maximum 2.0", "result": "1.4"},
             {"parameter": "Custom Appearance", "specification": "Clear liquid", "result": "Passes"},
         ],
+        {
+            "product_name": "Material Description",
+            "batch_number": "Lot Number",
+            "storage_condition": "Storage Instructions",
+        },
+        {"parameter": "Test", "specification": "Acceptance Criteria", "result": "Observed Value"},
     )
 
     assert warnings == []
     generated = Document(output)
     text = "\n".join(paragraph.text for paragraph in generated.paragraphs)
     assert "Date: 03-09-2026" in text
-    assert "Name of the Product\t: Rose Absolute" in text
+    assert "Material Description\t: Rose Absolute" in text
     assert "Product Code\t: RA 101" in text
+    assert "Lot Number\t: B25" in text
     assert len(generated.tables[0].rows) == 3
+    assert [cell.text for cell in generated.tables[0].rows[0].cells] == ["Test", "Acceptance Criteria", "Observed Value"]
     assert [cell.text for cell in generated.tables[0].rows[1].cells] == ["Acid Value", "Maximum 2.0", "1.4"]
     assert [cell.text for cell in generated.tables[0].rows[2].cells] == ["Custom Appearance", "Clear liquid", "Passes"]

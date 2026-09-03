@@ -36,6 +36,7 @@ class DraftNotesRequest(BaseModel):
     notes: str = Field(min_length=1, max_length=20000)
     current_fields: dict[str, str] = Field(default_factory=dict)
     current_rows: list[dict[str, str]] = Field(default_factory=list, max_length=200)
+    field_labels: dict[str, str] = Field(default_factory=dict)
 
 
 def _parse_ai_json(text: str) -> dict:
@@ -476,7 +477,7 @@ async def draft_from_notes(payload: DraftNotesRequest, user: User = Depends(requ
     system = """You are a precise professional COA/SDS dictation editor. Return JSON only with keys field_updates, row_updates, and unassigned_notes. Input may contain a professional audio transcript and a browser transcript of the same speech; reconcile them as alternate evidence, do not treat their headings as values, and prefer the version that is complete and professionally plausible. Process notes in spoken order. When the speaker says 'sorry', 'no', 'I mean', 'correct that to', 'change that to', or otherwise revises a fact, replace the earlier value: the latest clear correction wins and old/new values must never be concatenated. Never invent. Correct only obvious speech-recognition artifacts using COA/SDS vocabulary, such as 'fail yellowish liquid' meaning 'pale yellowish liquid'. Omit genuinely unclear values. field_updates may use only supplied keys. For COA, 'name Rose' means product_name/Name of Product unless 'customer name' is explicitly spoken. Product codes and batch numbers must not absorb neighbouring fields. Preserve individually spoken code letters, full four-digit years, units, decimals, and numeric ranges. Expiry must not silently become the manufacturing year. Each value ends when another field or COA parameter is spoken. A COA parameter followed by one value normally updates result; if specification/result are named, map them exactly. Use only supplied fixed COA parameter names and never create or rename a parameter. For SDS, 'name Rose' means product_identifier. Treat deterministic updates as hints only: correct them when the complete sentence or a later correction provides a better value or boundary."""
     prompt = json.dumps({
         "document_type": document_type,
-        "available_fields": [{"key": item["key"], "label": item["label"]} for item in schema],
+        "available_fields": [{"key": item["key"], "label": str(payload.field_labels.get(item["key"]) or item["label"])[:160]} for item in schema],
         "fixed_coa_parameters": [row["parameter"] for row in fixed_parameters],
         "current_fields": {key: str(value)[:4000] for key, value in payload.current_fields.items() if key in allowed_fields and str(value).strip()},
         "current_rows": payload.current_rows[:200],
@@ -526,7 +527,7 @@ async def draft_from_notes(payload: DraftNotesRequest, user: User = Depends(requ
 @router.post("/generate")
 async def generate(
     template_document_id: str = Form(...), document_type: str = Form(...), fields_json: str = Form("{}"), rows_json: str = Form("[]"),
-    output_filename: str | None = Form(None), excel_file: UploadFile | None = File(None), user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session),
+    field_labels_json: str = Form("{}"), column_labels_json: str = Form("{}"), output_filename: str | None = Form(None), excel_file: UploadFile | None = File(None), user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     document_department_slug = await _require_document_department(session, user)
     document, _ = await _template(session, user, template_document_id)
@@ -536,9 +537,11 @@ async def generate(
     try:
         manual_fields = json.loads(fields_json)
         manual_rows = json.loads(rows_json)
+        field_labels = json.loads(field_labels_json)
+        column_labels = json.loads(column_labels_json)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail="The form data is invalid.") from exc
-    if not isinstance(manual_fields, dict) or not isinstance(manual_rows, list):
+    if not isinstance(manual_fields, dict) or not isinstance(manual_rows, list) or not isinstance(field_labels, dict) or not isinstance(column_labels, dict):
         raise HTTPException(status_code=422, detail="The form data is invalid.")
     storage = Path(get_settings().upload_storage_path)
     excel_fields: dict[str, str] = {}
@@ -601,7 +604,9 @@ async def generate(
         identifier=generated_id,
     )
     (storage / output_stored).parent.mkdir(parents=True, exist_ok=True)
-    warnings = generate_docx(template_path, storage / output_stored, document_type, fields, rows)
+    safe_field_labels = {str(key): str(value)[:160] for key, value in field_labels.items() if str(value).strip()}
+    safe_column_labels = {str(key): str(value)[:160] for key, value in column_labels.items() if str(value).strip()}
+    warnings = generate_docx(template_path, storage / output_stored, document_type, fields, rows, safe_field_labels, safe_column_labels)
     if document_type == "coa" and fields.get("manufacturing_date") and fields.get("expiry_date"):
         try:
             manufacturing = datetime.strptime(fields["manufacturing_date"], "%d %B %Y")
