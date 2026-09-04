@@ -9,19 +9,19 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 import structlog
 import httpx
 
 from app.core.config import get_settings
 from app.db.session import get_db_session
-from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_cost
+from app.modules.ai.providers import AIProviderRouter, AnthropicProvider, OpenAIProvider, ProviderError, estimate_cost
 from app.modules.hr_letters.routes import _convert_docx_to_pdf
 from app.modules.identity.authorization import require_department, require_permissions
 from app.modules.identity.models import AIUsageEvent, AuditEvent, DocumentGeneration, KnowledgeDocument, RegulatoryIngredientMaster, RegulatoryWorkflow, User
@@ -30,18 +30,20 @@ from app.modules.knowledge.department_uploads import DepartmentUpload, replace_d
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.knowledge.storage import organized_storage_name
 from app.modules.regulatory.engine import COA_LABELS, DOCUMENT_TYPES, clean_issue_value, extract_coa_properties, generate_regulatory_docx, normalise, parse_regulatory_excel
-from app.modules.regulatory.research import pubchem_identity
+from app.modules.regulatory.research import (
+    EC_PATTERN,
+    EU_COSMETICS_REGULATION,
+    IFRA_LIBRARY_PAGE,
+    echa_svhc_status,
+    pubchem_regulatory_record,
+    template_reference_match,
+    valid_cas,
+)
 from app.modules.settings.service import provider_runtime_settings
 
 router = APIRouter(dependencies=[Depends(require_department("regulatory"))])
 logger = structlog.get_logger(__name__)
-ALLOWED_SOURCE_HOSTS = ("echa.europa.eu", "pubchem.ncbi.nlm.nih.gov", "ifrafragrance.org", "unece.org", "eur-lex.europa.eu")
 RESEARCH_FIELDS = ("canonical_name", "aliases", "cas", "ec", "classification", "hazard_statements", "precautionary_statements", "signal_word", "pictograms", "toxicology", "ecology", "transport", "allergen_identity", "svhc_identity")
-
-
-def _official_url(value: object) -> bool:
-    host = (urlparse(str(value or "")).hostname or "").lower().rstrip(".")
-    return any(host == allowed or host.endswith(f".{allowed}") for allowed in ALLOWED_SOURCE_HOSTS)
 
 
 class WorkflowUpdate(BaseModel):
@@ -54,6 +56,14 @@ class WorkflowUpdate(BaseModel):
 
 class VoiceNotesUpdate(BaseModel):
     notes: str = Field(min_length=1, max_length=12_000)
+
+
+class OfficialEnrichmentRequest(BaseModel):
+    force: bool = False
+
+
+class AIIdentityFallbackRequest(BaseModel):
+    ingredient_index: int = Field(ge=0, le=299)
 
 
 def _template_payload(document: KnowledgeDocument, document_type: str) -> dict:
@@ -83,28 +93,116 @@ def _serialize(value: RegulatoryWorkflow) -> dict:
     return {"id": str(value.id), "product_name": value.product_name, "product_code": value.product_code, "market": value.market, "status": value.status, "source_files": value.source_files_json or {}, "sds_fields": value.sds_fields_json or {}, "ingredients": value.ingredients_json or [], "generated": value.generated_json or {}, "approved_at": value.approved_at.isoformat() if value.approved_at else None}
 
 
-async def _extract_coa_with_ai(session: AsyncSession, user: User, text: str, current: dict[str, str]) -> dict[str, str]:
-    """Fill COA properties from the uploaded document only; never use the web here."""
-    missing = [key for key in ("appearance", "colour", "odour", "relative_density", "flash_point", "refractive_index", "solubility", "storage_condition") if not current.get(key)]
-    if not text.strip() or not missing:
-        return current
-    system = """Extract product properties only from the supplied Creation COA text. Return one JSON object containing only these keys when explicitly supported: appearance, colour, odour, relative_density, flash_point, refractive_index, solubility, storage_condition. Preserve values and units. Never guess, browse, or write N/A, unknown, review required, or AI-generated labels. Use an empty string when absent."""
-    answer = ""
-    try:
-        settings = await provider_runtime_settings(session, user.organization_id)
-        async for event in AIProviderRouter(settings).stream(system, text[:30_000], text[:30_000], use_web_search=False, response_mode="standard"):
-            if event.kind == "delta":
-                answer += event.text
-        start, end = answer.find("{"), answer.rfind("}")
-        extracted = json.loads(answer[start:end + 1])
-    except (ProviderError, ValueError, json.JSONDecodeError):
-        return current
-    merged = dict(current)
-    for key in missing:
-        value = clean_issue_value(extracted.get(key))
-        if value:
-            merged[key] = value[:1000]
-    return merged
+def _public_master_data(master: RegulatoryIngredientMaster) -> tuple[dict, str]:
+    stored = master.data_json or {}
+    public = {key: value for key, value in stored.items() if not str(key).startswith("_")}
+    provenance = "approved_master" if master.approved_by_user_id else str(stored.get("_research_method") or "official_database")
+    return public, provenance
+
+
+def _merge_research_result(
+    current: dict,
+    suggestion: dict,
+    urls: list[str],
+    checks: dict,
+    versions: dict,
+    provenance: str,
+) -> int:
+    changed = 0
+    for key in RESEARCH_FIELDS:
+        if not suggestion.get(key) or current.get(key):
+            continue
+        if key == "aliases":
+            value = suggestion[key] if isinstance(suggestion[key], list) else re.split(r"[,;]", str(suggestion[key]))
+            aliases = [clean_issue_value(alias)[:300] for alias in value if clean_issue_value(alias)]
+            if aliases:
+                current[key] = aliases
+                changed += 1
+        else:
+            raw_value = suggestion[key]
+            if isinstance(raw_value, list):
+                raw_value = "; ".join(str(part) for part in raw_value if clean_issue_value(part))
+            value = clean_issue_value(raw_value)[:2000]
+            if value:
+                current[key] = value
+                changed += 1
+    current["sources"] = list(dict.fromkeys([*(current.get("sources") or []), *urls]))
+    current["source_checks"] = {**(current.get("source_checks") or {}), **checks}
+    current["source_versions"] = {**(current.get("source_versions") or {}), **versions}
+    if current.get("provenance") not in {"approved_master", "employee_approved"}:
+        current["provenance"] = provenance
+    return changed
+
+
+def _cache_research_result(
+    session: AsyncSession,
+    masters: dict[str, RegulatoryIngredientMaster],
+    user: User,
+    item: dict,
+    method: str,
+) -> None:
+    key = normalise(item.get("name"))
+    if not key:
+        return
+    master = masters.get(key)
+    if master is not None and master.approved_by_user_id:
+        return
+    if master is None:
+        master = RegulatoryIngredientMaster(
+            organization_id=user.organization_id,
+            normalized_name=key,
+            display_name=str(item.get("name") or "")[:300],
+        )
+        session.add(master)
+        masters[key] = master
+    master.data_json = {
+        **{key: value for key, value in item.items() if key not in {"sources", "provenance", "concentration"}},
+        "_research_method": method,
+    }
+    master.sources_json = item.get("sources") or []
+
+
+def _active_reference_templates(templates: dict[str, KnowledgeDocument]) -> tuple[dict[str, Path], dict[str, int]]:
+    storage = Path(get_settings().upload_storage_path)
+    paths = {
+        key: storage / document.stored_filename
+        for key, document in templates.items()
+        if key in {"allergen_report", "ifra_amendment"}
+    }
+    versions = {key: int(document.version) for key, document in templates.items() if key in paths}
+    return paths, versions
+
+
+def _template_checks(item: dict, paths: dict[str, Path], versions: dict[str, int]) -> tuple[dict, list[str], dict, dict]:
+    checked_at = datetime.now(timezone.utc).isoformat()
+    suggestion: dict = {}
+    urls: list[str] = []
+    checks: dict = {}
+    source_versions: dict = {}
+    allergen_path = paths.get("allergen_report")
+    if allergen_path:
+        match = template_reference_match(allergen_path, "allergen", item)
+        checks["allergen"] = {
+            "status": "listed" if match else "not_listed",
+            "source": f"Approved Allergen template v{versions['allergen_report']}",
+            "checked_at": checked_at,
+        }
+        source_versions["allergen_template"] = versions["allergen_report"]
+        urls.append(EU_COSMETICS_REGULATION)
+        if match:
+            suggestion["allergen_identity"] = match["name"]
+    ifra_path = paths.get("ifra_amendment")
+    if ifra_path:
+        match = template_reference_match(ifra_path, "ifra", item)
+        checks["ifra"] = {
+            "status": "listed" if match else "not_listed",
+            "source": f"Approved IFRA Amendment template v{versions['ifra_amendment']}",
+            "checked_at": checked_at,
+            "details": "; ".join([*(match.get("standards") or []), str(match.get("publication_year") or "")]).strip("; ") if match else "",
+        }
+        source_versions["ifra_template"] = versions["ifra_amendment"]
+        urls.append(IFRA_LIBRARY_PAGE)
+    return suggestion, urls, checks, source_versions
 
 
 @router.get("/templates")
@@ -164,8 +262,11 @@ async def create_workflow(regulatory_excel: UploadFile = File(...), creation_coa
     for item in ingredients:
         saved = masters.get(normalise(item["name"]))
         if saved:
-            item.update(saved.data_json or {}); item["sources"] = saved.sources_json or []; item["provenance"] = "approved_master"
-    sds_fields = await _extract_coa_with_ai(session, user, coa_text, extract_coa_properties(coa_text))
+            saved_data, provenance = _public_master_data(saved)
+            item.update(saved_data); item["sources"] = saved.sources_json or []; item["provenance"] = provenance
+    # Creation COA intake is deterministic and free. Missing values stay editable
+    # instead of silently triggering a paid model request.
+    sds_fields = extract_coa_properties(coa_text)
     workflow = RegulatoryWorkflow(organization_id=user.organization_id, created_by_user_id=user.id, product_name=product, product_code=code, source_files_json={"regulatory_excel": regulatory_excel.filename or "Regulatory.xlsx", "creation_coa": creation_coa.filename or f"Creation-COA{suffix}"}, sds_fields_json=sds_fields, ingredients_json=ingredients)
     session.add(workflow); await session.flush()
     await replace_department_uploads(session, user, "regulatory", [
@@ -188,109 +289,195 @@ async def update_workflow(workflow_id: str, payload: WorkflowUpdate, user: User 
 
 
 @router.post("/workflows/{workflow_id}/enrich")
-async def enrich_workflow(workflow_id: str, user: User = Depends(require_permissions("ai.workspace.use")), session: AsyncSession = Depends(get_db_session)) -> dict:
+async def enrich_workflow(
+    workflow_id: str,
+    payload: OfficialEnrichmentRequest | None = None,
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Populate only from direct official databases and approved templates."""
+    workflow = await _workflow(session, user, workflow_id)
+    if workflow.status == "approved":
+        raise HTTPException(status_code=409, detail="This SDS is already approved.")
+    force = bool(payload and payload.force)
+    ingredients = workflow.ingredients_json or []
+    cached = 0
+    to_lookup: list[dict] = []
+    for item in ingredients:
+        provenance = str(item.get("provenance") or "excel")
+        if provenance in {"approved_master", "employee_approved"}:
+            cached += 1
+        elif not force and provenance in {"official_database", "ai_suggested"}:
+            cached += 1
+        else:
+            to_lookup.append(item)
+
+    templates = await _templates(session, user)
+    template_paths, template_versions = _active_reference_templates(templates)
+    semaphore = asyncio.Semaphore(4)
+    logger.info("regulatory_official_lookup_started", workflow_id=workflow_id, ingredient_count=len(to_lookup), force=force)
+
+    async def research_one(item: dict, client: httpx.AsyncClient) -> dict:
+        suggestion: dict = {}
+        urls: list[str] = []
+        checks: dict = {}
+        versions: dict = {}
+        errors: list[str] = []
+        async with semaphore:
+            lookup_value = next((value for value in re.findall(r"\d{2,7}-\d{2}-\d", str(item.get("cas") or "")) if valid_cas(value)), str(item.get("name") or ""))
+            try:
+                values, value_urls, value_checks, value_versions = await pubchem_regulatory_record(client, lookup_value)
+                suggestion.update(values); urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
+            except (httpx.HTTPError, ValueError, TypeError) as exc:
+                errors.append(f"pubchem/{type(exc).__name__}")
+                logger.warning("regulatory_pubchem_lookup_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
+
+            candidate = {**item, **suggestion}
+            try:
+                values, value_urls, value_checks, value_versions = await echa_svhc_status(
+                    client,
+                    name=str(candidate.get("canonical_name") or candidate.get("name") or ""),
+                    cas=str(candidate.get("cas") or ""),
+                    ec=str(candidate.get("ec") or ""),
+                )
+                suggestion.update(values); urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
+            except (httpx.HTTPError, ValueError, TypeError) as exc:
+                errors.append(f"echa/{type(exc).__name__}")
+                logger.warning("regulatory_echa_lookup_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
+
+            candidate.update(suggestion)
+            values, value_urls, value_checks, value_versions = _template_checks(candidate, template_paths, template_versions)
+            suggestion.update(values); urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
+        return {"item": item, "suggestion": suggestion, "urls": list(dict.fromkeys(urls)), "checks": checks, "versions": versions, "errors": errors}
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=True) as client:
+        research_results = await asyncio.gather(*(research_one(item, client) for item in to_lookup[:60]))
+
+    masters = {item.normalized_name: item for item in list(await session.scalars(select(RegulatoryIngredientMaster).where(RegulatoryIngredientMaster.organization_id == user.organization_id)))}
+    populated = failed = 0
+    for researched in research_results:
+        current = researched["item"]
+        changed = _merge_research_result(
+            current,
+            researched.get("suggestion") or {},
+            researched.get("urls") or [],
+            researched.get("checks") or {},
+            researched.get("versions") or {},
+            "official_database",
+        )
+        if changed:
+            populated += 1
+        if researched.get("errors"):
+            failed += 1
+        _cache_research_result(session, masters, user, current, "official_database")
+    workflow.ingredients_json = ingredients
+    flag_modified(workflow, "ingredients_json")
+    await session.commit()
+    unresolved = sum(1 for item in ingredients if not item.get("cas") and not item.get("ec"))
+    logger.info("regulatory_official_lookup_completed", workflow_id=workflow_id, populated=populated, unresolved=unresolved, failed=failed, cached=cached, ai_requests=0)
+    result = _serialize(workflow)
+    result["research_summary"] = {"mode": "official", "attempted": len(research_results), "populated": populated, "unresolved": unresolved, "failed": failed, "cached": cached, "ai_requests": 0}
+    return result
+
+
+@router.post("/workflows/{workflow_id}/ai-identity-fallback")
+async def ai_identity_fallback(
+    workflow_id: str,
+    payload: AIIdentityFallbackRequest,
+    user: User = Depends(require_permissions("ai.workspace.use")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    """Run at most one paid AI request for one unresolved trade name."""
     workflow = await _workflow(session, user, workflow_id)
     if workflow.status == "approved":
         raise HTTPException(status_code=409, detail="This SDS is already approved.")
     ingredients = workflow.ingredients_json or []
-    required_research = ("cas", "ec", "classification", "hazard_statements", "precautionary_statements", "signal_word", "toxicology", "ecology", "transport", "allergen_identity", "svhc_identity")
-    unresolved = [item for item in ingredients if any(not item.get(key) for key in required_research)]
-    if not unresolved:
-        result = _serialize(workflow)
-        result["research_summary"] = {"attempted": 0, "populated": 0, "unresolved": 0, "failed": 0}
-        return result
-    logger.info("regulatory_research_started", workflow_id=workflow_id, ingredient_count=len(unresolved))
+    if payload.ingredient_index >= len(ingredients):
+        raise HTTPException(status_code=422, detail="Choose a valid unresolved ingredient.")
+    item = ingredients[payload.ingredient_index]
+    if item.get("cas") or item.get("ec"):
+        raise HTTPException(status_code=409, detail="This ingredient already has an official identity and does not need AI fallback.")
+
     settings = await provider_runtime_settings(session, user.organization_id)
-    semaphore = asyncio.Semaphore(4)
-    system = """Research exactly one fragrance ingredient. Search trade names and spelling variants before deciding it is unavailable. Return one JSON object with input_name, canonical_name, aliases, cas, ec, classification, hazard_statements, precautionary_statements, signal_word, pictograms, toxicology, ecology, transport, allergen_identity, svhc_identity, and source_urls. Use only official ECHA, PubChem, IFRA, UNECE, or EUR-Lex evidence. Include the exact supporting page URLs. Never guess identifiers or classifications. Use empty strings or arrays for unsupported fields. Never write N/A, AI-generated, confidence, or review messages."""
-
-    async def research_one(item: dict, pubchem_client: httpx.AsyncClient) -> dict:
-        prompt = json.dumps({"input_name": item.get("name"), "concentration_percent": item.get("concentration")}, ensure_ascii=False)
-        answer = ""; sources: list[dict] = []; provider = model = ""; input_tokens = output_tokens = 0
-        suggestion: dict = {}; urls: list[str] = []; errors: list[str] = []
-        try:
-            async with semaphore:
-                try:
-                    pubchem_suggestion, pubchem_urls = await pubchem_identity(pubchem_client, str(item.get("name") or ""))
-                    suggestion.update(pubchem_suggestion); urls.extend(pubchem_urls)
-                except (httpx.HTTPError, ValueError, TypeError) as exc:
-                    errors.append(f"pubchem/{type(exc).__name__}")
-                    logger.warning("regulatory_pubchem_lookup_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
-
-                if settings.openai_api_key or settings.anthropic_api_key:
-                    try:
-                        async for event in AIProviderRouter(settings).stream(system, prompt, str(item.get("name") or ""), use_web_search=True, response_mode="standard"):
-                            if event.kind == "meta": provider, model = event.provider, event.model
-                            elif event.kind == "delta": answer += event.text
-                            elif event.kind == "sources": sources.extend(event.sources)
-                            elif event.kind == "usage": input_tokens, output_tokens = event.input_tokens, event.output_tokens
-                        start, end = answer.find("{"), answer.rfind("}")
-                        parsed = json.loads(answer[start:end + 1])
-                        if not isinstance(parsed, dict):
-                            raise ValueError("Ingredient research did not return a JSON object.")
-                        ai_suggestion = parsed.get("ingredient") if isinstance(parsed.get("ingredient"), dict) else parsed
-                        if not isinstance(ai_suggestion, dict):
-                            raise ValueError("Ingredient research result has an invalid structure.")
-                        explicit = ai_suggestion.get("source_urls") or []
-                        ai_urls = [str(url) for url in explicit if _official_url(url)] if isinstance(explicit, list) else []
-                        ai_urls.extend(str(source.get("url")) for source in sources if _official_url(source.get("url")))
-                        if ai_urls:
-                            for key, value in ai_suggestion.items():
-                                if value and not suggestion.get(key):
-                                    suggestion[key] = value
-                            urls.extend(ai_urls)
-                    except (ProviderError, ValueError, json.JSONDecodeError, TypeError) as exc:
-                        code = f"{exc.provider}/{exc.code}" if isinstance(exc, ProviderError) else type(exc).__name__
-                        errors.append(code)
-                        logger.warning("regulatory_openai_research_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), provider=getattr(exc, "provider", ""), code=getattr(exc, "code", code), error=str(exc))
-                else:
-                    errors.append("web_ai/not_configured")
-            return {"item": item, "suggestion": suggestion, "urls": list(dict.fromkeys(urls)), "provider": provider, "model": model, "input_tokens": input_tokens, "output_tokens": output_tokens, "errors": errors}
-        except Exception as exc:
-            logger.exception("regulatory_ingredient_research_unexpected_failure", workflow_id=workflow_id, ingredient=str(item.get("name") or ""))
-            return {"item": item, "error": type(exc).__name__, "input_tokens": input_tokens, "output_tokens": output_tokens}
-
+    if settings.anthropic_api_key:
+        ai_provider = AnthropicProvider(settings, settings.anthropic_default_model)
+    elif settings.openai_api_key:
+        ai_provider = OpenAIProvider(settings)
+    else:
+        raise HTTPException(status_code=503, detail="No optional AI provider is configured.")
+    system = """Resolve exactly one fragrance trade name to a chemical identity. Return one compact JSON object with canonical_name, aliases, cas, ec, and source_urls. Search only official ECHA, PubChem, IFRA, UNECE, or EUR-Lex pages. Never infer a CAS or EC number. If an official source does not establish the identity, return empty values. Do not return regulatory classifications or narrative."""
+    prompt = json.dumps({"input_name": item.get("name")}, ensure_ascii=False)
+    answer = ""; provider = model = ""; input_tokens = output_tokens = 0
     started = time.perf_counter()
-    async with httpx.AsyncClient(timeout=httpx.Timeout(25.0, connect=10.0), follow_redirects=True) as pubchem_client:
-        research_results = await asyncio.gather(*(research_one(item, pubchem_client) for item in unresolved[:60]))
-    populated = failed = 0; provider = model = ""; input_tokens = output_tokens = 0
-    for researched in research_results:
-        input_tokens += int(researched.get("input_tokens") or 0); output_tokens += int(researched.get("output_tokens") or 0)
-        if researched.get("error"):
-            failed += 1
-            continue
-        provider = provider or str(researched.get("provider") or "openai"); model = model or str(researched.get("model") or "")
-        current = researched["item"]; suggestion = researched.get("suggestion") or {}; row_urls = researched.get("urls") or []
-        if not row_urls:
-            continue
-        changed = 0
-        for key in RESEARCH_FIELDS:
-            if not suggestion.get(key) or current.get(key):
-                continue
-            if key == "aliases":
-                value = suggestion[key] if isinstance(suggestion[key], list) else re.split(r"[,;]", str(suggestion[key]))
-                aliases = [clean_issue_value(alias)[:300] for alias in value if clean_issue_value(alias)]
-                if aliases:
-                    current[key] = aliases; changed += 1
-            else:
-                raw_value = suggestion[key]
-                if isinstance(raw_value, list):
-                    raw_value = "; ".join(str(part) for part in raw_value if clean_issue_value(part))
-                value = clean_issue_value(raw_value)[:2000]
-                if value:
-                    current[key] = value; changed += 1
-        if changed:
-            current["sources"] = row_urls; current["provenance"] = "ai_suggested"; populated += 1
-    if populated == 0:
-        diagnostic_codes = sorted({code for result in research_results for code in result.get("errors", [])})
-        diagnostic = ", ".join(diagnostic_codes) or "no official ingredient matches"
-        raise HTTPException(status_code=503, detail=f"Ingredient research returned no usable official data. Diagnostic: {diagnostic}.")
+    try:
+        async for event in ai_provider.stream(system, prompt, use_web_search=True, response_mode="quick"):
+            if event.kind == "meta": provider, model = event.provider, event.model
+            elif event.kind == "delta": answer += event.text
+            elif event.kind == "usage": input_tokens, output_tokens = event.input_tokens, event.output_tokens
+        start, end = answer.find("{"), answer.rfind("}")
+        if start < 0 or end <= start:
+            raise ValueError("AI identity lookup returned no JSON object.")
+        parsed = json.loads(answer[start:end + 1])
+        if not isinstance(parsed, dict):
+            raise ValueError("AI identity lookup returned an invalid result.")
+    except (ProviderError, ValueError, json.JSONDecodeError, TypeError) as exc:
+        logger.warning("regulatory_ai_identity_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
+        raise HTTPException(status_code=503, detail="The optional AI identity lookup could not complete. No ingredient values were changed.") from exc
+
+    # AI output is only a search candidate. Never save its identifiers directly;
+    # the values displayed to the employee must be returned by an official API.
+    ai_candidate: dict = {}
+    canonical = clean_issue_value(parsed.get("canonical_name"))
+    if canonical:
+        ai_candidate["canonical_name"] = canonical[:300]
+    aliases = parsed.get("aliases") or []
+    if isinstance(aliases, list):
+        ai_candidate["aliases"] = [clean_issue_value(value)[:300] for value in aliases if clean_issue_value(value)]
+    cas = clean_issue_value(parsed.get("cas"))
+    ec = clean_issue_value(parsed.get("ec"))
+    if valid_cas(cas):
+        ai_candidate["cas"] = cas
+    if EC_PATTERN.fullmatch(ec) and not valid_cas(ec):
+        ai_candidate["ec"] = ec
+
+    verified_suggestion: dict = {}
+    urls: list[str] = []
+    checks = {"ai_identity": {"status": "not_found", "source": provider, "checked_at": datetime.now(timezone.utc).isoformat()}}
+    versions: dict = {}
+    verification_failed = False
+    if ai_candidate.get("cas") or ai_candidate.get("ec") or ai_candidate.get("canonical_name"):
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=True) as client:
+                lookup_value = str(ai_candidate.get("cas") or ai_candidate.get("canonical_name") or item.get("name") or "")
+                official, official_urls, official_checks, official_versions = await pubchem_regulatory_record(client, lookup_value)
+                if official.get("cas") or official.get("ec"):
+                    verified_suggestion.update(official)
+                    urls.extend(official_urls); checks.update(official_checks); versions.update(official_versions)
+                    checks["ai_identity"]["status"] = "verified"
+                    candidate = {**item, **verified_suggestion}
+                    svhc, svhc_urls, svhc_checks, svhc_versions = await echa_svhc_status(client, name=str(candidate.get("canonical_name") or candidate.get("name") or ""), cas=str(candidate.get("cas") or ""), ec=str(candidate.get("ec") or ""))
+                    verified_suggestion.update(svhc); urls.extend(svhc_urls); checks.update(svhc_checks); versions.update(svhc_versions)
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            verification_failed = True
+            logger.warning("regulatory_ai_identity_verification_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
+    if verified_suggestion:
+        template_paths, template_versions = _active_reference_templates(await _templates(session, user))
+        candidate = {**item, **verified_suggestion}
+        values, value_urls, value_checks, value_versions = _template_checks(candidate, template_paths, template_versions)
+        verified_suggestion.update(values); urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
+
+    changed = _merge_research_result(item, verified_suggestion, list(dict.fromkeys(urls)), checks, versions, "official_database")
+    masters = {master.normalized_name: master for master in list(await session.scalars(select(RegulatoryIngredientMaster).where(RegulatoryIngredientMaster.organization_id == user.organization_id)))}
+    if changed:
+        _cache_research_result(session, masters, user, item, "official_database")
     workflow.ingredients_json = ingredients
-    session.add(AIUsageEvent(organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, operation="regulatory_web_research", provider=provider, model=model, input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=estimate_cost(provider, model, input_tokens, output_tokens), latency_ms=int((time.perf_counter() - started) * 1000), status="completed"))
+    flag_modified(workflow, "ingredients_json")
+    session.add(AIUsageEvent(organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, operation="regulatory_ai_identity_fallback", provider=provider, model=model, input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=estimate_cost(provider, model, input_tokens, output_tokens), latency_ms=int((time.perf_counter() - started) * 1000), status="completed"))
     await session.commit()
-    logger.info("regulatory_research_completed", workflow_id=workflow_id, populated=populated, unresolved=len(research_results) - populated, failed=failed)
+    unresolved = sum(1 for ingredient in ingredients if not ingredient.get("cas") and not ingredient.get("ec"))
+    logger.info("regulatory_ai_identity_completed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), changed=changed, provider=provider, input_tokens=input_tokens, output_tokens=output_tokens)
     result = _serialize(workflow)
-    result["research_summary"] = {"attempted": len(research_results), "populated": populated, "unresolved": len(research_results) - populated, "failed": failed}
+    result["research_summary"] = {"mode": "ai", "attempted": 1, "populated": 1 if changed else 0, "unresolved": unresolved, "failed": 1 if verification_failed else 0, "cached": 0, "ai_requests": 1}
     return result
 
 
@@ -343,6 +530,7 @@ async def apply_voice_notes(workflow_id: str, payload: VoiceNotesUpdate, user: U
                 item[key] = clean_issue_value(value)[:2000]
         item["provenance"] = "employee_approved"
     workflow.ingredients_json = ingredients
+    flag_modified(workflow, "ingredients_json")
     await session.commit()
     return _serialize(workflow)
 
@@ -364,7 +552,11 @@ async def approve_workflow(workflow_id: str, payload: WorkflowUpdate, user: User
         master = await session.scalar(select(RegulatoryIngredientMaster).where(RegulatoryIngredientMaster.organization_id == user.organization_id, RegulatoryIngredientMaster.normalized_name == key))
         if master is None:
             master = RegulatoryIngredientMaster(organization_id=user.organization_id, normalized_name=key, display_name=str(item.get("name") or "")[:300]); session.add(master)
-        master.data_json = {k: v for k, v in item.items() if k not in {"sources", "provenance", "concentration"}}; master.sources_json = item.get("sources") or []; master.approved_by_user_id = user.id
+        master.data_json = {
+            **{k: v for k, v in item.items() if k not in {"sources", "provenance", "concentration"}},
+            "_research_method": "employee_approved",
+        }
+        master.sources_json = item.get("sources") or []; master.approved_by_user_id = user.id
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="regulatory.sds_approved", target_type="regulatory_workflow", target_id=str(workflow.id), metadata_json={"product_code": workflow.product_code, "ingredient_count": len(payload.ingredients)}))
     await session.commit(); return _serialize(workflow)
 

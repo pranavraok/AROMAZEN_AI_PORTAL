@@ -98,7 +98,7 @@ class OpenAIProvider:
             "store": False,
         }
         if use_web_search:
-            payload["tools"] = [{"type": "web_search", "search_context_size": "medium"}]
+            payload["tools"] = [{"type": "web_search", "search_context_size": "low" if response_mode == "quick" else "medium"}]
         web_sources: list[dict[str, str]] = []
         seen_source_urls: set[str] = set()
 
@@ -184,7 +184,7 @@ class AnthropicProvider:
             payload["tools"] = [{
                 "type": "web_search_20250305",
                 "name": "web_search",
-                "max_uses": 3,
+                "max_uses": 1 if response_mode == "quick" else 3,
                 "allowed_domains": ["echa.europa.eu", "pubchem.ncbi.nlm.nih.gov", "ifrafragrance.org", "unece.org", "eur-lex.europa.eu"],
             }]
         input_tokens = 0

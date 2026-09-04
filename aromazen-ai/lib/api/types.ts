@@ -604,16 +604,23 @@ export interface GstReconciliationResult {
 }
 
 export type RegulatoryDocumentType = 'sds' | 'ifra_certificate' | 'ifra_amendment' | 'allergen_report' | 'reach_declaration'
+export interface RegulatorySourceCheck {
+  status: 'matched' | 'listed' | 'not_listed' | 'not_found' | 'unavailable'
+  source: string
+  checked_at: string
+  details?: string
+}
 export interface RegulatoryIngredient {
-  name: string; concentration: string; cas: string; ec: string; classification: string
+  name: string; canonical_name?: string; concentration: string; cas: string; ec: string; classification: string
   hazard_statements?: string; precautionary_statements?: string; signal_word?: string; pictograms?: string
   toxicology?: string; ecology?: string; transport?: string; allergen_identity?: string; svhc_identity?: string
-  aliases?: string[]; sources?: string[]; provenance?: 'excel' | 'approved_master' | 'ai_suggested' | 'employee_approved'
+  aliases?: string[]; sources?: string[]; source_checks?: Record<string, RegulatorySourceCheck>; source_versions?: Record<string, string | number>
+  provenance?: 'excel' | 'official_database' | 'approved_master' | 'ai_suggested' | 'employee_approved'
 }
 export interface RegulatoryWorkflow {
   id: string; product_name: string; product_code: string; market: 'other' | 'eu'; status: 'review' | 'approved'
   source_files: Record<string, string>; sds_fields: Record<string, string>; ingredients: RegulatoryIngredient[]
   generated: Partial<Record<RegulatoryDocumentType, string>>; approved_at: string | null
-  research_summary?: { attempted: number; populated: number; unresolved: number; failed: number }
+  research_summary?: { mode: 'official' | 'ai'; attempted: number; populated: number; unresolved: number; failed: number; cached: number; ai_requests: number }
 }
 export interface RegulatoryTemplate { id: string; document_type: RegulatoryDocumentType; name: string; version: number }
