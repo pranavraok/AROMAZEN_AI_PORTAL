@@ -37,6 +37,15 @@ function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob); const link = document.createElement('a')
   link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url)
 }
+function reservePreviewWindow() {
+  const previewWindow = window.open('about:blank', '_blank')
+  if (!previewWindow) return null
+  previewWindow.opener = null
+  previewWindow.document.title = 'Preparing document preview'
+  previewWindow.document.body.textContent = 'Preparing document preview…'
+  previewWindow.document.body.style.cssText = 'margin:0;display:grid;min-height:100vh;place-items:center;background:#101512;color:#d7e2dc;font:500 16px system-ui,sans-serif'
+  return previewWindow
+}
 function blankIngredient(): RegulatoryIngredient {
   return { name: '', concentration: '', cas: '', ec: '', classification: '', aliases: [], provenance: 'employee_approved', sources: [] }
 }
@@ -121,17 +130,22 @@ export function RegulatoryDocumentsTool() {
   }
   async function viewMaster(type: RegulatoryDocumentType) {
     if (!accessToken) return
-    try { const file = await api.regulatory.templateContent(accessToken, type); const url = URL.createObjectURL(file.blob); window.open(url, '_blank', 'noopener,noreferrer'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) }
-    catch (error) { notify('error', errorMessage(error, 'Unable to open the master.')) }
+    const previewWindow = reservePreviewWindow()
+    if (!previewWindow) return notify('error', 'The browser blocked the preview window. Allow pop-ups for this site and try again.')
+    try { const file = await api.regulatory.templateContent(accessToken, type); const url = URL.createObjectURL(file.blob); previewWindow.location.replace(url); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) }
+    catch (error) { previewWindow.close(); notify('error', errorMessage(error, 'Unable to open the master.')) }
   }
   async function generate(type: RegulatoryDocumentType, format: 'preview' | 'pdf' | 'word') {
-    if (!accessToken || !workflow) return; setBusy(`${format}-${type}`)
+    if (!accessToken || !workflow) return
+    const previewWindow = format === 'preview' ? reservePreviewWindow() : null
+    if (format === 'preview' && !previewWindow) return notify('error', 'The browser blocked the preview window. Allow pop-ups for this site and try again.')
+    setBusy(`${format}-${type}`)
     try {
       let generationId = workflow.generated[type]
       if (!generationId) { const result = await api.regulatory.generate(accessToken, workflow.id, type); generationId = result.id; setWorkflow((current) => current ? { ...current, generated: { ...current.generated, [type]: result.id } } : current) }
       const file = format === 'word' ? await api.regulatory.download(accessToken, generationId) : format === 'pdf' ? await api.regulatory.pdf(accessToken, generationId) : await api.regulatory.preview(accessToken, generationId)
-      if (format === 'preview') { const url = URL.createObjectURL(file.blob); window.open(url, '_blank', 'noopener,noreferrer'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) } else saveBlob(file.blob, file.filename)
-    } catch (error) { notify('error', errorMessage(error, 'Unable to generate this document.')) } finally { setBusy('') }
+      if (format === 'preview' && previewWindow) { const url = URL.createObjectURL(file.blob); previewWindow.location.replace(url); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) } else saveBlob(file.blob, file.filename)
+    } catch (error) { previewWindow?.close(); notify('error', errorMessage(error, 'Unable to generate this document.')) } finally { setBusy('') }
   }
 
   return <main className="space-y-5 p-4 md:p-6">
