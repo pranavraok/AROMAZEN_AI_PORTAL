@@ -217,7 +217,7 @@ async def enrich_workflow(workflow_id: str, user: User = Depends(require_permiss
                     errors.append(f"pubchem/{type(exc).__name__}")
                     logger.warning("regulatory_pubchem_lookup_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
 
-                if settings.openai_api_key:
+                if settings.openai_api_key or settings.anthropic_api_key:
                     try:
                         async for event in AIProviderRouter(settings).stream(system, prompt, str(item.get("name") or ""), use_web_search=True, response_mode="standard"):
                             if event.kind == "meta": provider, model = event.provider, event.model
@@ -244,7 +244,7 @@ async def enrich_workflow(workflow_id: str, user: User = Depends(require_permiss
                         errors.append(code)
                         logger.warning("regulatory_openai_research_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), provider=getattr(exc, "provider", ""), code=getattr(exc, "code", code), error=str(exc))
                 else:
-                    errors.append("openai/not_configured")
+                    errors.append("web_ai/not_configured")
             return {"item": item, "suggestion": suggestion, "urls": list(dict.fromkeys(urls)), "provider": provider, "model": model, "input_tokens": input_tokens, "output_tokens": output_tokens, "errors": errors}
         except Exception as exc:
             logger.exception("regulatory_ingredient_research_unexpected_failure", workflow_id=workflow_id, ingredient=str(item.get("name") or ""))

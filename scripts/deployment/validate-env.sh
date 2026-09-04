@@ -23,8 +23,8 @@ for name in "${required[@]}"; do
   fi
 done
 
-if [[ -z "${OPENAI_API_KEY:-}" ]]; then
-  echo "OPENAI_API_KEY is required for complete Regulatory ingredient research." >&2
+if [[ -z "${OPENAI_API_KEY:-}" && -z "${ANTHROPIC_API_KEY:-}" ]]; then
+  echo "OPENAI_API_KEY or ANTHROPIC_API_KEY is required for complete Regulatory ingredient research." >&2
   exit 1
 fi
 
