@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { InfoTip } from '@/components/ui/info-tip'
 import { PageHeader } from '@/components/ui/page-header'
 import { useToast } from '@/components/ui/toast-provider'
+import { PdfPreview } from '@/components/document-viewer/pdf-preview'
 import { ApiError } from '@/lib/api/client'
 import { api } from '@/lib/api/services'
 import type { RegulatoryDocumentType, RegulatoryIngredient, RegulatoryTemplate, RegulatoryWorkflow } from '@/lib/api/types'
@@ -52,7 +53,7 @@ export function RegulatoryDocumentsTool() {
   const [rows, setRows] = useState<RegulatoryIngredient[]>([]); const [properties, setProperties] = useState<Record<string, string>>({}); const [busy, setBusy] = useState('')
   const [researchSummary, setResearchSummary] = useState<RegulatoryWorkflow['research_summary']>()
   const [sourceWarningsAcknowledged, setSourceWarningsAcknowledged] = useState(false)
-  const [preview, setPreview] = useState<{ url: string; title: string } | null>(null)
+  const [preview, setPreview] = useState<{ data: Uint8Array; title: string } | null>(null)
   const [voiceNotes, setVoiceNotes] = useState(''); const [liveSpeech, setLiveSpeech] = useState(''); const [isListening, setIsListening] = useState(false); const [voiceStopSignal, setVoiceStopSignal] = useState(0)
   const uploadRefs = useRef<Partial<Record<RegulatoryDocumentType, HTMLInputElement | null>>>({})
   const templateMap = useMemo(() => Object.fromEntries(templates.map((item) => [item.document_type, item])), [templates])
@@ -60,9 +61,8 @@ export function RegulatoryDocumentsTool() {
   const locked = workflow?.status === 'approved'
 
   useEffect(() => { if (accessToken) void api.regulatory.templates(accessToken).then(setTemplates).catch(() => undefined) }, [accessToken])
-  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url) }, [preview])
   function applyWorkflow(value: RegulatoryWorkflow) { setWorkflow(value); setProduct(value.product_name); setCode(value.product_code); setMarket(value.market); setProperties(value.sds_fields); setRows(value.ingredients); if (value.research_summary) setResearchSummary(value.research_summary) }
-  function showPreview(blob: Blob, title: string) { setPreview({ url: URL.createObjectURL(blob), title }) }
+  async function showPreview(blob: Blob, title: string) { setPreview({ data: new Uint8Array(await blob.arrayBuffer()), title }) }
   function errorMessage(error: unknown, fallback: string) { return error instanceof ApiError ? error.message : fallback }
   function updateRow(index: number, key: keyof RegulatoryIngredient, value: string | string[]) {
     setRows((current) => current.map((row, rowIndex) => {
@@ -139,7 +139,7 @@ export function RegulatoryDocumentsTool() {
   }
   async function viewMaster(type: RegulatoryDocumentType) {
     if (!accessToken) return
-    try { const file = await api.regulatory.templateContent(accessToken, type); showPreview(file.blob, `${DOCUMENTS.find((item) => item.key === type)?.title ?? 'Document'} master`) }
+    try { const file = await api.regulatory.templateContent(accessToken, type); await showPreview(file.blob, `${DOCUMENTS.find((item) => item.key === type)?.title ?? 'Document'} master`) }
     catch (error) { notify('error', errorMessage(error, 'Unable to open the master.')) }
   }
   async function generate(type: RegulatoryDocumentType, format: 'preview' | 'pdf' | 'word') {
@@ -149,13 +149,13 @@ export function RegulatoryDocumentsTool() {
       let generationId = workflow.generated[type]
       if (!generationId) { const result = await api.regulatory.generate(accessToken, workflow.id, type); generationId = result.id; setWorkflow((current) => current ? { ...current, generated: { ...current.generated, [type]: result.id } } : current) }
       const file = format === 'word' ? await api.regulatory.download(accessToken, generationId) : format === 'pdf' ? await api.regulatory.pdf(accessToken, generationId) : await api.regulatory.preview(accessToken, generationId)
-      if (format === 'preview') showPreview(file.blob, `${DOCUMENTS.find((item) => item.key === type)?.title ?? 'Document'} preview`)
+      if (format === 'preview') await showPreview(file.blob, `${DOCUMENTS.find((item) => item.key === type)?.title ?? 'Document'} preview`)
       else saveBlob(file.blob, file.filename)
     } catch (error) { notify('error', errorMessage(error, 'Unable to generate this document.')) } finally { setBusy('') }
   }
 
   return <main className="space-y-5 p-4 md:p-6">
-    {preview ? <div role="dialog" aria-modal="true" aria-label={preview.title} className="fixed inset-0 z-[100] bg-black/75 p-3 backdrop-blur-sm md:p-6"><div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"><div className="flex items-center justify-between border-b border-border px-4 py-3"><p className="font-semibold">{preview.title}</p><Button size="sm" variant="outline" onClick={() => setPreview(null)}><X className="mr-1 h-4 w-4" />Close preview</Button></div><iframe title={preview.title} src={preview.url} className="min-h-0 flex-1 bg-white" /></div></div> : null}
+    {preview ? <div role="dialog" aria-modal="true" aria-label={preview.title} className="fixed inset-0 z-[100] bg-black/75 p-3 backdrop-blur-sm md:p-6"><div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"><div className="flex items-center justify-between border-b border-border px-4 py-3"><p className="font-semibold">{preview.title}</p><Button size="sm" variant="outline" onClick={() => setPreview(null)}><X className="mr-1 h-4 w-4" />Close preview</Button></div><div className="min-h-0 flex-1"><PdfPreview data={preview.data} /></div></div></div> : null}
     <PageHeader title="Regulatory Affairs · Document Centre" description="Prepare, review and issue Regulatory documents." />
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{DOCUMENTS.map((document) => {
       const master = templateMap[document.key]; const unavailable = document.key === 'reach_declaration' && market !== 'eu'; const unlocked = document.key === 'sds' || locked
