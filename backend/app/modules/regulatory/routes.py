@@ -131,7 +131,11 @@ def _master_lookup_index(masters: list[RegulatoryIngredientMaster]) -> dict[str,
         if isinstance(aliases, list):
             names.extend(aliases)
         for name in names:
-            for key in _ingredient_lookup_keys(name):
+            # Index each stored spelling literally. Formula-side variants are
+            # expanded only during lookup; otherwise an old misspelled master
+            # can occupy the standardized key and shadow the corrected record.
+            key = normalise(name)
+            if key:
                 result.setdefault(key, master)
     return result
 

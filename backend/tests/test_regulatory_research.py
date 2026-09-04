@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 
@@ -14,6 +15,7 @@ from app.modules.regulatory.research import (
     template_reference_match,
     valid_cas,
 )
+from app.modules.regulatory.routes import _ingredient_lookup_keys, _master_lookup_index
 
 
 def test_cas_checksum_rejects_ec_number_with_same_shape() -> None:
@@ -27,6 +29,21 @@ def test_common_regulatory_name_variants() -> None:
     assert _lookup_names("CARRYOPHELLENE OXIDE SS")[1] == "CARYOPHYLLENE OXIDE"
     assert _lookup_names("FLORASOL") == ["FLORASOL", "FLOROSOL"]
     assert _lookup_names("DHM")[1] == "dihydromyrcenol"
+
+
+def test_standardized_master_wins_over_old_misspelled_record() -> None:
+    old = SimpleNamespace(
+        normalized_name="florasol", display_name="FLORASOL",
+        data_json={"name": "FLORASOL"}, approved_by_user_id="employee",
+    )
+    corrected = SimpleNamespace(
+        normalized_name="florosol", display_name="FLOROSOL",
+        data_json={"name": "FLOROSOL", "cas": "63500-71-0"}, approved_by_user_id="employee",
+    )
+    index = _master_lookup_index([old, corrected])
+    first_key = _ingredient_lookup_keys("FLORASOL")[0]
+    assert first_key == "florosol"
+    assert index[first_key] is corrected
 
 
 def test_ghs_uses_trusted_eu_reference_and_ignores_vendor_data() -> None:
