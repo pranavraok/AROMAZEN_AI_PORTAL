@@ -46,6 +46,11 @@ def test_formula_and_coa_extraction() -> None:
     assert clean_issue_value("AI suggested - verify") == ""
 
 
+def test_coa_property_extraction_stops_before_approval_fields() -> None:
+    text = "Storage Condition: Store in a cool place\nTested By: Sneha\nChecked By: Rakshanda"
+    assert extract_coa_properties(text)["storage_condition"] == "Store in a cool place"
+
+
 def test_all_regulatory_documents_are_generated_without_internal_labels(tmp_path: Path) -> None:
     ingredients = [
         {"name": "ISO E SUPER", "cas": "54464-57-2", "ec": "259-174-3", "concentration": "10", "classification": "Skin Irrit. 2: H315", "toxicology": "LD50 oral 5000 mg/kg"},

@@ -19,6 +19,18 @@ def _cell_text(value) -> str:
     return "" if value is None else " ".join(str(value).split())
 
 
+def _word_paragraph_text(paragraph) -> str:
+    """Preserve degree symbols represented as a superscript zero in Word files."""
+    return "".join(
+        "°" if run.font.superscript and run.text == "0" else run.text
+        for run in paragraph.runs
+    )
+
+
+def _word_cell_text(cell) -> str:
+    return "\n".join(_word_paragraph_text(paragraph) for paragraph in cell.paragraphs)
+
+
 def _spreadsheet_text(workbook) -> str:
     """Represent sheets as labeled records so semantic search understands each value."""
     parts: list[str] = []
@@ -63,7 +75,10 @@ def extract_text(file_path: Path, extension: str) -> str:
             return _clean([page.extract_text() or "" for page in PdfReader(str(file_path)).pages])
         if extension == ".docx":
             document = WordDocument(str(file_path))
-            return _clean([paragraph.text for paragraph in document.paragraphs] + [" | ".join(cell.text for cell in row.cells) for table in document.tables for row in table.rows])
+            return _clean(
+                [_word_paragraph_text(paragraph) for paragraph in document.paragraphs]
+                + [" | ".join(_word_cell_text(cell) for cell in row.cells) for table in document.tables for row in table.rows]
+            )
         if extension == ".xlsx":
             workbook = load_workbook(str(file_path), read_only=True, data_only=True)
             return _spreadsheet_text(workbook)

@@ -81,6 +81,7 @@ def extract_coa_properties(text: str) -> dict[str, str]:
                 result[key] = values[0] if normalise(final) in {"pass", "passes", "complies", "conforms"} else final
             break
     all_labels = [alias for aliases in COA_LABELS.values() for alias in aliases]
+    all_labels.extend(("tested by", "checked by", "approved by", "parameter", "specification", "result"))
     boundary = "|".join(re.escape(item) for item in sorted(all_labels, key=len, reverse=True))
     for key, aliases in COA_LABELS.items():
         if key in result:
