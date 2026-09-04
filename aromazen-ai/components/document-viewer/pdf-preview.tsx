@@ -21,7 +21,7 @@ interface PdfPageHandle {
 interface PdfDocumentHandle {
   numPages: number
   getPage: (pageNumber: number) => Promise<PdfPageHandle>
-  destroy: () => Promise<void>
+  destroy?: () => Promise<void>
 }
 
 export function PdfPreview({ data, initialPage = 1 }: { data: Uint8Array; initialPage?: number }) {
@@ -48,7 +48,7 @@ export function PdfPreview({ data, initialPage = 1 }: { data: Uint8Array; initia
   useEffect(() => {
     let cancelled = false
     let loadedDocument: PdfDocumentHandle | null = null
-    let loadingTask: { promise: Promise<PdfDocumentHandle>; destroy: () => Promise<void> } | null = null
+    let loadingTask: { promise: Promise<PdfDocumentHandle>; destroy?: () => Promise<void> } | null = null
     setLoading(true)
     setError('')
 
@@ -59,7 +59,7 @@ export function PdfPreview({ data, initialPage = 1 }: { data: Uint8Array; initia
         if (!loadingTask) throw new Error('Unable to start the PDF renderer.')
         loadedDocument = await loadingTask.promise
         if (cancelled) {
-          await loadedDocument.destroy()
+          await loadedDocument.destroy?.()
           return
         }
         setDocumentHandle(loadedDocument)
@@ -75,8 +75,8 @@ export function PdfPreview({ data, initialPage = 1 }: { data: Uint8Array; initia
     return () => {
       cancelled = true
       setDocumentHandle(null)
-      if (loadingTask && !loadedDocument) void loadingTask.destroy()
-      if (loadedDocument) void loadedDocument.destroy()
+      if (loadingTask && !loadedDocument) void loadingTask.destroy?.()
+      if (loadedDocument) void loadedDocument.destroy?.()
     }
   }, [data, initialPage])
 
