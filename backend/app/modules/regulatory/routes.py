@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
+import httpx
 
 from app.core.config import get_settings
 from app.db.session import get_db_session
@@ -29,6 +30,7 @@ from app.modules.knowledge.department_uploads import DepartmentUpload, replace_d
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.knowledge.storage import organized_storage_name
 from app.modules.regulatory.engine import COA_LABELS, DOCUMENT_TYPES, clean_issue_value, extract_coa_properties, generate_regulatory_docx, normalise, parse_regulatory_excel
+from app.modules.regulatory.research import pubchem_identity
 from app.modules.settings.service import provider_runtime_settings
 
 router = APIRouter(dependencies=[Depends(require_department("regulatory"))])
@@ -202,33 +204,55 @@ async def enrich_workflow(workflow_id: str, user: User = Depends(require_permiss
     semaphore = asyncio.Semaphore(4)
     system = """Research exactly one fragrance ingredient. Search trade names and spelling variants before deciding it is unavailable. Return one JSON object with input_name, canonical_name, aliases, cas, ec, classification, hazard_statements, precautionary_statements, signal_word, pictograms, toxicology, ecology, transport, allergen_identity, svhc_identity, and source_urls. Use only official ECHA, PubChem, IFRA, UNECE, or EUR-Lex evidence. Include the exact supporting page URLs. Never guess identifiers or classifications. Use empty strings or arrays for unsupported fields. Never write N/A, AI-generated, confidence, or review messages."""
 
-    async def research_one(item: dict) -> dict:
+    async def research_one(item: dict, pubchem_client: httpx.AsyncClient) -> dict:
         prompt = json.dumps({"input_name": item.get("name"), "concentration_percent": item.get("concentration")}, ensure_ascii=False)
         answer = ""; sources: list[dict] = []; provider = model = ""; input_tokens = output_tokens = 0
+        suggestion: dict = {}; urls: list[str] = []; errors: list[str] = []
         try:
             async with semaphore:
-                async for event in AIProviderRouter(settings).stream(system, prompt, str(item.get("name") or ""), use_web_search=True, response_mode="standard"):
-                    if event.kind == "meta": provider, model = event.provider, event.model
-                    elif event.kind == "delta": answer += event.text
-                    elif event.kind == "sources": sources.extend(event.sources)
-                    elif event.kind == "usage": input_tokens, output_tokens = event.input_tokens, event.output_tokens
-            start, end = answer.find("{"), answer.rfind("}")
-            parsed = json.loads(answer[start:end + 1])
-            if not isinstance(parsed, dict):
-                raise ValueError("Ingredient research did not return a JSON object.")
-            suggestion = parsed.get("ingredient") if isinstance(parsed.get("ingredient"), dict) else parsed
-            if not isinstance(suggestion, dict):
-                raise ValueError("Ingredient research result has an invalid structure.")
-            explicit = suggestion.get("source_urls") or []
-            urls = [str(url) for url in explicit if _official_url(url)] if isinstance(explicit, list) else []
-            urls.extend(str(source.get("url")) for source in sources if _official_url(source.get("url")))
-            return {"item": item, "suggestion": suggestion, "urls": list(dict.fromkeys(urls)), "provider": provider, "model": model, "input_tokens": input_tokens, "output_tokens": output_tokens}
-        except (ProviderError, ValueError, json.JSONDecodeError, TypeError) as exc:
-            logger.warning("regulatory_ingredient_research_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
-            return {"item": item, "error": str(exc), "input_tokens": input_tokens, "output_tokens": output_tokens}
+                try:
+                    pubchem_suggestion, pubchem_urls = await pubchem_identity(pubchem_client, str(item.get("name") or ""))
+                    suggestion.update(pubchem_suggestion); urls.extend(pubchem_urls)
+                except (httpx.HTTPError, ValueError, TypeError) as exc:
+                    errors.append(f"pubchem/{type(exc).__name__}")
+                    logger.warning("regulatory_pubchem_lookup_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
+
+                if settings.openai_api_key:
+                    try:
+                        async for event in AIProviderRouter(settings).stream(system, prompt, str(item.get("name") or ""), use_web_search=True, response_mode="standard"):
+                            if event.kind == "meta": provider, model = event.provider, event.model
+                            elif event.kind == "delta": answer += event.text
+                            elif event.kind == "sources": sources.extend(event.sources)
+                            elif event.kind == "usage": input_tokens, output_tokens = event.input_tokens, event.output_tokens
+                        start, end = answer.find("{"), answer.rfind("}")
+                        parsed = json.loads(answer[start:end + 1])
+                        if not isinstance(parsed, dict):
+                            raise ValueError("Ingredient research did not return a JSON object.")
+                        ai_suggestion = parsed.get("ingredient") if isinstance(parsed.get("ingredient"), dict) else parsed
+                        if not isinstance(ai_suggestion, dict):
+                            raise ValueError("Ingredient research result has an invalid structure.")
+                        explicit = ai_suggestion.get("source_urls") or []
+                        ai_urls = [str(url) for url in explicit if _official_url(url)] if isinstance(explicit, list) else []
+                        ai_urls.extend(str(source.get("url")) for source in sources if _official_url(source.get("url")))
+                        if ai_urls:
+                            for key, value in ai_suggestion.items():
+                                if value and not suggestion.get(key):
+                                    suggestion[key] = value
+                            urls.extend(ai_urls)
+                    except (ProviderError, ValueError, json.JSONDecodeError, TypeError) as exc:
+                        code = f"{exc.provider}/{exc.code}" if isinstance(exc, ProviderError) else type(exc).__name__
+                        errors.append(code)
+                        logger.warning("regulatory_openai_research_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), provider=getattr(exc, "provider", ""), code=getattr(exc, "code", code), error=str(exc))
+                else:
+                    errors.append("openai/not_configured")
+            return {"item": item, "suggestion": suggestion, "urls": list(dict.fromkeys(urls)), "provider": provider, "model": model, "input_tokens": input_tokens, "output_tokens": output_tokens, "errors": errors}
+        except Exception as exc:
+            logger.exception("regulatory_ingredient_research_unexpected_failure", workflow_id=workflow_id, ingredient=str(item.get("name") or ""))
+            return {"item": item, "error": type(exc).__name__, "input_tokens": input_tokens, "output_tokens": output_tokens}
 
     started = time.perf_counter()
-    research_results = await asyncio.gather(*(research_one(item) for item in unresolved[:60]))
+    async with httpx.AsyncClient(timeout=httpx.Timeout(25.0, connect=10.0), follow_redirects=True) as pubchem_client:
+        research_results = await asyncio.gather(*(research_one(item, pubchem_client) for item in unresolved[:60]))
     populated = failed = 0; provider = model = ""; input_tokens = output_tokens = 0
     for researched in research_results:
         input_tokens += int(researched.get("input_tokens") or 0); output_tokens += int(researched.get("output_tokens") or 0)
@@ -257,8 +281,10 @@ async def enrich_workflow(workflow_id: str, user: User = Depends(require_permiss
                     current[key] = value; changed += 1
         if changed:
             current["sources"] = row_urls; current["provenance"] = "ai_suggested"; populated += 1
-    if populated == 0 and failed == len(research_results):
-        raise HTTPException(status_code=503, detail="AI web research could not run. Confirm that OPENAI_API_KEY is configured in the deployed API service.")
+    if populated == 0:
+        diagnostic_codes = sorted({code for result in research_results for code in result.get("errors", [])})
+        diagnostic = ", ".join(diagnostic_codes) or "no official ingredient matches"
+        raise HTTPException(status_code=503, detail=f"Ingredient research returned no usable official data. Diagnostic: {diagnostic}.")
     workflow.ingredients_json = ingredients
     session.add(AIUsageEvent(organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, operation="regulatory_web_research", provider=provider, model=model, input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=estimate_cost(provider, model, input_tokens, output_tokens), latency_ms=int((time.perf_counter() - started) * 1000), status="completed"))
     await session.commit()
