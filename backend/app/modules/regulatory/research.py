@@ -82,6 +82,7 @@ def _lookup_names(name: str) -> list[str]:
     candidates = [cleaned]
     normalized_trade_name = re.sub(r"\s+SS$", "", cleaned, flags=re.IGNORECASE)
     normalized_trade_name = re.sub(r"CARRYOPHELLENE", "CARYOPHYLLENE", normalized_trade_name, flags=re.IGNORECASE)
+    normalized_trade_name = re.sub(r"\bFLORASOL\b", "FLOROSOL", normalized_trade_name, flags=re.IGNORECASE)
     if normalized_trade_name.casefold() != cleaned.casefold():
         candidates.append(normalized_trade_name)
     collapsed_iso = re.sub(r"^ISO\s+(?=[A-Z]{4,}\b)", "ISO", cleaned, count=1, flags=re.IGNORECASE)

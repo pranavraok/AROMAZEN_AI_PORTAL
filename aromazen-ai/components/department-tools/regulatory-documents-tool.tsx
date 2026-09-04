@@ -64,7 +64,19 @@ export function RegulatoryDocumentsTool() {
   function applyWorkflow(value: RegulatoryWorkflow) { setWorkflow(value); setProduct(value.product_name); setCode(value.product_code); setMarket(value.market); setProperties(value.sds_fields); setRows(value.ingredients); if (value.research_summary) setResearchSummary(value.research_summary) }
   function showPreview(blob: Blob, title: string) { setPreview({ url: URL.createObjectURL(blob), title }) }
   function errorMessage(error: unknown, fallback: string) { return error instanceof ApiError ? error.message : fallback }
-  function updateRow(index: number, key: keyof RegulatoryIngredient, value: string | string[]) { setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value, provenance: 'employee_approved' } : row)) }
+  function updateRow(index: number, key: keyof RegulatoryIngredient, value: string | string[]) {
+    setRows((current) => current.map((row, rowIndex) => {
+      if (rowIndex !== index) return row
+      if (key === 'name' && typeof value === 'string') {
+        const previousName = row.name.trim()
+        const aliases = previousName && previousName.localeCompare(value.trim(), undefined, { sensitivity: 'accent' }) !== 0
+          ? Array.from(new Set([previousName, ...(row.aliases ?? [])]))
+          : (row.aliases ?? [])
+        return { ...row, name: value, aliases, provenance: 'employee_approved' }
+      }
+      return { ...row, [key]: value, provenance: 'employee_approved' }
+    }))
+  }
   function reportResearch(result: RegulatoryWorkflow) {
     const summary = result.research_summary
     if (!summary) return notify('warning', 'The source check finished without a completion summary. Please retry.')

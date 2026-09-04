@@ -35,6 +35,7 @@ from app.modules.regulatory.research import (
     EU_COSMETICS_REGULATION,
     IFRA_LIBRARY_PAGE,
     PUBCHEM_THROTTLE,
+    _lookup_names,
     echa_svhc_status,
     epa_comptox_identity,
     ifra_snapshot_match,
@@ -107,6 +108,32 @@ def _public_master_data(master: RegulatoryIngredientMaster) -> tuple[dict, str]:
     public = {key: value for key, value in stored.items() if not str(key).startswith("_")}
     provenance = "approved_master" if master.approved_by_user_id else str(stored.get("_research_method") or "official_database")
     return public, provenance
+
+
+def _ingredient_lookup_keys(name: object) -> list[str]:
+    """Return stable lookup keys for common formula/trade-name spelling variants."""
+    raw = re.sub(r"\s+", " ", str(name or "")).strip()
+    candidates = _lookup_names(raw)
+    # Normalized variants are intentionally checked before the literal Excel
+    # spelling, so an approved standardized master wins over an old blank row.
+    return list(dict.fromkeys(key for key in (normalise(value) for value in reversed(candidates)) if key))
+
+
+def _master_lookup_index(masters: list[RegulatoryIngredientMaster]) -> dict[str, RegulatoryIngredientMaster]:
+    """Index approved master records by standard name, canonical name, and aliases."""
+    result: dict[str, RegulatoryIngredientMaster] = {}
+    # Prefer an employee-approved record when two records share an alias.
+    ordered = sorted(masters, key=lambda item: item.approved_by_user_id is not None, reverse=True)
+    for master in ordered:
+        data, _ = _public_master_data(master)
+        names: list[object] = [master.normalized_name, master.display_name, data.get("name"), data.get("canonical_name")]
+        aliases = data.get("aliases")
+        if isinstance(aliases, list):
+            names.extend(aliases)
+        for name in names:
+            for key in _ingredient_lookup_keys(name):
+                result.setdefault(key, master)
+    return result
 
 
 def _merge_research_result(
@@ -267,9 +294,10 @@ async def create_workflow(regulatory_excel: UploadFile = File(...), creation_coa
             coa_text = extract_text(coa_path, suffix)
         except ExtractionError:
             coa_text = ""
-    masters = {item.normalized_name: item for item in list(await session.scalars(select(RegulatoryIngredientMaster).where(RegulatoryIngredientMaster.organization_id == user.organization_id)))}
+    master_items = list(await session.scalars(select(RegulatoryIngredientMaster).where(RegulatoryIngredientMaster.organization_id == user.organization_id)))
+    masters = _master_lookup_index(master_items)
     for item in ingredients:
-        saved = masters.get(normalise(item["name"]))
+        saved = next((masters[key] for key in _ingredient_lookup_keys(item["name"]) if key in masters), None)
         if saved:
             saved_data, provenance = _public_master_data(saved)
             item.update(saved_data); item["sources"] = saved.sources_json or []; item["provenance"] = provenance
