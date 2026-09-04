@@ -29,7 +29,7 @@ from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.knowledge.storage import organized_storage_name
-from app.modules.regulatory.engine import COA_LABELS, DOCUMENT_TYPES, clean_issue_value, extract_coa_properties, generate_regulatory_docx, normalise, parse_regulatory_excel
+from app.modules.regulatory.engine import COA_LABELS, DOCUMENT_TYPES, clean_issue_value, extract_coa_identity, extract_coa_properties, generate_regulatory_docx, normalise, parse_regulatory_excel
 from app.modules.regulatory.research import (
     EC_PATTERN,
     EU_COSMETICS_REGULATION,
@@ -59,6 +59,7 @@ class WorkflowUpdate(BaseModel):
     market: str = Field(pattern="^(other|eu)$")
     sds_fields: dict[str, str] = Field(default_factory=dict)
     ingredients: list[dict] = Field(default_factory=list, max_length=300)
+    source_warnings_acknowledged: bool = False
 
 
 class VoiceNotesUpdate(BaseModel):
@@ -97,7 +98,8 @@ async def _workflow(session: AsyncSession, user: User, workflow_id: str) -> Regu
 
 
 def _serialize(value: RegulatoryWorkflow) -> dict:
-    return {"id": str(value.id), "product_name": value.product_name, "product_code": value.product_code, "market": value.market, "status": value.status, "source_files": value.source_files_json or {}, "sds_fields": value.sds_fields_json or {}, "ingredients": value.ingredients_json or [], "generated": value.generated_json or {}, "approved_at": value.approved_at.isoformat() if value.approved_at else None}
+    source_files = value.source_files_json or {}
+    return {"id": str(value.id), "product_name": value.product_name, "product_code": value.product_code, "market": value.market, "status": value.status, "source_files": source_files, "intake_warnings": source_files.get("warnings") or [], "sds_fields": value.sds_fields_json or {}, "ingredients": value.ingredients_json or [], "generated": value.generated_json or {}, "approved_at": value.approved_at.isoformat() if value.approved_at else None}
 
 
 def _public_master_data(master: RegulatoryIngredientMaster) -> tuple[dict, str]:
@@ -274,7 +276,21 @@ async def create_workflow(regulatory_excel: UploadFile = File(...), creation_coa
     # Creation COA intake is deterministic and free. Missing values stay editable
     # instead of silently triggering a paid model request.
     sds_fields = extract_coa_properties(coa_text)
-    workflow = RegulatoryWorkflow(organization_id=user.organization_id, created_by_user_id=user.id, product_name=product, product_code=code, source_files_json={"regulatory_excel": regulatory_excel.filename or "Regulatory.xlsx", "creation_coa": creation_coa.filename or f"Creation-COA{suffix}"}, sds_fields_json=sds_fields, ingredients_json=ingredients)
+    coa_identity = extract_coa_identity(coa_text)
+    intake_warnings: list[dict[str, str]] = []
+    coa_product = coa_identity.get("product_name", "")
+    coa_code = coa_identity.get("product_code", "")
+    if coa_product and normalise(coa_product) != normalise(product):
+        intake_warnings.append({
+            "code": "coa_product_mismatch",
+            "message": f'The formula is for "{product}", but the Creation COA says "{coa_product}".',
+        })
+    if coa_code and normalise(coa_code) != normalise(code):
+        intake_warnings.append({
+            "code": "coa_code_mismatch",
+            "message": f'The formula code is "{code}", but the Creation COA code is "{coa_code}".',
+        })
+    workflow = RegulatoryWorkflow(organization_id=user.organization_id, created_by_user_id=user.id, product_name=product, product_code=code, source_files_json={"regulatory_excel": regulatory_excel.filename or "Regulatory.xlsx", "creation_coa": creation_coa.filename or f"Creation-COA{suffix}", "warnings": intake_warnings}, sds_fields_json=sds_fields, ingredients_json=ingredients)
     session.add(workflow); await session.flush()
     await replace_department_uploads(session, user, "regulatory", [
         DepartmentUpload(f"regulatory-workflow:{workflow.id}:excel", excel_content, regulatory_excel.filename or "Regulatory.xlsx", regulatory_excel.content_type),
@@ -599,9 +615,16 @@ async def approve_workflow(workflow_id: str, payload: WorkflowUpdate, user: User
         raise HTTPException(status_code=422, detail="Product name and product code are required before approval.")
     if not any(str(item.get("name") or "").strip() for item in payload.ingredients):
         raise HTTPException(status_code=422, detail="At least one named ingredient is required before approval.")
+    if (workflow.source_files_json or {}).get("warnings") and not payload.source_warnings_acknowledged:
+        raise HTTPException(status_code=422, detail="Confirm the source-file mismatch before approving this SDS.")
     workflow.product_name = payload.product_name.strip(); workflow.product_code = payload.product_code.strip(); workflow.market = payload.market
     workflow.sds_fields_json = payload.sds_fields; workflow.ingredients_json = payload.ingredients; workflow.status = "approved"; workflow.approved_by_user_id = user.id; workflow.approved_at = datetime.now(timezone.utc)
     for item in payload.ingredients:
+        # Approving this product snapshot must not silently certify every
+        # cached or database-sourced ingredient for future workflows. Only a
+        # row that the employee actually edited is promoted to the master.
+        if item.get("provenance") != "employee_approved":
+            continue
         key = normalise(item.get("name"))
         if not key: continue
         master = await session.scalar(select(RegulatoryIngredientMaster).where(RegulatoryIngredientMaster.organization_id == user.organization_id, RegulatoryIngredientMaster.normalized_name == key))

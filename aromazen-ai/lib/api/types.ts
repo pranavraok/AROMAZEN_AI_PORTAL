@@ -621,6 +621,7 @@ export interface RegulatoryWorkflow {
   id: string; product_name: string; product_code: string; market: 'other' | 'eu'; status: 'review' | 'approved'
   source_files: Record<string, string>; sds_fields: Record<string, string>; ingredients: RegulatoryIngredient[]
   generated: Partial<Record<RegulatoryDocumentType, string>>; approved_at: string | null
+  intake_warnings?: { code: string; message: string }[]
   research_summary?: { mode: 'official' | 'ai'; attempted: number; populated: number; unresolved: number; failed: number; cached: number; ai_requests: number }
 }
 export interface RegulatoryTemplate { id: string; document_type: RegulatoryDocumentType; name: string; version: number }

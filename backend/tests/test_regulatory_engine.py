@@ -6,6 +6,7 @@ from openpyxl import Workbook
 
 from app.modules.regulatory.engine import (
     clean_issue_value,
+    extract_coa_identity,
     extract_coa_properties,
     generate_regulatory_docx,
     parse_regulatory_excel,
@@ -43,6 +44,7 @@ def test_formula_and_coa_extraction() -> None:
     assert extract_coa_properties("Appearance: Clear liquid\nOdour: Woody\nFlash Point: 82 °C") == {
         "appearance": "Clear liquid", "odour": "Woody", "flash_point": "82 °C"
     }
+    assert extract_coa_properties("Flash Point | For record | 990C")["flash_point"] == "99°C"
     assert clean_issue_value("AI suggested - verify") == ""
     assert clean_issue_value("N/A") == ""
     assert clean_issue_value("Leave blank if unavailable") == ""
@@ -51,6 +53,11 @@ def test_formula_and_coa_extraction() -> None:
 def test_coa_property_extraction_stops_before_approval_fields() -> None:
     text = "Storage Condition: Store in a cool place\nTested By: Sneha\nChecked By: Rakshanda"
     assert extract_coa_properties(text)["storage_condition"] == "Store in a cool place"
+
+
+def test_coa_identity_extraction() -> None:
+    text = "Date: 27-08-2026\nName of the Product : PEARL\nProduct Code : FPM 10691\nBatch Number: X1"
+    assert extract_coa_identity(text) == {"product_name": "PEARL", "product_code": "FPM 10691"}
 
 
 def test_all_regulatory_documents_are_generated_without_internal_labels(tmp_path: Path) -> None:
@@ -78,3 +85,27 @@ def test_all_regulatory_documents_are_generated_without_internal_labels(tmp_path
     assert "PTBCHA" not in sds_text
     assert "GALAXOLIDE" not in sds_text
     assert "ISO E SUPER" in sds_text
+    assert "CHANDAN" not in sds_text
+    assert "H412, Harmful to aquatic life with long lasting effects" not in sds_text
+    assert "Product identifier: CEDAR AND SAGE FS 12388" in sds_text
+    assert "1.1 Product Identifier CEDAR" not in sds_text
+    lowered_sds = sds_text.lower()
+    assert "not determined" not in lowered_sds
+    assert "not available" not in lowered_sds
+    assert "no available" not in lowered_sds
+    assert "none available" not in lowered_sds
+    assert "not applicable" not in lowered_sds
+    assert "13-07-2026" not in sds_text
+    assert lowered_sds.count("particle characteristics:") == 1
+
+    sds = Document(tmp_path / "sds.docx")
+    composition_tables = [
+        table for table in sds.tables
+        if table.rows and "cas" in " ".join(cell.text.lower() for cell in table.rows[0].cells)
+        and "%" in " ".join(cell.text for cell in table.rows[0].cells)
+        and len(table.rows[0].cells) == 6
+    ]
+    assert len(composition_tables[0].rows) == 3
+    assert len(composition_tables[1].rows) == 1
+    first_value_run = composition_tables[0].rows[1].cells[0].paragraphs[0].runs[0]
+    assert first_value_run.font.size.pt == 8.5
