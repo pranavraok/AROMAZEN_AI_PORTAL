@@ -1,7 +1,7 @@
 'use client'
 
 import { ChangeEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Download, Eye, FileSpreadsheet, FileText, LoaderCircle, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, Eye, FileSpreadsheet, FileText, LoaderCircle, Plus, Search, ShieldCheck, Sparkles, Trash2, Upload, X } from 'lucide-react'
 import { useAuth } from '@/components/auth/auth-provider'
 import { VoiceInputButton } from '@/components/voice-input-button'
 import { Button } from '@/components/ui/button'
@@ -39,15 +39,6 @@ function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob); const link = document.createElement('a')
   link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url)
 }
-function reservePreviewWindow() {
-  const previewWindow = window.open('about:blank', '_blank')
-  if (!previewWindow) return null
-  previewWindow.opener = null
-  previewWindow.document.title = 'Preparing document preview'
-  previewWindow.document.body.textContent = 'Preparing document preview…'
-  previewWindow.document.body.style.cssText = 'margin:0;display:grid;min-height:100vh;place-items:center;background:#101512;color:#d7e2dc;font:500 16px system-ui,sans-serif'
-  return previewWindow
-}
 function blankIngredient(): RegulatoryIngredient {
   return { name: '', concentration: '', cas: '', ec: '', classification: '', aliases: [], provenance: 'employee_approved', sources: [] }
 }
@@ -61,6 +52,7 @@ export function RegulatoryDocumentsTool() {
   const [rows, setRows] = useState<RegulatoryIngredient[]>([]); const [properties, setProperties] = useState<Record<string, string>>({}); const [busy, setBusy] = useState('')
   const [researchSummary, setResearchSummary] = useState<RegulatoryWorkflow['research_summary']>()
   const [sourceWarningsAcknowledged, setSourceWarningsAcknowledged] = useState(false)
+  const [preview, setPreview] = useState<{ url: string; title: string } | null>(null)
   const [voiceNotes, setVoiceNotes] = useState(''); const [liveSpeech, setLiveSpeech] = useState(''); const [isListening, setIsListening] = useState(false); const [voiceStopSignal, setVoiceStopSignal] = useState(0)
   const uploadRefs = useRef<Partial<Record<RegulatoryDocumentType, HTMLInputElement | null>>>({})
   const templateMap = useMemo(() => Object.fromEntries(templates.map((item) => [item.document_type, item])), [templates])
@@ -68,7 +60,9 @@ export function RegulatoryDocumentsTool() {
   const locked = workflow?.status === 'approved'
 
   useEffect(() => { if (accessToken) void api.regulatory.templates(accessToken).then(setTemplates).catch(() => undefined) }, [accessToken])
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url) }, [preview])
   function applyWorkflow(value: RegulatoryWorkflow) { setWorkflow(value); setProduct(value.product_name); setCode(value.product_code); setMarket(value.market); setProperties(value.sds_fields); setRows(value.ingredients); if (value.research_summary) setResearchSummary(value.research_summary) }
+  function showPreview(blob: Blob, title: string) { setPreview({ url: URL.createObjectURL(blob), title }) }
   function errorMessage(error: unknown, fallback: string) { return error instanceof ApiError ? error.message : fallback }
   function updateRow(index: number, key: keyof RegulatoryIngredient, value: string | string[]) { setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value, provenance: 'employee_approved' } : row)) }
   function reportResearch(result: RegulatoryWorkflow) {
@@ -133,25 +127,23 @@ export function RegulatoryDocumentsTool() {
   }
   async function viewMaster(type: RegulatoryDocumentType) {
     if (!accessToken) return
-    const previewWindow = reservePreviewWindow()
-    if (!previewWindow) return notify('error', 'The browser blocked the preview window. Allow pop-ups for this site and try again.')
-    try { const file = await api.regulatory.templateContent(accessToken, type); const url = URL.createObjectURL(file.blob); previewWindow.location.replace(url); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) }
-    catch (error) { previewWindow.close(); notify('error', errorMessage(error, 'Unable to open the master.')) }
+    try { const file = await api.regulatory.templateContent(accessToken, type); showPreview(file.blob, `${DOCUMENTS.find((item) => item.key === type)?.title ?? 'Document'} master`) }
+    catch (error) { notify('error', errorMessage(error, 'Unable to open the master.')) }
   }
   async function generate(type: RegulatoryDocumentType, format: 'preview' | 'pdf' | 'word') {
     if (!accessToken || !workflow) return
-    const previewWindow = format === 'preview' ? reservePreviewWindow() : null
-    if (format === 'preview' && !previewWindow) return notify('error', 'The browser blocked the preview window. Allow pop-ups for this site and try again.')
     setBusy(`${format}-${type}`)
     try {
       let generationId = workflow.generated[type]
       if (!generationId) { const result = await api.regulatory.generate(accessToken, workflow.id, type); generationId = result.id; setWorkflow((current) => current ? { ...current, generated: { ...current.generated, [type]: result.id } } : current) }
       const file = format === 'word' ? await api.regulatory.download(accessToken, generationId) : format === 'pdf' ? await api.regulatory.pdf(accessToken, generationId) : await api.regulatory.preview(accessToken, generationId)
-      if (format === 'preview' && previewWindow) { const url = URL.createObjectURL(file.blob); previewWindow.location.replace(url); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) } else saveBlob(file.blob, file.filename)
-    } catch (error) { previewWindow?.close(); notify('error', errorMessage(error, 'Unable to generate this document.')) } finally { setBusy('') }
+      if (format === 'preview') showPreview(file.blob, `${DOCUMENTS.find((item) => item.key === type)?.title ?? 'Document'} preview`)
+      else saveBlob(file.blob, file.filename)
+    } catch (error) { notify('error', errorMessage(error, 'Unable to generate this document.')) } finally { setBusy('') }
   }
 
   return <main className="space-y-5 p-4 md:p-6">
+    {preview ? <div role="dialog" aria-modal="true" aria-label={preview.title} className="fixed inset-0 z-[100] bg-black/75 p-3 backdrop-blur-sm md:p-6"><div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"><div className="flex items-center justify-between border-b border-border px-4 py-3"><p className="font-semibold">{preview.title}</p><Button size="sm" variant="outline" onClick={() => setPreview(null)}><X className="mr-1 h-4 w-4" />Close preview</Button></div><iframe title={preview.title} src={preview.url} className="min-h-0 flex-1 bg-white" /></div></div> : null}
     <PageHeader title="Regulatory Affairs · Document Centre" description="Prepare, review and issue Regulatory documents." />
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{DOCUMENTS.map((document) => {
       const master = templateMap[document.key]; const unavailable = document.key === 'reach_declaration' && market !== 'eu'; const unlocked = document.key === 'sds' || locked
