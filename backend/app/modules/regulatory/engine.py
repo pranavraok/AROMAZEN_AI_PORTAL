@@ -207,7 +207,7 @@ def _remove_output_placeholders(document) -> None:
             _set_paragraph_text_preserving_layout(paragraph, match.group(1).rstrip())
 
 
-def _set_sds_footer_metadata(document, fields: dict[str, str]) -> None:
+def _set_footer_metadata(document, fields: dict[str, str]) -> None:
     version = clean_issue_value(fields.get("version"))
     revision_date = clean_issue_value(fields.get("revision_date"))
     pattern = re.compile(r"(?is)^(.*?Version\s*:)\s*.*?(\s+Date\s*:)\s*.*?$")
@@ -442,7 +442,6 @@ def _tighten_ifra_certificate(document) -> None:
 
 
 def _fill_sds(document, fields: dict[str, str], ingredients: list[dict]) -> None:
-    _set_sds_footer_metadata(document, fields)
     labels = {
         "appearance": (r"Appearance",), "colour": (r"Colou?r",), "odour": (r"Odou?r(?:/Odor threshold)?",),
         "flash_point": (r"Flash point",), "refractive_index": (r"Refractive index",), "solubility": (r"Solubility",),
@@ -544,7 +543,15 @@ def generate_regulatory_docx(template: Path, output: Path, document_type: str, p
     if document_type not in DOCUMENT_TYPES:
         raise ValueError("Unsupported regulatory document type.")
     document = Document(template)
-    _replace_product(document, clean_issue_value(product), clean_issue_value(code))
+    clean_product = clean_issue_value(product)
+    clean_code = clean_issue_value(code)
+    # IFRA certificates and allergen declarations expose one product-name line
+    # rather than a separate product-code field, so retain the code on that line.
+    display_product = f"{clean_product} {clean_code}".strip() if document_type in {"ifra_certificate", "allergen_report"} else clean_product
+    _replace_product(document, display_product, clean_code)
+    # Every supplied regulatory master carries the same Version/Date footer.
+    # Replace the example metadata for every generated document, not only SDS.
+    _set_footer_metadata(document, fields)
     if document_type == "sds":
         _fill_sds(document, fields, ingredients)
     elif document_type == "ifra_certificate":

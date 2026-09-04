@@ -33,6 +33,14 @@ def _text(path: Path) -> str:
     document = Document(path)
     parts = [paragraph.text for paragraph in document.paragraphs]
     parts.extend(cell.text for table in document.tables for row in table.rows for cell in row.cells)
+    for section in document.sections:
+        parts.extend(paragraph.text for paragraph in section.footer.paragraphs)
+        parts.extend(
+            cell.text
+            for table in section.footer.tables
+            for row in table.rows
+            for cell in row.cells
+        )
     return "\n".join(parts)
 
 
@@ -68,7 +76,7 @@ def test_all_regulatory_documents_are_generated_without_internal_labels(tmp_path
     fields = {
         "appearance": "Clear liquid", "odour": "Woody", "flash_point": "82 °C",
         "classification": "Skin Irrit. 2: H315", "supplemental_information": "EUH208",
-        "other_hazards": "",
+        "other_hazards": "", "version": "0.0", "revision_date": "28-08-2026",
     }
     files = {
         "sds": "sds.docx", "ifra_certificate": "ifra-certificate.docx",
@@ -84,6 +92,12 @@ def test_all_regulatory_documents_are_generated_without_internal_labels(tmp_path
         assert "review required" not in text
         assert "source url" not in text
         assert "chandan" not in text
+        assert "13-07-2026" not in text
+
+    assert "PRODUCT NAME: CEDAR AND SAGE FS 12388" in _text(tmp_path / "ifra-certificate.docx")
+    assert "PRODUCTNAME:CEDARANDSAGEFS12388" in _text(tmp_path / "allergen-report.docx").replace(" ", "")
+    assert "28-08-2026" in _text(tmp_path / "ifra-certificate.docx")
+    assert "28-08-2026" in _text(tmp_path / "ifra-amendment.docx")
 
     sds_text = _text(tmp_path / "sds.docx")
     assert "PTBCHA" not in sds_text
