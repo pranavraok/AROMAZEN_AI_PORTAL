@@ -36,12 +36,28 @@ bash ./scripts/deployment/backup.sh
 echo "Fetching the approved commit..."
 git fetch --prune origin main
 REMOTE_SHA="$(git rev-parse origin/main)"
-if [[ "$REMOTE_SHA" != "$EXPECTED_SHA" ]]; then
-    echo "origin/main is $REMOTE_SHA, but GitHub approved $EXPECTED_SHA; deployment stopped." >&2
+if ! git merge-base --is-ancestor "$EXPECTED_SHA" origin/main; then
+    echo "GitHub approved $EXPECTED_SHA, but it is not part of origin/main at $REMOTE_SHA; deployment stopped." >&2
     exit 6
 fi
 
-git merge --ff-only "$EXPECTED_SHA"
+CURRENT_SHA="$(git rev-parse HEAD)"
+if [[ "$CURRENT_SHA" == "$EXPECTED_SHA" ]]; then
+    echo "The approved commit is already checked out."
+elif git merge-base --is-ancestor "$CURRENT_SHA" "$EXPECTED_SHA"; then
+    git merge --ff-only "$EXPECTED_SHA"
+elif git merge-base --is-ancestor "$EXPECTED_SHA" "$CURRENT_SHA"; then
+    echo "Approved commit $EXPECTED_SHA has already been superseded by deployed commit $CURRENT_SHA; skipping stale deployment."
+    exit 0
+else
+    echo "Production commit $CURRENT_SHA cannot be safely fast-forwarded to approved commit $EXPECTED_SHA; deployment stopped." >&2
+    exit 6
+fi
+
+if [[ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]]; then
+    echo "Production did not reach the exact approved commit; deployment stopped." >&2
+    exit 6
+fi
 
 echo "Building and starting the approved release..."
 bash ./scripts/deployment/deploy.sh

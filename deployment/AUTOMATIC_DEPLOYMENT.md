@@ -23,7 +23,7 @@ Connect with a dedicated SSH key
 Encrypted database and upload backup
         |
         v
-Verify the exact approved commit and fast-forward main
+Verify the approved commit belongs to main and fast-forward to it
         |
         v
 Build, migrate and restart Docker services
@@ -32,7 +32,7 @@ Build, migrate and restart Docker services
 Require https://ai.aromazenind.com/api/v1/health to return status ok
 ```
 
-Only one production deployment can run at a time. A dirty server checkout, failed backup, unexpected Git commit, failed build, failed migration or failed health check stops the workflow.
+Only one production deployment can run at a time. If `main` advances while an earlier commit waits for approval, that approved commit can still deploy as long as it remains in the `main` history. A stale run is safely skipped when production already contains a newer commit. A dirty server checkout, failed backup, unrelated Git commit, failed build, failed migration or failed health check stops the workflow.
 
 ## 1. Verify backup configuration first
 
