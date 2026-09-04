@@ -34,7 +34,14 @@ from app.modules.regulatory.research import (
     EC_PATTERN,
     EU_COSMETICS_REGULATION,
     IFRA_LIBRARY_PAGE,
+    PUBCHEM_THROTTLE,
     echa_svhc_status,
+    epa_comptox_identity,
+    ifra_snapshot_match,
+    load_echa_candidate_snapshot,
+    load_ifra_snapshot,
+    load_nite_ghs_snapshot,
+    nite_ghs_match,
     pubchem_regulatory_record,
     template_reference_match,
     valid_cas,
@@ -43,7 +50,7 @@ from app.modules.settings.service import provider_runtime_settings
 
 router = APIRouter(dependencies=[Depends(require_department("regulatory"))])
 logger = structlog.get_logger(__name__)
-RESEARCH_FIELDS = ("canonical_name", "aliases", "cas", "ec", "classification", "hazard_statements", "precautionary_statements", "signal_word", "pictograms", "toxicology", "ecology", "transport", "allergen_identity", "svhc_identity")
+RESEARCH_FIELDS = ("canonical_name", "aliases", "cas", "ec", "classification", "hazard_statements", "precautionary_statements", "signal_word", "pictograms", "toxicology", "ecology", "transport", "allergen_identity", "svhc_identity", "ifra_limits")
 
 
 class WorkflowUpdate(BaseModel):
@@ -194,7 +201,7 @@ def _template_checks(item: dict, paths: dict[str, Path], versions: dict[str, int
     ifra_path = paths.get("ifra_amendment")
     if ifra_path:
         match = template_reference_match(ifra_path, "ifra", item)
-        checks["ifra"] = {
+        checks["ifra_template"] = {
             "status": "listed" if match else "not_listed",
             "source": f"Approved IFRA Amendment template v{versions['ifra_amendment']}",
             "checked_at": checked_at,
@@ -315,9 +322,17 @@ async def enrich_workflow(
     templates = await _templates(session, user)
     template_paths, template_versions = _active_reference_templates(templates)
     semaphore = asyncio.Semaphore(4)
+    app_settings = get_settings()
+    reference_dir = Path(app_settings.upload_storage_path) / "regulatory-reference-data"
     logger.info("regulatory_official_lookup_started", workflow_id=workflow_id, ingredient_count=len(to_lookup), force=force)
 
-    async def research_one(item: dict, client: httpx.AsyncClient) -> dict:
+    async def research_one(
+        item: dict,
+        client: httpx.AsyncClient,
+        echa_snapshot: dict | None,
+        nite_snapshot: dict | None,
+        ifra_snapshot: dict | None,
+    ) -> dict:
         suggestion: dict = {}
         urls: list[str] = []
         checks: dict = {}
@@ -326,35 +341,75 @@ async def enrich_workflow(
         async with semaphore:
             lookup_value = next((value for value in re.findall(r"\d{2,7}-\d{2}-\d", str(item.get("cas") or "")) if valid_cas(value)), str(item.get("name") or ""))
             try:
-                values, value_urls, value_checks, value_versions = await pubchem_regulatory_record(client, lookup_value)
+                values, value_urls, value_checks, value_versions = await pubchem_regulatory_record(client, lookup_value, PUBCHEM_THROTTLE)
                 suggestion.update(values); urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
             except (httpx.HTTPError, ValueError, TypeError) as exc:
                 errors.append(f"pubchem/{type(exc).__name__}")
                 logger.warning("regulatory_pubchem_lookup_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
 
             candidate = {**item, **suggestion}
-            try:
+            if app_settings.epa_comptox_api_key and not candidate.get("cas"):
+                try:
+                    values, value_urls, value_checks, value_versions = await epa_comptox_identity(
+                        client,
+                        name=str(candidate.get("canonical_name") or candidate.get("name") or ""),
+                        cas=str(candidate.get("cas") or ""),
+                        api_key=app_settings.epa_comptox_api_key,
+                    )
+                    suggestion.update(values); urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
+                    candidate.update(values)
+                except (httpx.HTTPError, ValueError, TypeError) as exc:
+                    errors.append(f"epa_comptox/{type(exc).__name__}")
+                    logger.warning("regulatory_epa_lookup_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
+
+            values, value_urls, value_checks, value_versions = nite_ghs_match(nite_snapshot, candidate)
+            if not candidate.get("classification"):
+                suggestion.update(values); urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
+                candidate.update(values)
+            else:
+                urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
+
+            if echa_snapshot:
                 values, value_urls, value_checks, value_versions = await echa_svhc_status(
                     client,
                     name=str(candidate.get("canonical_name") or candidate.get("name") or ""),
                     cas=str(candidate.get("cas") or ""),
                     ec=str(candidate.get("ec") or ""),
+                    snapshot=echa_snapshot,
                 )
                 suggestion.update(values); urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
-            except (httpx.HTTPError, ValueError, TypeError) as exc:
-                errors.append(f"echa/{type(exc).__name__}")
-                logger.warning("regulatory_echa_lookup_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
+                candidate.update(values)
+            else:
+                checks["svhc"] = {"status": "unavailable", "source": "ECHA Candidate List", "checked_at": datetime.now(timezone.utc).isoformat()}
 
-            candidate.update(suggestion)
+            values, value_urls, value_checks, value_versions = ifra_snapshot_match(ifra_snapshot, candidate)
+            suggestion.update(values); urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
+            candidate.update(values)
             values, value_urls, value_checks, value_versions = _template_checks(candidate, template_paths, template_versions)
             suggestion.update(values); urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
         return {"item": item, "suggestion": suggestion, "urls": list(dict.fromkeys(urls)), "checks": checks, "versions": versions, "errors": errors}
 
+    reference_failures = 0
     async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=True) as client:
-        research_results = await asyncio.gather(*(research_one(item, client) for item in to_lookup[:60]))
+        snapshots: dict[str, dict | None] = {"echa": None, "nite": None, "ifra": None}
+        for key, loader in (
+            ("echa", load_echa_candidate_snapshot),
+            ("nite", load_nite_ghs_snapshot),
+            ("ifra", load_ifra_snapshot),
+        ):
+            try:
+                snapshots[key] = await loader(client, reference_dir)
+            except (httpx.HTTPError, OSError, ValueError, TypeError) as exc:
+                reference_failures += 1
+                logger.warning("regulatory_reference_snapshot_failed", source=key, workflow_id=workflow_id, error=str(exc))
+        research_results = await asyncio.gather(*(
+            research_one(item, client, snapshots["echa"], snapshots["nite"], snapshots["ifra"])
+            for item in to_lookup[:60]
+        ))
 
     masters = {item.normalized_name: item for item in list(await session.scalars(select(RegulatoryIngredientMaster).where(RegulatoryIngredientMaster.organization_id == user.organization_id)))}
-    populated = failed = 0
+    populated = 0
+    failed = reference_failures
     for researched in research_results:
         current = researched["item"]
         changed = _merge_research_result(
@@ -449,7 +504,7 @@ async def ai_identity_fallback(
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0), follow_redirects=True) as client:
                 lookup_value = str(ai_candidate.get("cas") or ai_candidate.get("canonical_name") or item.get("name") or "")
-                official, official_urls, official_checks, official_versions = await pubchem_regulatory_record(client, lookup_value)
+                official, official_urls, official_checks, official_versions = await pubchem_regulatory_record(client, lookup_value, PUBCHEM_THROTTLE)
                 if official.get("cas") or official.get("ec"):
                     verified_suggestion.update(official)
                     urls.extend(official_urls); checks.update(official_checks); versions.update(official_versions)
@@ -487,7 +542,7 @@ async def apply_voice_notes(workflow_id: str, payload: VoiceNotesUpdate, user: U
     if workflow.status == "approved":
         raise HTTPException(status_code=409, detail="This SDS is already approved.")
     current = _serialize(workflow)
-    system = """Map employee voice notes into the existing Regulatory SDS draft. Return JSON only with optional keys product_name, product_code, market (eu or other), sds_fields, and ingredients. Never invent information. Include only values explicitly stated or corrected in the notes. For ingredients return {match_name, updates}; updates may contain name, concentration, cas, ec, classification, hazard_statements, precautionary_statements, signal_word, pictograms, toxicology, ecology, transport, allergen_identity, svhc_identity, or aliases. Do not include review messages, confidence, provenance, sources, or N/A placeholders."""
+    system = """Map employee voice notes into the existing Regulatory SDS draft. Return JSON only with optional keys product_name, product_code, market (eu or other), sds_fields, and ingredients. Never invent information. Include only values explicitly stated or corrected in the notes. For ingredients return {match_name, updates}; updates may contain name, concentration, cas, ec, classification, hazard_statements, precautionary_statements, signal_word, pictograms, toxicology, ecology, transport, allergen_identity, svhc_identity, ifra_limits, or aliases. Do not include review messages, confidence, provenance, sources, or N/A placeholders."""
     prompt = json.dumps({"current_draft": current, "employee_notes": payload.notes}, ensure_ascii=False)
     answer = ""
     try:
@@ -512,7 +567,7 @@ async def apply_voice_notes(workflow_id: str, payload: VoiceNotesUpdate, user: U
         if key in allowed_sds and cleaned:
             sds_fields[key] = cleaned[:1000]
     workflow.sds_fields_json = sds_fields
-    allowed_ingredient = {"name", "concentration", "cas", "ec", "classification", "hazard_statements", "precautionary_statements", "signal_word", "pictograms", "toxicology", "ecology", "transport", "allergen_identity", "svhc_identity", "aliases"}
+    allowed_ingredient = {"name", "concentration", "cas", "ec", "classification", "hazard_statements", "precautionary_statements", "signal_word", "pictograms", "toxicology", "ecology", "transport", "allergen_identity", "svhc_identity", "ifra_limits", "aliases"}
     ingredients = list(workflow.ingredients_json or [])
     indexed = {normalise(item.get("name")): item for item in ingredients}
     for change in changes.get("ingredients") or []:

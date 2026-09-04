@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     openai_transcription_model: str = "gpt-4o-mini-transcribe"
     openai_image_model: str = "gpt-image-2"
+    epa_comptox_api_key: str | None = None
     anthropic_api_key: str | None = None
     anthropic_default_model: str = "claude-sonnet-4-6"
     anthropic_fast_model: str = "claude-haiku-4-5"

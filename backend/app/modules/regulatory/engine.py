@@ -20,7 +20,8 @@ def normalise(value: Any) -> str:
 
 def clean_issue_value(value: Any, empty: str = "") -> str:
     text = str(value or "").strip()
-    return empty if any(marker in text.lower() for marker in INTERNAL_MARKERS) else text
+    placeholder = normalise(text) in {"n a", "na", "not available", "unavailable", "unknown", "leave blank if unavailable"}
+    return empty if placeholder or any(marker in text.lower() for marker in INTERNAL_MARKERS) else text
 
 
 def parse_regulatory_excel(content: bytes) -> tuple[str, str, list[dict[str, str]]]:
@@ -46,7 +47,7 @@ def parse_regulatory_excel(content: bytes) -> tuple[str, str, list[dict[str, str
                     continue
                 if not concentration and not any(value is not None for value in row):
                     continue
-                ingredients.append({"name": name, "concentration": concentration, "cas": "", "ec": "", "classification": "", "hazard_statements": "", "precautionary_statements": "", "signal_word": "", "pictograms": "", "toxicology": "", "ecology": "", "transport": "", "allergen_identity": "", "svhc_identity": "", "sources": [], "provenance": "excel"})
+                ingredients.append({"name": name, "concentration": concentration, "cas": "", "ec": "", "classification": "", "hazard_statements": "", "precautionary_statements": "", "signal_word": "", "pictograms": "", "toxicology": "", "ecology": "", "transport": "", "allergen_identity": "", "svhc_identity": "", "ifra_limits": "", "sources": [], "provenance": "excel"})
             break
     workbook.close()
     if not product or not code or not ingredients:

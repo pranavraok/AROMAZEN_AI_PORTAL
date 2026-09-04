@@ -44,6 +44,8 @@ def test_formula_and_coa_extraction() -> None:
         "appearance": "Clear liquid", "odour": "Woody", "flash_point": "82 °C"
     }
     assert clean_issue_value("AI suggested - verify") == ""
+    assert clean_issue_value("N/A") == ""
+    assert clean_issue_value("Leave blank if unavailable") == ""
 
 
 def test_coa_property_extraction_stops_before_approval_fields() -> None:

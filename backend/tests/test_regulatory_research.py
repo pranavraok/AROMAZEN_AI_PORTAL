@@ -7,7 +7,10 @@ import httpx
 from app.modules.regulatory.research import (
     _lookup_names,
     _parse_ghs,
+    epa_comptox_identity,
     echa_svhc_status,
+    ifra_snapshot_match,
+    nite_ghs_match,
     template_reference_match,
     valid_cas,
 )
@@ -33,7 +36,7 @@ def test_ghs_uses_trusted_eu_reference_and_ignores_vendor_data() -> None:
         ],
         "Section": [{"TOCHeading": "GHS Classification", "Information": [
             {"ReferenceNumber": 1, "Name": "Signal", "Value": {"StringWithMarkup": [{"String": "Warning"}]}},
-            {"ReferenceNumber": 1, "Name": "GHS Hazard Statements", "Value": {"StringWithMarkup": [{"String": "H317: May cause an allergic skin reaction [Warning Sensitization, Skin]"}]}},
+            {"ReferenceNumber": 1, "Name": "GHS Hazard Statements", "Value": {"StringWithMarkup": [{"String": "H317 (24.5%): May cause an allergic skin reaction [Warning Sensitization, Skin]"}]}},
             {"ReferenceNumber": 1, "Name": "Precautionary Statement Codes", "Value": {"StringWithMarkup": [{"String": "P261, P280"}]}},
             {"ReferenceNumber": 2, "Name": "GHS Hazard Statements", "Value": {"StringWithMarkup": [{"String": "H999: invented vendor value"}]}},
         ]}],
@@ -45,6 +48,61 @@ def test_ghs_uses_trusted_eu_reference_and_ignores_vendor_data() -> None:
     assert values["precautionary_statements"] == "P261, P280"
     assert "H999" not in values["hazard_statements"]
     assert urls == ["https://eur-lex.europa.eu/eli/reg/2008/1272/oj"]
+
+
+def test_versioned_nite_and_ifra_data_require_exact_identifiers() -> None:
+    nite = {"version": "NITE 2026-09-02", "records": [{
+        "cas": "78-70-6",
+        "name": "Linalool",
+        "classification": "Skin sensitization: Category 1",
+        "detail_url": "https://www.chem-info.nite.go.jp/example",
+    }]}
+    values, _, checks, versions = nite_ghs_match(nite, {"name": "Linalool", "cas": "78-70-6"})
+    assert values["classification"] == "Skin sensitization: Category 1"
+    assert checks["nite_ghs"]["status"] == "matched"
+    assert versions["nite_ghs"] == "NITE 2026-09-02"
+    values, _, checks, _ = nite_ghs_match(nite, {"name": "Linalool", "cas": ""})
+    assert values == {}
+    assert checks["nite_ghs"]["status"] == "not_found"
+
+    ifra = {"version": "IFRA 51st Amendment official overview", "records": [{
+        "name": "Linalool",
+        "normalized_name": "linalool",
+        "normalized_synonyms": [],
+        "cas": ["78-70-6"],
+        "standard_type": "RESTRICTION",
+        "intrinsic_property": "DERMAL SENSITIZATION",
+        "amendment": "49",
+        "limits": "Category 4: 0.6%",
+    }]}
+    values, _, checks, _ = ifra_snapshot_match(ifra, {"name": "Linalool", "cas": "78-70-6"})
+    assert values["ifra_limits"] == "Category 4: 0.6%"
+    assert checks["ifra"]["status"] == "listed"
+
+
+def test_epa_comptox_exact_identity_mapping() -> None:
+    async def check() -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if "/chemical/search/equal/" in request.url.path:
+                payload = {"preferredName": "Linalool", "casrn": "78-70-6", "dtxsid": "DTXSID1022062"}
+            else:
+                payload = {"valid": ["Linalool", "3,7-Dimethyl-1,6-octadien-3-ol"]}
+            return httpx.Response(200, content=json.dumps(payload), request=request)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            values, urls, checks, versions = await epa_comptox_identity(
+                client,
+                name="Linalool",
+                api_key="test-key",
+            )
+        assert values["canonical_name"] == "Linalool"
+        assert values["cas"] == "78-70-6"
+        assert "3,7-Dimethyl-1,6-octadien-3-ol" in values["aliases"]
+        assert checks["epa_comptox"]["status"] == "matched"
+        assert versions["epa_comptox"] == "DTXSID1022062"
+        assert urls[0].endswith("/DTXSID1022062")
+
+    asyncio.run(check())
 
 
 def test_echa_candidate_list_requires_an_exact_identifier_match() -> None:

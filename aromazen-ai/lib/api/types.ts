@@ -613,7 +613,7 @@ export interface RegulatorySourceCheck {
 export interface RegulatoryIngredient {
   name: string; canonical_name?: string; concentration: string; cas: string; ec: string; classification: string
   hazard_statements?: string; precautionary_statements?: string; signal_word?: string; pictograms?: string
-  toxicology?: string; ecology?: string; transport?: string; allergen_identity?: string; svhc_identity?: string
+  toxicology?: string; ecology?: string; transport?: string; allergen_identity?: string; svhc_identity?: string; ifra_limits?: string
   aliases?: string[]; sources?: string[]; source_checks?: Record<string, RegulatorySourceCheck>; source_versions?: Record<string, string | number>
   provenance?: 'excel' | 'official_database' | 'approved_master' | 'ai_suggested' | 'employee_approved'
 }
