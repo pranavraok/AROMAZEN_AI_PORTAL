@@ -211,18 +211,26 @@ def _set_footer_metadata(document, fields: dict[str, str]) -> None:
     version = clean_issue_value(fields.get("version"))
     revision_date = clean_issue_value(fields.get("revision_date"))
     pattern = re.compile(r"(?is)^(.*?Version\s*:)\s*.*?(\s+Date\s*:)\s*.*?$")
+    seen_parts: set[str] = set()
     for section in document.sections:
-        for paragraph in section.footer.paragraphs:
-            match = pattern.match(paragraph.text)
-            if not match:
+        for footer in (section.footer, section.first_page_footer, section.even_page_footer):
+            part_key = str(footer.part.partname)
+            if part_key in seen_parts:
                 continue
-            replacement = match.group(1)
-            if version:
-                replacement += f" {version}"
-            replacement += match.group(2)
-            if revision_date:
-                replacement += f" {revision_date}"
-            _set_paragraph_text_preserving_layout(paragraph, replacement)
+            seen_parts.add(part_key)
+            # Some uploaded masters place metadata inside a content control or
+            # text box, which footer.paragraphs does not expose.
+            for node in footer._element.xpath(".//w:t"):
+                match = pattern.match(node.text or "")
+                if not match:
+                    continue
+                replacement = match.group(1)
+                if version:
+                    replacement += f" {version}"
+                replacement += match.group(2)
+                if revision_date:
+                    replacement += f" {revision_date}"
+                node.text = replacement
 
 
 def _remove_duplicate_particle_characteristics(document) -> None:

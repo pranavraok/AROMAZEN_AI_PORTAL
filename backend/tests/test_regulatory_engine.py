@@ -33,14 +33,14 @@ def _text(path: Path) -> str:
     document = Document(path)
     parts = [paragraph.text for paragraph in document.paragraphs]
     parts.extend(cell.text for table in document.tables for row in table.rows for cell in row.cells)
+    seen_footer_parts: set[str] = set()
     for section in document.sections:
-        parts.extend(paragraph.text for paragraph in section.footer.paragraphs)
-        parts.extend(
-            cell.text
-            for table in section.footer.tables
-            for row in table.rows
-            for cell in row.cells
-        )
+        for footer in (section.footer, section.first_page_footer, section.even_page_footer):
+            part_key = str(footer.part.partname)
+            if part_key in seen_footer_parts:
+                continue
+            seen_footer_parts.add(part_key)
+            parts.extend(node.text or "" for node in footer._element.xpath(".//w:t"))
     return "\n".join(parts)
 
 
