@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import re
@@ -33,6 +34,7 @@ from app.modules.settings.service import provider_runtime_settings
 router = APIRouter(dependencies=[Depends(require_department("regulatory"))])
 logger = structlog.get_logger(__name__)
 ALLOWED_SOURCE_HOSTS = ("echa.europa.eu", "pubchem.ncbi.nlm.nih.gov", "ifrafragrance.org", "unece.org", "eur-lex.europa.eu")
+RESEARCH_FIELDS = ("canonical_name", "aliases", "cas", "ec", "classification", "hazard_statements", "precautionary_statements", "signal_word", "pictograms", "toxicology", "ecology", "transport", "allergen_identity", "svhc_identity")
 
 
 def _official_url(value: object) -> bool:
@@ -189,43 +191,81 @@ async def enrich_workflow(workflow_id: str, user: User = Depends(require_permiss
     if workflow.status == "approved":
         raise HTTPException(status_code=409, detail="This SDS is already approved.")
     ingredients = workflow.ingredients_json or []
-    unresolved = [item for item in ingredients if not item.get("cas") or not item.get("classification")]
+    required_research = ("cas", "ec", "classification", "hazard_statements", "precautionary_statements", "signal_word", "toxicology", "ecology", "transport", "allergen_identity", "svhc_identity")
+    unresolved = [item for item in ingredients if any(not item.get(key) for key in required_research)]
     if not unresolved:
-        return _serialize(workflow)
+        result = _serialize(workflow)
+        result["research_summary"] = {"attempted": 0, "populated": 0, "unresolved": 0, "failed": 0}
+        return result
     logger.info("regulatory_research_started", workflow_id=workflow_id, ingredient_count=len(unresolved))
-    system = """You research fragrance chemical regulatory data. Return JSON only: {\"ingredients\":[...]}. Use ONLY official pages on echa.europa.eu, pubchem.ncbi.nlm.nih.gov, ifrafragrance.org, unece.org, or eur-lex.europa.eu. Never infer a value without an official source. Each item must preserve input_name and may contain canonical_name, aliases, cas, ec, classification, hazard_statements, precautionary_statements, signal_word, pictograms, toxicology, ecology, transport, allergen_identity, svhc_identity, and source_urls. Use empty strings/arrays when unsupported. Do not write N/A or review messages."""
-    prompt = json.dumps({"ingredients": [{"input_name": item.get("name"), "concentration": item.get("concentration")} for item in unresolved[:60]]}, ensure_ascii=False)
-    answer = ""; provider = model = ""; input_tokens = output_tokens = 0; started = time.perf_counter()
-    try:
-        settings = await provider_runtime_settings(session, user.organization_id)
-        async for event in AIProviderRouter(settings).stream(system, prompt, prompt, use_web_search=True, response_mode="deep"):
-            if event.kind == "meta": provider, model = event.provider, event.model
-            elif event.kind == "delta": answer += event.text
-            elif event.kind == "usage": input_tokens, output_tokens = event.input_tokens, event.output_tokens
-        start, end = answer.find("{"), answer.rfind("}"); parsed = json.loads(answer[start:end + 1])
-    except (ProviderError, ValueError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=503, detail="Official-source ingredient research is temporarily unavailable. Existing fields remain editable.") from exc
-    researched = {normalise(item.get("input_name")): item for item in parsed.get("ingredients", []) if isinstance(item, dict)}
-    for current in ingredients:
-        suggestion = researched.get(normalise(current.get("name")))
-        if not suggestion:
+    settings = await provider_runtime_settings(session, user.organization_id)
+    semaphore = asyncio.Semaphore(4)
+    system = """Research exactly one fragrance ingredient. Search trade names and spelling variants before deciding it is unavailable. Return one JSON object with input_name, canonical_name, aliases, cas, ec, classification, hazard_statements, precautionary_statements, signal_word, pictograms, toxicology, ecology, transport, allergen_identity, svhc_identity, and source_urls. Use only official ECHA, PubChem, IFRA, UNECE, or EUR-Lex evidence. Include the exact supporting page URLs. Never guess identifiers or classifications. Use empty strings or arrays for unsupported fields. Never write N/A, AI-generated, confidence, or review messages."""
+
+    async def research_one(item: dict) -> dict:
+        prompt = json.dumps({"input_name": item.get("name"), "concentration_percent": item.get("concentration")}, ensure_ascii=False)
+        answer = ""; sources: list[dict] = []; provider = model = ""; input_tokens = output_tokens = 0
+        try:
+            async with semaphore:
+                async for event in AIProviderRouter(settings).stream(system, prompt, str(item.get("name") or ""), use_web_search=True, response_mode="standard"):
+                    if event.kind == "meta": provider, model = event.provider, event.model
+                    elif event.kind == "delta": answer += event.text
+                    elif event.kind == "sources": sources.extend(event.sources)
+                    elif event.kind == "usage": input_tokens, output_tokens = event.input_tokens, event.output_tokens
+            start, end = answer.find("{"), answer.rfind("}")
+            parsed = json.loads(answer[start:end + 1])
+            if not isinstance(parsed, dict):
+                raise ValueError("Ingredient research did not return a JSON object.")
+            suggestion = parsed.get("ingredient") if isinstance(parsed.get("ingredient"), dict) else parsed
+            if not isinstance(suggestion, dict):
+                raise ValueError("Ingredient research result has an invalid structure.")
+            explicit = suggestion.get("source_urls") or []
+            urls = [str(url) for url in explicit if _official_url(url)] if isinstance(explicit, list) else []
+            urls.extend(str(source.get("url")) for source in sources if _official_url(source.get("url")))
+            return {"item": item, "suggestion": suggestion, "urls": list(dict.fromkeys(urls)), "provider": provider, "model": model, "input_tokens": input_tokens, "output_tokens": output_tokens}
+        except (ProviderError, ValueError, json.JSONDecodeError, TypeError) as exc:
+            logger.warning("regulatory_ingredient_research_failed", workflow_id=workflow_id, ingredient=str(item.get("name") or ""), error=str(exc))
+            return {"item": item, "error": str(exc), "input_tokens": input_tokens, "output_tokens": output_tokens}
+
+    started = time.perf_counter()
+    research_results = await asyncio.gather(*(research_one(item) for item in unresolved[:60]))
+    populated = failed = 0; provider = model = ""; input_tokens = output_tokens = 0
+    for researched in research_results:
+        input_tokens += int(researched.get("input_tokens") or 0); output_tokens += int(researched.get("output_tokens") or 0)
+        if researched.get("error"):
+            failed += 1
             continue
-        raw_urls = suggestion.get("source_urls") or []
-        row_urls = [str(url) for url in raw_urls if _official_url(url)] if isinstance(raw_urls, list) else []
+        provider = provider or str(researched.get("provider") or "openai"); model = model or str(researched.get("model") or "")
+        current = researched["item"]; suggestion = researched.get("suggestion") or {}; row_urls = researched.get("urls") or []
         if not row_urls:
             continue
-        for key in ("canonical_name", "aliases", "cas", "ec", "classification", "hazard_statements", "precautionary_statements", "signal_word", "pictograms", "toxicology", "ecology", "transport", "allergen_identity", "svhc_identity"):
+        changed = 0
+        for key in RESEARCH_FIELDS:
             if not suggestion.get(key) or current.get(key):
                 continue
             if key == "aliases":
                 value = suggestion[key] if isinstance(suggestion[key], list) else re.split(r"[,;]", str(suggestion[key]))
-                current[key] = [clean_issue_value(alias)[:300] for alias in value if clean_issue_value(alias)]
+                aliases = [clean_issue_value(alias)[:300] for alias in value if clean_issue_value(alias)]
+                if aliases:
+                    current[key] = aliases; changed += 1
             else:
-                current[key] = clean_issue_value(suggestion[key])[:2000]
-        current["sources"] = row_urls; current["provenance"] = "ai_suggested"
+                raw_value = suggestion[key]
+                if isinstance(raw_value, list):
+                    raw_value = "; ".join(str(part) for part in raw_value if clean_issue_value(part))
+                value = clean_issue_value(raw_value)[:2000]
+                if value:
+                    current[key] = value; changed += 1
+        if changed:
+            current["sources"] = row_urls; current["provenance"] = "ai_suggested"; populated += 1
+    if populated == 0 and failed == len(research_results):
+        raise HTTPException(status_code=503, detail="AI web research could not run. Confirm that OPENAI_API_KEY is configured in the deployed API service.")
     workflow.ingredients_json = ingredients
     session.add(AIUsageEvent(organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, operation="regulatory_web_research", provider=provider, model=model, input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=estimate_cost(provider, model, input_tokens, output_tokens), latency_ms=int((time.perf_counter() - started) * 1000), status="completed"))
-    await session.commit(); logger.info("regulatory_research_completed", workflow_id=workflow_id); return _serialize(workflow)
+    await session.commit()
+    logger.info("regulatory_research_completed", workflow_id=workflow_id, populated=populated, unresolved=len(research_results) - populated, failed=failed)
+    result = _serialize(workflow)
+    result["research_summary"] = {"attempted": len(research_results), "populated": populated, "unresolved": len(research_results) - populated, "failed": failed}
+    return result
 
 
 @router.post("/workflows/{workflow_id}/apply-voice-notes")
