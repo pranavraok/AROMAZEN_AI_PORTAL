@@ -459,7 +459,7 @@ def _fill_sds(document, fields: dict[str, str], ingredients: list[dict]) -> None
     # requires employee review; blank reviewed fields must produce blank output.
     _replace_labeled_block(document, r"^Class and category of danger", r"^2\.2\s+Label elements", fields.get("classification", ""))
     _replace_labeled_block(document, r"^Hazard statements", r"^Supplemental Information", fields.get("hazard_statements", ""))
-    _replace_labeled_block(document, r"^Supplemental Information", r"^Precautionary statements", fields.get("other_hazards", ""))
+    _replace_labeled_block(document, r"^Supplemental Information", r"^Precautionary statements", fields.get("supplemental_information", ""))
     _replace_labeled_block(document, r"^Precautionary statements", r"^Pictograms", fields.get("precautionary_statements", ""))
     _replace_labeled_block(document, r"^Pictograms", r"^Other hazards", fields.get("pictograms", ""), remove_drawings=True)
     _replace_labeled_block(document, r"^Other hazards", r"^Section 3", fields.get("other_hazards", ""))

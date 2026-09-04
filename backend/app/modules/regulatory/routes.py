@@ -576,7 +576,10 @@ async def apply_voice_notes(workflow_id: str, payload: VoiceNotesUpdate, user: U
         workflow.product_code = clean_issue_value(changes["product_code"])[:160]
     if changes.get("market") in {"eu", "other"}:
         workflow.market = changes["market"]
-    allowed_sds = {key for key, _aliases in COA_LABELS.items()} | {"signal_word", "hazard_statements", "precautionary_statements", "other_hazards"}
+    allowed_sds = {key for key, _aliases in COA_LABELS.items()} | {
+        "classification", "signal_word", "hazard_statements", "supplemental_information",
+        "precautionary_statements", "pictograms", "other_hazards", "version", "revision_date",
+    }
     sds_fields = dict(workflow.sds_fields_json or {})
     for key, value in (changes.get("sds_fields") or {}).items():
         cleaned = clean_issue_value(value)

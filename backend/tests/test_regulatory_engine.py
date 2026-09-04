@@ -65,7 +65,11 @@ def test_all_regulatory_documents_are_generated_without_internal_labels(tmp_path
         {"name": "ISO E SUPER", "cas": "54464-57-2", "ec": "259-174-3", "concentration": "10", "classification": "Skin Irrit. 2: H315", "toxicology": "LD50 oral 5000 mg/kg"},
         {"name": "LINALOOL", "cas": "78-70-6", "ec": "201-134-4", "concentration": "4.5", "classification": "Skin Sens. 1B: H317", "allergen_identity": "Linalool"},
     ]
-    fields = {"appearance": "Clear liquid", "odour": "Woody", "flash_point": "82 °C", "other_hazards": ""}
+    fields = {
+        "appearance": "Clear liquid", "odour": "Woody", "flash_point": "82 °C",
+        "classification": "Skin Irrit. 2: H315", "supplemental_information": "EUH208",
+        "other_hazards": "",
+    }
     files = {
         "sds": "sds.docx", "ifra_certificate": "ifra-certificate.docx",
         "ifra_amendment": "ifra-amendment.docx", "allergen_report": "allergen-report.docx",
@@ -89,6 +93,8 @@ def test_all_regulatory_documents_are_generated_without_internal_labels(tmp_path
     assert "H412, Harmful to aquatic life with long lasting effects" not in sds_text
     assert "Product identifier: CEDAR AND SAGE FS 12388" in sds_text
     assert "1.1 Product Identifier CEDAR" not in sds_text
+    assert "Skin Irrit. 2: H315" in sds_text
+    assert "EUH208" in sds_text
     lowered_sds = sds_text.lower()
     assert "not determined" not in lowered_sds
     assert "not available" not in lowered_sds
