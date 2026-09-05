@@ -929,10 +929,10 @@ def _offer_pdf(
     )
     draw_contained_image(
         OFFER_COMPANY_SEAL,
-        492 * scale_x,
-        176 * scale_y,
-        52 * scale_x,
-        52 * scale_y,
+        259 * scale_x,
+        167 * scale_y,
+        72 * scale_x,
+        72 * scale_y,
     )
     overlay.save()
     packet.seek(0)
