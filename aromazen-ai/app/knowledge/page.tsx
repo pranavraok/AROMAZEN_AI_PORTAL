@@ -1,5 +1,7 @@
 'use client'
 
+import { InfoTip } from '@/components/ui/info-tip'
+
 import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, FileText, Folder, Lock, Settings2, Shield, Upload, Users } from 'lucide-react'
@@ -145,6 +147,6 @@ export default function KnowledgePage() {
       <label><span className="mb-1.5 block text-xs text-muted-foreground">Notify before</span><select disabled={!metadata.expiry_date} value={metadata.reminder_days_before} onChange={(event) => setMetadata((current) => ({ ...current, reminder_days_before: event.target.value }))} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm"><option value="7">7 days</option><option value="15">15 days</option><option value="30">30 days</option><option value="60">60 days</option><option value="90">90 days</option></select></label>
       <label className="sm:col-span-2"><span className="mb-1.5 block text-xs text-muted-foreground">Responsible person (optional)</span><input value={metadata.reminder_owner} onChange={(event) => setMetadata((current) => ({ ...current, reminder_owner: event.target.value }))} placeholder="Person responsible for renewal" className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" /></label>
       <label className="sm:col-span-2 flex items-center gap-3 rounded-xl border border-border px-3 py-2.5"><input type="checkbox" checked={metadata.is_company_wide} onChange={(event) => setMetadata((current) => ({ ...current, is_company_wide: event.target.checked }))} className="h-4 w-4 rounded" /><div><span className="text-sm font-medium">Company-wide access</span><p className="text-xs text-muted-foreground">Everyone in the organization can see this document, regardless of department.</p></div></label>
-    </div><p className="mt-4 text-xs leading-5 text-muted-foreground">Attendance, leave and HR rule documents do not require an expiry date. Certificates and licences will appear in the notification bell when their reminder window begins.</p><div className="mt-5 flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={isUploading} onClick={() => setPendingUpload(null)}>Cancel</Button><Button disabled={isUploading} onClick={() => void upload()}>{isUploading ? 'Uploading…' : 'Upload and save'}</Button></div></div></div>}
+    </div><InfoTip label="Expiry and reminder help">Attendance, leave and HR rule documents do not require an expiry date. Certificates and licences will appear in the notification bell when their reminder window begins.</InfoTip><div className="mt-5 flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={isUploading} onClick={() => setPendingUpload(null)}>Cancel</Button><Button disabled={isUploading} onClick={() => void upload()}>{isUploading ? 'Uploading…' : 'Upload and save'}</Button></div></div></div>}
   </div></AppLayout>
 }

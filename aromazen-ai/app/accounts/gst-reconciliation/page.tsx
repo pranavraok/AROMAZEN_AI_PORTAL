@@ -1,5 +1,7 @@
 'use client'
 
+import { InfoTip } from '@/components/ui/info-tip'
+
 import { useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle2, Download, FileSpreadsheet, GitCompareArrows, LoaderCircle, RotateCcw } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
@@ -58,7 +60,7 @@ export default function GstReconciliationPage() {
   function reset() { setPurchase(null); setJournal(null); setPortal(null); setResult(null); setError(''); setSearch(''); setFilter('issues') }
 
   return <AppLayout><div className="mx-auto max-w-[1500px] space-y-6 p-6">
-    <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[.2em] text-primary">Accounts team</p><h1 className="mt-2 text-2xl font-semibold tracking-[-.035em] md:text-3xl">GST Reconciliation</h1><p className="mt-2 max-w-2xl text-sm text-muted-foreground">Upload the two Tally registers and the monthly GSTR-2B portal Excel. No values are estimated.</p></div>{result ? <Button variant="outline" onClick={reset}><RotateCcw className="mr-2 h-4 w-4" />New check</Button> : null}</header>
+    <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[.2em] text-primary">Accounts team</p><h1 className="mt-2 text-2xl font-semibold tracking-[-.035em] md:text-3xl">GST Reconciliation</h1><InfoTip label="Required reconciliation files">Upload the two Tally registers and the monthly GSTR-2B portal Excel. No values are estimated.</InfoTip></div>{result ? <Button variant="outline" onClick={reset}><RotateCcw className="mr-2 h-4 w-4" />New check</Button> : null}</header>
     {!result ? <section className="rounded-2xl border border-border bg-card p-5 shadow-sm"><div className="grid gap-4 lg:grid-cols-3"><FileInput label="Tally Purchase Register" hint="Purchase Register exported from Tally" file={purchase} onChange={setPurchase} /><FileInput label="Tally Journal Register" hint="Journal Register exported from Tally" file={journal} onChange={setJournal} /><FileInput label="GST Portal GSTR-2B" hint="Original GSTR-2B Excel portal download" file={portal} onChange={setPortal} /></div><div className="mt-5 flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-muted-foreground">Matching key: GSTIN + invoice number · amount tolerance: ₹1</p><Button className="sm:min-w-48" disabled={!purchase || !journal || !portal || busy} onClick={() => void analyze()}>{busy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <GitCompareArrows className="mr-2 h-4 w-4" />}{busy ? 'Checking invoices…' : 'Run reconciliation'}</Button></div></section> : null}
     {error ? <div role="alert" className="flex gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"><AlertCircle className="mt-0.5 h-5 w-5 shrink-0" /><div><p className="font-semibold">Reconciliation stopped</p><p className="mt-1">{error}</p></div></div> : null}
     {result ? <>

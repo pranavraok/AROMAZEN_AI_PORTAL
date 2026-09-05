@@ -1,5 +1,7 @@
 'use client'
 
+import { InfoTip } from '@/components/ui/info-tip'
+
 import { useMemo, useState } from 'react'
 import { Download, Eye, FileText, LoaderCircle, Plus, Printer, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
@@ -130,7 +132,7 @@ export function HrInterviewTool() {
 
       {previewUrl && <section className="sticky top-4 h-fit overflow-hidden rounded-2xl border border-border bg-card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4"><div><p className="text-xs font-medium uppercase tracking-[.14em] text-primary">Final document</p><h2 className="mt-1 font-semibold">Aromazen PDF preview</h2></div>{previewUrl && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={downloadPdf}><Download className="mr-1.5 h-4 w-4" />Download PDF</Button><Button size="sm" onClick={printPdf}><Printer className="mr-1.5 h-4 w-4" />Print</Button></div>}</div>
-        {previewUrl ? <iframe id="interview-checklist-preview" title="Interview checklist preview" src={previewUrl} className="h-[76vh] w-full bg-white" /> : <div className="grid h-[66vh] place-items-center p-8 text-center"><div><FileText className="mx-auto h-10 w-10 text-muted-foreground" /><p className="mt-3 font-medium">The branded checklist appears here</p><p className="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">Complete the checklist and select Review branded PDF. The official logo and company address are added automatically.</p></div></div>}
+        {previewUrl ? <iframe id="interview-checklist-preview" title="Interview checklist preview" src={previewUrl} className="h-[76vh] w-full bg-white" /> : <div className="grid h-[66vh] place-items-center p-8 text-center"><div><FileText className="mx-auto h-10 w-10 text-muted-foreground" /><p className="mt-3 font-medium">The branded checklist appears here</p><InfoTip label="Checklist preview help">Complete the checklist and select Review branded PDF. The official logo and company address are added automatically.</InfoTip></div></div>}
       </section>}
     </div>
   </main>

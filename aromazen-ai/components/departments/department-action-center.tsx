@@ -16,6 +16,7 @@ import {
   WandSparkles,
 } from 'lucide-react'
 import type { Department } from '@/lib/api/types'
+import { InfoTip } from '@/components/ui/info-tip'
 
 export type DepartmentAudience = 'admin' | 'department_admin' | 'employee'
 
@@ -71,9 +72,7 @@ export function departmentActions(department: Department, audience: DepartmentAu
 export function DepartmentDirectory({ departments }: { departments: Department[] }) {
   return <section className="overflow-hidden rounded-2xl border border-primary/20 bg-card shadow-sm">
     <div className="border-b border-border bg-primary/[0.04] px-5 py-5">
-      <p className="text-[10px] font-semibold uppercase tracking-[.18em] text-primary">Admin control</p>
-      <h2 className="mt-1 text-lg font-semibold">Admin Action Center</h2>
-      <p className="mt-1 text-sm text-muted-foreground">Open a department to upload files, run its workflows and review results.</p>
+      <div className="flex items-center gap-1"><h2 className="text-lg font-semibold">Departments</h2><InfoTip label="About departments">Open a department to upload files, run its workflows and review results.</InfoTip></div>
     </div>
     <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
       {departments.map((department) => {
@@ -92,19 +91,17 @@ export function DepartmentActionCenter({ department, audience }: { department: D
   const actions = departmentActions(department, audience)
   return <section className="overflow-hidden rounded-2xl border border-primary/20 bg-card shadow-sm">
     <div className="border-b border-border bg-primary/[0.04] px-5 py-5">
-      <p className="text-[10px] font-semibold uppercase tracking-[.18em] text-primary">Department workspace</p>
-      <h2 className="mt-1 text-lg font-semibold">{department.name} Action Center</h2>
-      <p className="mt-1 text-sm text-muted-foreground">All permitted {department.name} work is available here.</p>
+      <div className="flex items-center gap-1"><h2 className="text-lg font-semibold">{department.name} tools</h2><InfoTip label={`About ${department.name} tools`}>All permitted {department.name} work is available here.</InfoTip></div>
     </div>
     <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
       {actions.length === 0 ? <div className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground md:col-span-2 xl:col-span-3">No department features have been approved for this department yet.</div> : null}
       {actions.map((action) => {
         const Icon = action.icon
-        return <Link key={action.key} href={action.href} className="group flex items-center gap-4 rounded-xl border border-border p-4 transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-muted/30">
+        return <div key={action.key} className="flex items-center rounded-xl border border-border pr-3 transition hover:border-primary/40 hover:bg-muted/30"><Link href={action.href} className="group flex min-w-0 flex-1 items-center gap-4 rounded-xl p-4">
           <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Icon className="h-5 w-5" /></span>
-          <span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{action.title}</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{action.description}</span></span>
+          <span className="min-w-0 flex-1 text-sm font-semibold">{action.title}</span>
           <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-        </Link>
+        </Link><InfoTip label={`About ${action.title}`} align="right">{action.description}</InfoTip></div>
       })}
     </div>
   </section>
