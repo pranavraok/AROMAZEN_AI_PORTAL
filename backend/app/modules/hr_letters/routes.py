@@ -49,7 +49,7 @@ from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_c
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.db.session import get_db_session
 from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, KnowledgeDocument, User
-from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
+from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_master_templates
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.payroll.engine import UNIT_ADDRESSES
@@ -1307,7 +1307,7 @@ async def replace_letter_template(
         raise HTTPException(status_code=422, detail=detail) from error
     finally:
         validation_path.unlink(missing_ok=True)
-    documents = await replace_department_uploads(session, user, "hr", [DepartmentUpload(
+    documents = await replace_department_master_templates(session, user, "hr", [DepartmentUpload(
         f"hr-letter-template:{template_key}",
         content,
         original_filename,
@@ -1358,7 +1358,7 @@ async def create_custom_letter_template(
     normalized_canva_url = _canva_edit_url(canva_edit_url)
     original_filename, content = await _validated_custom_template_upload(template_file)
     template_id = uuid.uuid4()
-    documents = await replace_department_uploads(session, user, "hr", [DepartmentUpload(
+    documents = await replace_department_master_templates(session, user, "hr", [DepartmentUpload(
         f"{CUSTOM_TEMPLATE_SOURCE_PREFIX}{template_id}",
         content,
         original_filename,
@@ -1383,7 +1383,7 @@ async def replace_custom_letter_template(
     current = await _custom_template_document(session, user.organization_id, template_id)
     normalized_canva_url = _canva_edit_url(canva_edit_url) if canva_edit_url is not None else None
     original_filename, content = await _validated_custom_template_upload(template_file)
-    documents = await replace_department_uploads(session, user, "hr", [DepartmentUpload(
+    documents = await replace_department_master_templates(session, user, "hr", [DepartmentUpload(
         current.source_key or f"{CUSTOM_TEMPLATE_SOURCE_PREFIX}{current.id}",
         content,
         original_filename,

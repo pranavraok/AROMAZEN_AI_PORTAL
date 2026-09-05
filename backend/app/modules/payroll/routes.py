@@ -28,7 +28,7 @@ from app.modules.identity.authorization import department_matches, require_depar
 from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User, collection_departments
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.storage import organized_storage_name
-from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
+from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_master_templates
 from app.modules.payroll.attendance_rules import DEFAULT_LATE_GRACE_MINUTES, apply_monthly_late_policy
 from app.modules.payroll.engine import COLUMNS, create_excel_template, generate_salary_pdf, password_for, read_salary_excel, salary_template_fields, validate_template_pdf
 
@@ -190,7 +190,7 @@ async def upload_template(
     if not detected_fields:
         raise HTTPException(status_code=422, detail="Use an editable Canva PDF containing {{field_name}} placeholders or named PDF form fields.")
     canonical_name = "AROMAZEN_SalarySlip_Master.pdf"
-    templates = await replace_department_uploads(session, user, "hr", [DepartmentUpload(
+    templates = await replace_department_master_templates(session, user, "hr", [DepartmentUpload(
         SALARY_TEMPLATE_SOURCE_KEY,
         content,
         canonical_name,
@@ -310,12 +310,7 @@ async def create_batch(
         generate_salary_pdf(item["details"], payroll_month, pdf_path, password_for(item["employee_name"], item["birth_year"]), template_path)
         session.add(PayrollRecipient(id=recipient_id, batch_id=batch_id, organization_id=user.organization_id, row_number=item["row_number"], employee_name=item["employee_name"], employee_code=item["employee_code"], personal_email=item["personal_email"], birth_year=item["birth_year"], details_json=item["details"], pdf_stored_filename=pdf_name, pdf_original_filename=original_name, status="pending"))
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.batch_created", target_type="payroll_batch", target_id=str(batch_id), metadata_json={"payroll_month": payroll_month, "employee_count": len(employee_rows), "units": used_units, "duplicate_emails": duplicate_email_count}))
-    await replace_department_uploads(session, user, "hr", [DepartmentUpload(
-        "payroll:salary-data",
-        content,
-        excel_file.filename or "Salary_Data.xlsx",
-        excel_file.content_type,
-    )])
+    await session.commit()
     await session.refresh(batch)
     return await _batch_response(session, batch)
 
@@ -888,10 +883,6 @@ async def analyze_attendance(
         records = _parse_tabular_attendance(workbook)
     workbook.close()
     result = _attendance_analysis(records, shifts, excel_file.filename or "attendance.xlsx", assignments)
-    uploads = [DepartmentUpload("attendance:fingerprint-data", content, excel_file.filename or "Fingerprint_Attendance.xlsx", excel_file.content_type)]
-    if roster_content is not None and shift_roster_file is not None:
-        uploads.append(DepartmentUpload("attendance:shift-roster", roster_content, shift_roster_file.filename or "Shift_Roster.xlsx", shift_roster_file.content_type))
-    await replace_department_uploads(session, user, "hr", uploads)
     return result
 
 
@@ -1120,13 +1111,6 @@ async def analyze_employee_leaves(
     roster_content = await shift_roster_file.read() if shift_roster_file and shift_roster_file.filename else None
     result, workbook, _sheet, _indexes = await run_in_threadpool(_leave_calculator_analysis, salary_content, attendance_content, payroll_month, shift_rules, attendance_file.filename or "attendance.xlsx", salary_file.filename or "salary.xlsx", roster_content, shift_roster_file.filename if shift_roster_file else "")
     workbook.close()
-    uploads = [
-        DepartmentUpload("leave-calculator:salary-data", salary_content, salary_file.filename or "Salary_Data.xlsx", salary_file.content_type),
-        DepartmentUpload("leave-calculator:attendance-data", attendance_content, attendance_file.filename or "Attendance_Data.xlsx", attendance_file.content_type),
-    ]
-    if roster_content is not None and shift_roster_file is not None:
-        uploads.append(DepartmentUpload("leave-calculator:shift-roster", roster_content, shift_roster_file.filename or "Shift_Roster.xlsx", shift_roster_file.content_type))
-    await replace_department_uploads(session, user, "hr", uploads)
     return result
 
 
@@ -1147,11 +1131,4 @@ async def merge_employee_leaves(
     analysis, workbook, salary_sheet, indexes = await run_in_threadpool(_leave_calculator_analysis, salary_content, attendance_content, payroll_month, shift_rules, attendance_file.filename or "attendance.xlsx", salary_file.filename or "salary.xlsx", roster_content, shift_roster_file.filename if shift_roster_file else "")
     content = await run_in_threadpool(_merged_leave_workbook, analysis, workbook, salary_sheet, indexes, adjustments_json)
     filename = f"AROMAZEN_Salary_With_Attendance_{payroll_month}.xlsx"
-    uploads = [
-        DepartmentUpload("leave-calculator:salary-data", salary_content, salary_file.filename or "Salary_Data.xlsx", salary_file.content_type),
-        DepartmentUpload("leave-calculator:attendance-data", attendance_content, attendance_file.filename or "Attendance_Data.xlsx", attendance_file.content_type),
-    ]
-    if roster_content is not None and shift_roster_file is not None:
-        uploads.append(DepartmentUpload("leave-calculator:shift-roster", roster_content, shift_roster_file.filename or "Shift_Roster.xlsx", shift_roster_file.content_type))
-    await replace_department_uploads(session, user, "hr", uploads)
     return StreamingResponse(io.BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{filename}"'})

@@ -7,7 +7,6 @@ from app.modules.gst_reconciliation.service import reconcile
 from app.modules.identity.authorization import require_permissions
 from app.modules.identity.models import AuditEvent, Department, User
 from app.modules.identity.service import role_keys_for_user
-from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
 
 router = APIRouter()
 
@@ -50,9 +49,5 @@ async def analyze(
         target_type="gst_reconciliation", target_id=result.get("period") or None,
         metadata_json={key: summary[key] for key in ("book_invoices", "portal_invoices", "matched", "mismatched", "books_only", "portal_only", "incomplete_books", "duplicates")},
     ))
-    await replace_department_uploads(session, user, "accounts", [
-        DepartmentUpload("gst:purchase-register", purchase, purchase_register.filename or "Tally_Purchase_Register.xlsx", purchase_register.content_type),
-        DepartmentUpload("gst:journal-register", journal, journal_register.filename or "Tally_Journal_Register.xlsx", journal_register.content_type),
-        DepartmentUpload("gst:gstr2b", portal, gstr2b_portal.filename or "GSTR2B.xlsx", gstr2b_portal.content_type),
-    ])
+    await session.commit()
     return result

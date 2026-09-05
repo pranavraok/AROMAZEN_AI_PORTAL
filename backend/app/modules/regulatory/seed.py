@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.identity.models import KnowledgeDocument, Organization, User
-from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
+from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_master_templates
 from app.modules.knowledge.templates import department_knowledge_collection
 
 ASSET_DIR = Path(__file__).resolve().parents[2] / "templates" / "regulatory"
@@ -35,7 +35,7 @@ async def seed_regulatory_templates(session: AsyncSession) -> None:
             ))
             if existing:
                 continue
-            await replace_department_uploads(session, owner, "regulatory", [DepartmentUpload(
+            await replace_department_master_templates(session, owner, "regulatory", [DepartmentUpload(
                 source_key, path.read_bytes(), display_name,
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 document_category=f"regulatory_template:{document_type}",

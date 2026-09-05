@@ -22,7 +22,6 @@ from app.modules.assets.service import ASSET_TEMPLATE_PATH, asset_key, clean_tex
 from app.modules.identity.authorization import require_permissions
 from app.modules.identity.models import AuditEvent, Department, User
 from app.modules.identity.service import role_keys_for_user
-from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
 
 router = APIRouter()
 INACTIVE_MAINTENANCE_STATUSES = {"Scrapped", "Disposed", "Lost"}
@@ -328,13 +327,8 @@ async def import_assets(
         "maintenance_interval_months": defaults.default_maintenance_interval_months,
     })
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="asset.register_imported", target_type="it_asset", target_id="register", metadata_json={"filename": file.filename, "created": created, "updated": updated}))
-    documents = await replace_department_uploads(session, user, "inventory", [DepartmentUpload(
-        source_key="assets:register",
-        content=content,
-        original_filename=file.filename or "IT_Asset_Register.xlsx",
-        mime_type=file.content_type,
-    )])
-    return {"created": created, "updated": updated, "total_rows": len(rows), "knowledge_document_id": str(documents[0].id), "knowledge_version": documents[0].version}
+    await session.commit()
+    return {"created": created, "updated": updated, "total_rows": len(rows)}
 
 
 @router.get("/export/register")

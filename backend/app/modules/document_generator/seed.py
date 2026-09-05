@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.document_generator.routes import QA_COA_CANVA_URL, QA_COA_MASTER_SOURCE
 from app.modules.identity.models import KnowledgeDocument, Organization, User
-from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
+from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_master_templates
 from app.modules.knowledge.templates import department_knowledge_collection
 
 
@@ -34,7 +34,7 @@ async def seed_qa_coa_template(session: AsyncSession) -> None:
         owner = await session.scalar(select(User).where(User.organization_id == organization.id).order_by(User.created_at))
         if owner is None:
             continue
-        document = (await replace_department_uploads(session, owner, "quality-assurance", [DepartmentUpload(
+        document = (await replace_department_master_templates(session, owner, "quality-assurance", [DepartmentUpload(
             QA_COA_MASTER_SOURCE,
             ASSET_PATH.read_bytes(),
             "AROMAZEN COA Master.docx",

@@ -38,7 +38,7 @@ export default function CashFlowPage() {
     if (!accessToken || !complete) return; setBusy('generate')
     try {
       const file = await api.cashFlow.generate(accessToken, { reportMonth: month, password, bob: files.bob!, axis: files.axis!, indusind: files.indusind!, cashFlow: files.cashFlow!, fixedAssets: files.fixedAssets, includePreviousComparison })
-      save(file.blob, file.filename); notify('success', 'Protected PDF downloaded and stored in the Accounts Knowledge Base.')
+      save(file.blob, file.filename); notify('success', 'Protected PDF generated and downloaded. The uploaded source files were not stored in the Knowledge Base.')
     } catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to generate the cash-flow PDF.') } finally { setBusy(null) }
   }
   if (!canUse) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6 text-center"><div><ShieldCheck className="mx-auto h-10 w-10 text-muted-foreground" /><h1 className="mt-3 text-xl font-semibold">Accounts administrator access required</h1></div></main></AppLayout>
@@ -57,6 +57,6 @@ export default function CashFlowPage() {
       <div className="flex items-center gap-2 border-t border-border px-5 py-3 text-xs text-muted-foreground"><CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" /><span>Files are validated and totals are reconciled before the PDF is created.</span></div>
     </section>
 
-    <section className="flex flex-col gap-4 rounded-2xl border border-primary/25 bg-primary/[0.04] p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><WalletCards className="h-5 w-5" /></span><div><p className="font-semibold">Protected cash-flow PDF</p><p className="text-xs text-muted-foreground">Downloads now and stays encrypted in the Accounts Knowledge Base.</p></div></div><Button disabled={!complete || busy !== null} onClick={() => void generate()}>{busy === 'generate' ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}{busy === 'generate' ? 'Generating PDF' : 'Generate & download'}</Button></section>
+    <section className="flex flex-col gap-4 rounded-2xl border border-primary/25 bg-primary/[0.04] p-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><WalletCards className="h-5 w-5" /></span><div><p className="font-semibold">Protected cash-flow PDF</p><p className="text-xs text-muted-foreground">Downloads immediately; source files and the generated report are not added to the Knowledge Base.</p></div></div><Button disabled={!complete || busy !== null} onClick={() => void generate()}>{busy === 'generate' ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}{busy === 'generate' ? 'Generating PDF' : 'Generate & download'}</Button></section>
   </main></AppLayout>
 }

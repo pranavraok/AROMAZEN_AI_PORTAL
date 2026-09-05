@@ -25,7 +25,7 @@ from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, Do
 from app.modules.settings.service import provider_runtime_settings
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.storage import organized_storage_name
-from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
+from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_master_templates
 from app.modules.hr_letters.routes import _convert_docx_to_pdf
 
 router = APIRouter(dependencies=[Depends(require_department("r-d"))])
@@ -309,7 +309,7 @@ async def upload_template(
         raise HTTPException(status_code=422, detail="The uploaded file is not a valid DOCX Word document.") from exc
     type_label = document_type.upper()
     stored_name = original_name if document_type in original_name.lower() else f"{Path(original_name).stem}-{type_label}.docx"
-    documents = await replace_department_uploads(session, user, department_slug, [DepartmentUpload(
+    documents = await replace_department_master_templates(session, user, department_slug, [DepartmentUpload(
         f"document-generator-template:{document_type}:{user.id}",
         content,
         stored_name,
@@ -347,7 +347,7 @@ async def replace_qa_coa_master(
         WordDocument(io.BytesIO(content))
     except Exception as exc:
         raise HTTPException(status_code=422, detail="The uploaded file is not a valid DOCX Word document.") from exc
-    document = (await replace_department_uploads(session, user, "quality-assurance", [DepartmentUpload(
+    document = (await replace_department_master_templates(session, user, "quality-assurance", [DepartmentUpload(
         QA_COA_MASTER_SOURCE,
         content,
         "AROMAZEN COA Master.docx",
@@ -529,7 +529,7 @@ async def generate(
     template_document_id: str = Form(...), document_type: str = Form(...), fields_json: str = Form("{}"), rows_json: str = Form("[]"),
     field_labels_json: str = Form("{}"), column_labels_json: str = Form("{}"), hidden_field_keys_json: str = Form("[]"), custom_fields_json: str = Form("[]"), output_filename: str | None = Form(None), excel_file: UploadFile | None = File(None), user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    document_department_slug = await _require_document_department(session, user)
+    await _require_document_department(session, user)
     document, _ = await _template(session, user, template_document_id)
     actual_type = _type_for(document.original_filename, document.source_key)
     if document_type not in {"coa", "sds"} or document_type != actual_type:
@@ -549,7 +549,6 @@ async def generate(
     excel_fields: dict[str, str] = {}
     excel_rows: list[dict[str, str]] = []
     temporary_excel: Path | None = None
-    excel_content: bytes | None = None
     if excel_file:
         if Path(excel_file.filename or "").suffix.lower() != ".xlsx":
             raise HTTPException(status_code=422, detail="Please upload an XLSX Excel file.")
@@ -623,15 +622,7 @@ async def generate(
     generation = DocumentGeneration(id=generated_id, organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, template_document_id=document.id, document_type=document_type, input_mode="mixed" if excel_file and manual_fields else "excel" if excel_file else "manual", output_stored_filename=output_stored, output_original_filename=output_name, warnings_json=warnings, status="draft")
     session.add(generation)
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="document.generated", target_type="document_generation", target_id=str(generated_id), metadata_json={"document_type": document_type, "template_document_id": str(document.id), "input_mode": generation.input_mode, "warning_count": len(warnings)}))
-    if excel_content is not None and excel_file is not None:
-        await replace_department_uploads(session, user, document_department_slug, [DepartmentUpload(
-            f"document-generator:{document_type}-data",
-            excel_content,
-            excel_file.filename or f"{document_type.upper()}_Input.xlsx",
-            excel_file.content_type,
-        )])
-    else:
-        await session.commit()
+    await session.commit()
     return {"id": str(generated_id), "filename": output_name, "status": "draft", "warnings": warnings}
 
 

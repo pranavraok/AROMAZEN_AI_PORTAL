@@ -13,6 +13,7 @@ from app.modules.hr_letters.seed import seed_hr_letter_templates
 from app.modules.document_generator.seed import seed_qa_coa_template
 from app.modules.assets.service import seed_asset_register
 from app.modules.regulatory.seed import seed_regulatory_templates
+from app.modules.knowledge.department_uploads import purge_transient_workflow_kb_documents
 
 settings = get_settings()
 logger = structlog.get_logger(__name__)
@@ -26,6 +27,9 @@ async def lifespan(app: FastAPI):
     app.state.redis = redis
     async with SessionLocal() as session:
         await bootstrap_owner(session)
+        purged_documents = await purge_transient_workflow_kb_documents(session)
+        if purged_documents:
+            logger.info("transient_workflow_kb_documents_purged", count=purged_documents)
         await seed_hr_letter_templates(session)
         try:
             await seed_qa_coa_template(session)

@@ -26,7 +26,7 @@ from app.modules.hr_letters.routes import _convert_docx_to_pdf
 from app.modules.identity.authorization import require_department, require_permissions
 from app.modules.identity.models import AIUsageEvent, AuditEvent, DocumentGeneration, KnowledgeDocument, RegulatoryIngredientMaster, RegulatoryWorkflow, User
 from app.modules.identity.service import role_keys_for_user
-from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
+from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_master_templates
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.knowledge.storage import organized_storage_name
 from app.modules.regulatory.engine import COA_LABELS, DOCUMENT_TYPES, clean_issue_value, extract_coa_identity, extract_coa_properties, generate_regulatory_docx, normalise, parse_regulatory_excel
@@ -258,7 +258,7 @@ async def upload_template(document_type: str, template_file: UploadFile = File(.
     content = await template_file.read(get_settings().max_upload_size_mb * 1024 * 1024 + 1)
     if len(content) > get_settings().max_upload_size_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail="The template exceeds the upload limit.")
-    document = (await replace_department_uploads(session, user, "regulatory", [DepartmentUpload(
+    document = (await replace_department_master_templates(session, user, "regulatory", [DepartmentUpload(
         f"regulatory-template:{document_type}", content, template_file.filename or f"{document_type}.docx",
         template_file.content_type, document_category=f"regulatory_template:{document_type}",
     )]))[0]
@@ -323,11 +323,8 @@ async def create_workflow(regulatory_excel: UploadFile = File(...), creation_coa
             "message": f'The formula code is "{code}", but the Creation COA code is "{coa_code}".',
         })
     workflow = RegulatoryWorkflow(organization_id=user.organization_id, created_by_user_id=user.id, product_name=product, product_code=code, source_files_json={"regulatory_excel": regulatory_excel.filename or "Regulatory.xlsx", "creation_coa": creation_coa.filename or f"Creation-COA{suffix}", "warnings": intake_warnings}, sds_fields_json=sds_fields, ingredients_json=ingredients)
-    session.add(workflow); await session.flush()
-    await replace_department_uploads(session, user, "regulatory", [
-        DepartmentUpload(f"regulatory-workflow:{workflow.id}:excel", excel_content, regulatory_excel.filename or "Regulatory.xlsx", regulatory_excel.content_type),
-        DepartmentUpload(f"regulatory-workflow:{workflow.id}:coa", coa_content, creation_coa.filename or f"Creation-COA{suffix}", creation_coa.content_type),
-    ])
+    session.add(workflow)
+    await session.commit()
     logger.info("regulatory_workflow_intake_completed", workflow_id=str(workflow.id), ingredient_count=len(ingredients))
     return _serialize(workflow)
 
