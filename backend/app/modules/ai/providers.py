@@ -407,13 +407,9 @@ class AIProviderRouter:
         sonnet = AnthropicProvider(self.settings, self.settings.anthropic_default_model)
         if use_web_search:
             return [provider for provider in (openai, sonnet) if provider.available]
-        routing_mode = self.settings.ai_default_provider.lower()
-        if routing_mode == "auto":
-            preferred = openai if complex_request else sonnet
-        elif routing_mode == "openai":
-            preferred = openai
-        else:
-            preferred = sonnet
+        # Routing is always automatic. Stale environment variables or legacy
+        # organization settings must never pin every request to one provider.
+        preferred = openai if complex_request else sonnet
         alternate = sonnet if preferred.name == "openai" else openai
         primary = preferred if preferred.available else alternate if alternate.available else None
         if primary is None:

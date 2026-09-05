@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     openrouter_model: str = "z-ai/glm-5.2:free"
     openrouter_daily_token_limit: int = 1_000_000
-    ai_default_provider: str = "anthropic"
+    ai_default_provider: str = "auto"
     ai_request_timeout_seconds: float = 240.0
     ai_connect_timeout_seconds: float = 10.0
     ai_max_output_tokens: int = 12000

@@ -55,18 +55,11 @@ async def get_organization_settings(user: User = Depends(get_current_user), sess
 @router.put("", response_model=OrganizationSettingsResponse)
 async def update_organization_settings(payload: UpdateOrganizationSettingsRequest, user: User = Depends(require_permissions("settings.manage")), session: AsyncSession = Depends(get_db_session)) -> OrganizationSettingsResponse:
     organization = await session.get(Organization, user.organization_id)
-    config = get_settings()
-    configured = {
-        "auto": bool(config.openai_api_key or config.anthropic_api_key),
-        "openai": bool(config.openai_api_key),
-        "anthropic": bool(config.anthropic_api_key),
-    }
     current_value = await organization_settings(session, user.organization_id)
     permissions = set(await permission_keys_for_user(session, user.id))
     protected_changes = (
         payload.organization_name.strip() != organization.name
         or payload.platform_name.strip() != current_value.platform_name
-        or payload.default_ai_provider != current_value.default_ai_provider
         or payload.session_timeout_minutes != current_value.session_timeout_minutes
     )
     if protected_changes and "platform.manage" not in permissions:
@@ -74,14 +67,11 @@ async def update_organization_settings(payload: UpdateOrganizationSettingsReques
     duplicate = await session.scalar(select(Organization.id).where(Organization.name == payload.organization_name.strip(), Organization.id != organization.id))
     if duplicate:
         raise HTTPException(status_code=409, detail="Another organization already uses this name.")
-    if not configured[payload.default_ai_provider] and payload.default_ai_provider != current_value.default_ai_provider:
-        detail = "No AI provider is configured on this deployment." if payload.default_ai_provider == "auto" else f"{payload.default_ai_provider.title()} is not configured on this deployment."
-        raise HTTPException(status_code=422, detail=detail)
     value = current_value
     organization.name = payload.organization_name.strip()
     value.platform_name = payload.platform_name.strip()
     value.theme = payload.theme
-    value.default_ai_provider = payload.default_ai_provider
+    value.default_ai_provider = "auto"
     value.session_timeout_minutes = payload.session_timeout_minutes
     value.timezone = payload.timezone.strip()
     value.daily_ai_request_limit = payload.daily_ai_request_limit

@@ -526,7 +526,7 @@ export interface OrganizationSettings {
   organization_name: string
   platform_name: string
   theme: 'dark' | 'light' | 'system'
-  default_ai_provider: 'auto' | 'openai' | 'anthropic'
+  default_ai_provider: 'auto'
   session_timeout_minutes: number
   timezone: string
   daily_ai_request_limit: number

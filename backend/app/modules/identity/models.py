@@ -39,7 +39,7 @@ class OrganizationSetting(Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True)
     platform_name: Mapped[str] = mapped_column(String(160), default="AROMAZEN AI")
     theme: Mapped[str] = mapped_column(String(20), default="dark")
-    default_ai_provider: Mapped[str] = mapped_column(String(20), default="anthropic")
+    default_ai_provider: Mapped[str] = mapped_column(String(20), default="auto")
     session_timeout_minutes: Mapped[int] = mapped_column(default=480)
     timezone: Mapped[str] = mapped_column(String(80), default="Asia/Calcutta")
     daily_ai_request_limit: Mapped[int] = mapped_column(default=100)

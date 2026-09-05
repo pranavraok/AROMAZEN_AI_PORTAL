@@ -151,10 +151,9 @@ def main() -> None:
     assert exhaustive_attachment_models[0] == "gpt-5.5"
 
     settings.ai_default_provider = "anthropic"
-    assert router._providers("[internal_exhaustive] list all employees")[0].model == "claude-sonnet-4-6"
+    assert router._providers("[internal_exhaustive] list all employees")[0].model == "gpt-5.5"
     settings.ai_default_provider = "openai"
-    assert router._providers("[general] explain gravity")[0].model == "gpt-5.5"
-    settings.ai_default_provider = "auto"
+    assert router._providers("[general] explain gravity")[0].model == "claude-sonnet-4-6"
     assert router._providers("[general] latest fragrance industry news", use_web_search=True)[0].model == "gpt-5.5"
     print("assistant_engine_qa=passed")
 
