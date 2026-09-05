@@ -43,7 +43,7 @@ export function ViewportOverlay({ label, children, onClose, className, closeOnBa
   return createPortal(
     <div
       data-viewport-overlay
-      className={cn('fixed inset-0 z-[100] grid place-items-center overflow-hidden bg-black/65 p-4 backdrop-blur-sm', className)}
+      className={cn('viewport-overlay fixed inset-0 z-[100] grid place-items-center overflow-hidden bg-black/65 p-4 backdrop-blur-sm', className)}
       role="dialog"
       aria-modal="true"
       aria-label={label}

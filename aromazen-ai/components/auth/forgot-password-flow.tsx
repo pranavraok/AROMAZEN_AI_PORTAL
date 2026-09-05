@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { api } from '@/lib/api/services'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/components/ui/toast-provider'
+import { ViewportOverlay } from '@/components/ui/viewport-overlay'
 import { ArrowLeft, CheckCircle, KeyRound, LoaderCircle, Mail, X } from 'lucide-react'
 import { PasswordInput } from '@/components/ui/password-input'
 
@@ -116,8 +117,8 @@ export function ForgotPasswordFlow({ open, onClose }: ForgotPasswordFlowProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Reset password">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
+    <ViewportOverlay label="Reset password" onClose={handleClose}>
+      <div className="viewport-dialog-panel w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           {step !== 'done' && step !== 'email' ? (
@@ -262,7 +263,7 @@ export function ForgotPasswordFlow({ open, onClose }: ForgotPasswordFlowProps) {
           </div>
         )}
       </div>
-    </div>
+    </ViewportOverlay>
   )
 }
 

@@ -1,11 +1,7 @@
-const CACHE_NAME = 'aromazen-ai-v6';
-const OFFLINE_URL = '/login';
+const CACHE_NAME = 'aromazen-ai-v7';
 
 const PRECACHE_ASSETS = [
-  '/',
-  '/login',
-  '/workspace',
-  '/manifest.json?v=6',
+  '/manifest.json?v=7',
   '/aromazen-icon-192-v5.png',
   '/aromazen-icon-512-v5.png',
   '/aromazen-icon-maskable-512-v5.png',
@@ -32,26 +28,23 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
 
-  event.respondWith(
-    (async () => {
-      try {
-        const networkResponse = await fetch(event.request);
-        if (networkResponse.ok) {
-          const cache = await caches.open(CACHE_NAME);
-          cache.put(event.request, networkResponse.clone());
-        }
-        return networkResponse;
-      } catch {
-        const cachedResponse = await caches.match(event.request);
-        if (cachedResponse) return cachedResponse;
-        // Fallback to offline page for navigation requests
-        if (event.request.mode === 'navigate') {
-          const offlineResponse = await caches.match(OFFLINE_URL);
-          if (offlineResponse) return offlineResponse;
-        }
-        return new Response('Offline', { status: 503 });
-      }
-    })()
-  );
+  // Never cache authenticated pages, API data, RSC payloads, or route responses.
+  // Installed iOS apps must always receive the current deployment and account data.
+  const isStaticAsset = url.pathname.startsWith('/_next/static/')
+    || /\.(?:png|jpg|jpeg|webp|svg|ico|woff2?)$/i.test(url.pathname);
+  if (!isStaticAsset) return;
+
+  event.respondWith((async () => {
+    const cachedResponse = await caches.match(event.request);
+    if (cachedResponse) return cachedResponse;
+    const networkResponse = await fetch(event.request);
+    if (networkResponse.ok && networkResponse.type === 'basic') {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(event.request, networkResponse.clone());
+    }
+    return networkResponse;
+  })());
 });
