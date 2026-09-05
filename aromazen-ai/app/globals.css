@@ -432,7 +432,9 @@ body:has(.fixed.inset-0.z-50),
 
 @media (prefers-reduced-motion: no-preference) {
   .app-main > * { animation: aromazen-enter .35s ease-out both; }
-  @keyframes aromazen-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+  /* Keep page entry animation transform-free. A transformed page becomes the
+     containing block for fixed dialogs and pulls them into the scroll area. */
+  @keyframes aromazen-enter { from { opacity: 0; } to { opacity: 1; } }
 }
 
 /* The client-approved bright workspace is used for every saved appearance mode. */

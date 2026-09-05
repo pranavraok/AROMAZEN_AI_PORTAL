@@ -21,7 +21,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 5000)
   }, [])
   const value = useMemo(() => ({ notify }), [notify])
-  return <ToastContext.Provider value={value}>{children}<div aria-live="polite" className="fixed right-4 top-4 z-[100] w-[min(24rem,calc(100vw-2rem))] space-y-2">{toasts.map((toast) => <div key={toast.id} role="alert" className={`flex items-start justify-between gap-3 rounded-lg border p-4 shadow-xl backdrop-blur ${styles[toast.kind]}`}><p className="text-sm font-medium">{toast.message}</p><button aria-label="Dismiss notification" onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))} className="text-current/80 hover:text-current">×</button></div>)}</div></ToastContext.Provider>
+  return <ToastContext.Provider value={value}>{children}<div aria-live="polite" className="pointer-events-none fixed left-1/2 top-1/2 z-[120] w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 space-y-2">{toasts.map((toast) => <div key={toast.id} role="alert" className={`pointer-events-auto flex items-start justify-between gap-3 rounded-lg border p-4 shadow-xl backdrop-blur ${styles[toast.kind]}`}><p className="text-sm font-medium">{toast.message}</p><button aria-label="Dismiss notification" onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))} className="text-current/80 hover:text-current">×</button></div>)}</div></ToastContext.Provider>
 }
 
 export function useToast() {
