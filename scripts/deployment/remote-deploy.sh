@@ -44,14 +44,10 @@ fi
 CURRENT_SHA="$(git rev-parse HEAD)"
 if [[ "$CURRENT_SHA" == "$EXPECTED_SHA" ]]; then
     echo "The approved commit is already checked out."
-elif git merge-base --is-ancestor "$CURRENT_SHA" "$EXPECTED_SHA"; then
-    git merge --ff-only "$EXPECTED_SHA"
-elif git merge-base --is-ancestor "$EXPECTED_SHA" "$CURRENT_SHA"; then
-    echo "Approved commit $EXPECTED_SHA has already been superseded by deployed commit $CURRENT_SHA; skipping stale deployment."
-    exit 0
 else
-    echo "Production commit $CURRENT_SHA cannot be safely fast-forwarded to approved commit $EXPECTED_SHA; deployment stopped." >&2
-    exit 6
+    # The approved commit is authoritative, including an intentional rollback
+    # to an older commit. Keep the checkout on main while making it exact.
+    git reset --hard "$EXPECTED_SHA"
 fi
 
 if [[ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]]; then
