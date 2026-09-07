@@ -165,6 +165,7 @@ export interface PayrollBatch {
   template_name: string
   email_subject: string
   email_body: string
+  cc_emails: string[]
   duplicate_email_count: number
   recipients?: PayrollRecipient[]
 }

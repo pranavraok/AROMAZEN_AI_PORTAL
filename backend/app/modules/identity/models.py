@@ -242,6 +242,7 @@ class PayrollBatch(Base):
     stored_filename: Mapped[str] = mapped_column(String(500), unique=True)
     email_subject: Mapped[str] = mapped_column(String(240), default="AROMAZEN Salary Slip - {month}")
     email_body: Mapped[str] = mapped_column(Text(), default="")
+    cc_emails: Mapped[list] = mapped_column(JSON, default=list)
     duplicate_email_count: Mapped[int] = mapped_column(default=0)
     status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
     total_count: Mapped[int] = mapped_column(default=0)

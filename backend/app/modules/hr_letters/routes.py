@@ -161,6 +161,7 @@ class LetterRequest(BaseModel):
 
 class SendLetterRequest(LetterRequest):
     recipient_email: EmailStr
+    cc_emails: list[EmailStr] = Field(default_factory=list, max_length=20)
     subject: str = Field(min_length=1, max_length=250)
     message: str = Field(min_length=1, max_length=6000)
 
@@ -172,6 +173,7 @@ class CustomLetterRequest(BaseModel):
 
 class SendCustomLetterRequest(CustomLetterRequest):
     recipient_email: EmailStr
+    cc_emails: list[EmailStr] = Field(default_factory=list, max_length=20)
     subject: str = Field(min_length=1, max_length=250)
     message: str = Field(min_length=1, max_length=6000)
 
@@ -1537,10 +1539,26 @@ async def translate_kannada(
     return {"translation": translation}
 
 
+def _normalized_cc(primary_email: str, cc_emails: list[EmailStr]) -> list[str]:
+    seen = {primary_email.strip().casefold()}
+    recipients: list[str] = []
+    for value in cc_emails:
+        email = str(value).strip()
+        key = email.casefold()
+        if email and key not in seen:
+            recipients.append(email)
+            seen.add(key)
+    return recipients
+
+
 def _send_email(payload: SendLetterRequest, pdf_bytes: bytes, mailbox: EmailMailbox) -> None:
+    recipient = str(payload.recipient_email)
+    cc_recipients = _normalized_cc(recipient, payload.cc_emails)
     message = EmailMessage()
     message["From"] = formataddr((mailbox.from_name, mailbox.email))
-    message["To"] = str(payload.recipient_email)
+    message["To"] = recipient
+    if cc_recipients:
+        message["Cc"] = ", ".join(cc_recipients)
     message["Subject"] = payload.subject.strip()
     message.set_content(payload.message.strip())
     employee = re.sub(r"[^A-Za-z0-9_-]+", "-", payload.fields.get("employee_name", "employee")).strip("-") or "employee"
@@ -1552,7 +1570,7 @@ def _send_email(payload: SendLetterRequest, pdf_bytes: bytes, mailbox: EmailMail
             smtp.starttls()
             smtp.ehlo()
         smtp.login(mailbox.username, mailbox.password)
-        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[str(payload.recipient_email)])
+        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[recipient, *cc_recipients])
 
 
 def _send_custom_email(
@@ -1561,9 +1579,13 @@ def _send_custom_email(
     mailbox: EmailMailbox,
     attachment_name: str,
 ) -> None:
+    recipient = str(payload.recipient_email)
+    cc_recipients = _normalized_cc(recipient, payload.cc_emails)
     message = EmailMessage()
     message["From"] = formataddr((mailbox.from_name, mailbox.email))
-    message["To"] = str(payload.recipient_email)
+    message["To"] = recipient
+    if cc_recipients:
+        message["Cc"] = ", ".join(cc_recipients)
     message["Subject"] = payload.subject.strip()
     message.set_content(payload.message.strip())
     message.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=attachment_name)
@@ -1574,7 +1596,7 @@ def _send_custom_email(
             smtp.starttls()
             smtp.ehlo()
         smtp.login(mailbox.username, mailbox.password)
-        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[str(payload.recipient_email)])
+        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[recipient, *cc_recipients])
 
 
 @router.post("/preview")
@@ -1681,7 +1703,7 @@ async def send_letter(payload: SendLetterRequest, user: User = Depends(require_p
             raise HTTPException(status_code=500, detail="The server could not convert the letter to PDF. Please try again or contact the administrator.") from error
         raise HTTPException(status_code=502, detail="The letter could not be emailed. Please verify Zoho Mail and try again.") from error
     sent_at = datetime.now(timezone.utc).isoformat()
-    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="hr.letter_sent", target_type="hr_letter", target_id=payload.template_key, metadata_json={"sender": mailbox.email, "recipient": str(payload.recipient_email), "employee": payload.fields.get("employee_name", ""), "subject": payload.subject.strip(), "unit_number": payload.unit_number}))
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="hr.letter_sent", target_type="hr_letter", target_id=payload.template_key, metadata_json={"sender": mailbox.email, "recipient": str(payload.recipient_email), "cc": _normalized_cc(str(payload.recipient_email), payload.cc_emails), "employee": payload.fields.get("employee_name", ""), "subject": payload.subject.strip(), "unit_number": payload.unit_number}))
     session.add(AIUsageEvent(organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, operation="hr_letter_email", provider="zoho", model="smtp", status="completed"))
     await session.commit()
     return {"status": "sent", "sent_at": sent_at}
@@ -1720,6 +1742,7 @@ async def send_custom_letter(
         metadata_json={
             "sender": mailbox.email,
             "recipient": str(payload.recipient_email),
+            "cc": _normalized_cc(str(payload.recipient_email), payload.cc_emails),
             "template": document.original_filename,
             "subject": payload.subject.strip(),
         },

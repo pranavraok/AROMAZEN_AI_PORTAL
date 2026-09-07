@@ -170,7 +170,7 @@ export const api = {
     templateContent: (accessToken: string, templateId: string) => apiFileRequest(`/payroll/templates/${templateId}/content`, accessToken),
     batches: (accessToken: string) => apiRequest<PayrollBatch[]>('/payroll/batches', { headers: { Authorization: `Bearer ${accessToken}` } }),
     batch: (accessToken: string, batchId: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
-    updateEmail: (accessToken: string, batchId: string, subject: string, body: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}/email`, { method: 'PATCH', body: { subject, body }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    updateEmail: (accessToken: string, batchId: string, subject: string, body: string, ccEmails: string[]) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}/email`, { method: 'PATCH', body: { subject, body, cc_emails: ccEmails }, headers: { Authorization: `Bearer ${accessToken}` } }),
     upload: (accessToken: string, payrollMonth: string, file: File) => {
       const form = new FormData(); form.append('payroll_month', payrollMonth); form.append('excel_file', file)
       return apiRequest<PayrollBatch>('/payroll/batches', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })

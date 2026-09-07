@@ -14,6 +14,7 @@ import type { PayrollBatch, PayrollRecipient, PayrollTemplate } from '@/lib/api/
 import { ApiError } from '@/lib/api/client'
 import { canvaEditUrlForSalarySlip } from '@/lib/template-canva-links'
 import { beginBlobPreview, showBlobPreview } from '@/lib/open-blob-preview'
+import { parseEmailList } from '@/lib/email-recipients'
 
 function monthLabel(value: string) { const [year, month] = value.split('-').map(Number); return new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)) }
 function money(value: string | number) { const amount = Number(value); return Number.isFinite(amount) ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount) : String(value) }
@@ -31,6 +32,7 @@ export default function SalarySlipsPage() {
   const [batch, setBatch] = useState<PayrollBatch | null>(null)
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
+  const [cc, setCc] = useState('')
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState<'upload' | 'save' | 'send' | 'retry' | null>(null)
   const [replacingTemplate, setReplacingTemplate] = useState(false)
@@ -38,6 +40,7 @@ export default function SalarySlipsPage() {
   const canvaEditUrl = canvaEditUrlForSalarySlip()
   const canUse = user?.department_name === 'Human Resources' || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
   const recipients = useMemo(() => batch?.recipients ?? [], [batch?.recipients])
+  const ccEmails = useMemo(() => parseEmailList(cc), [cc])
   const finished = (batch?.sent_count ?? 0) + (batch?.failed_count ?? 0)
   const progress = batch?.total_count ? Math.round((finished / batch.total_count) * 100) : 0
   const netPayroll = useMemo(() => recipients.reduce((sum, item) => sum + Number(item.net_wages || 0), 0), [recipients])
@@ -52,7 +55,7 @@ export default function SalarySlipsPage() {
     if (!accessToken) return
     try {
       const next = await api.payroll.batch(accessToken, id)
-      setBatch(next); setSubject(next.email_subject); setBody(next.email_body)
+      setBatch(next); setSubject(next.email_subject); setBody(next.email_body); setCc((next.cc_emails ?? []).join(', '))
       setHistory((items) => items.map((item) => item.id === next.id ? { ...next, recipients: undefined } : item))
     } catch (error) { if (!quiet) notify('error', error instanceof ApiError ? error.message : 'Unable to refresh delivery.') }
   }, [accessToken, notify])
@@ -93,7 +96,7 @@ export default function SalarySlipsPage() {
     setBusy('upload')
     try {
       const next = await api.payroll.upload(accessToken, payrollMonth, excel)
-      setBatch(next); setSubject(next.email_subject); setBody(next.email_body)
+      setBatch(next); setSubject(next.email_subject); setBody(next.email_body); setCc((next.cc_emails ?? []).join(', '))
       setHistory((items) => [{ ...next, recipients: undefined }, ...items])
       notify('success', `${next.total_count} salary slips are ready.`)
     } catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to prepare salary slips.') }
@@ -103,7 +106,7 @@ export default function SalarySlipsPage() {
   async function saveEmail(quiet = false) {
     if (!accessToken || !batch) return null
     setBusy('save')
-    try { const next = await api.payroll.updateEmail(accessToken, batch.id, subject, body); setBatch(next); if (!quiet) notify('success', 'Email draft saved.'); return next }
+    try { const next = await api.payroll.updateEmail(accessToken, batch.id, subject, body, ccEmails); setBatch(next); setCc((next.cc_emails ?? []).join(', ')); if (!quiet) notify('success', 'Email draft saved.'); return next }
     catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to save email draft.'); return null }
     finally { setBusy(null) }
   }
@@ -120,8 +123,10 @@ export default function SalarySlipsPage() {
 
   async function retryFailed() {
     if (!accessToken || !batch) return
+    const saved = await saveEmail(true)
+    if (!saved) return
     setBusy('retry')
-    try { setBatch(await api.payroll.retryFailed(accessToken, batch.id)); notify('success', 'Retry started.') }
+    try { setBatch(await api.payroll.retryFailed(accessToken, saved.id)); notify('success', 'Retry started.') }
     catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to retry failed emails.') }
     finally { setBusy(null) }
   }
@@ -151,6 +156,8 @@ export default function SalarySlipsPage() {
     {batch && <>
       <details className="rounded-2xl border border-border bg-card"><summary className="flex cursor-pointer list-none items-center gap-2 p-4 text-sm font-medium">Email message <InfoTip label="Email message help">Optional. You can use {'{employee_name}'} and {'{month}'} in the message.</InfoTip></summary><div className="border-t border-border p-4 md:p-5">
         <div className="mb-3 flex items-center justify-end"><Button size="sm" variant="outline" disabled={busy !== null || batch.status === 'sending'} onClick={() => void saveEmail()}>{busy === 'save' ? 'Saving' : 'Save changes'}</Button></div>
+        <label className="mb-3 block"><span className="mb-1.5 block text-xs text-muted-foreground">CC <span className="font-normal">(optional)</span></span><input type="text" inputMode="email" value={cc} onChange={(event) => setCc(event.target.value)} placeholder="Separate multiple emails with commas" className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm" /></label>
+        {ccEmails.length > 0 && <p className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-300">Every CC recipient will receive a copy of each employee&apos;s salary slip in this batch.</p>}
         <input value={subject} maxLength={240} onChange={(event) => setSubject(event.target.value)} className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm" aria-label="Email subject" />
         <textarea value={body} maxLength={8000} onChange={(event) => setBody(event.target.value)} rows={7} className="mt-3 w-full resize-y rounded-xl border border-border bg-background p-3 text-sm leading-6" aria-label="Email body" />
       </div></details>
@@ -167,6 +174,6 @@ export default function SalarySlipsPage() {
 
     <details className="rounded-2xl border border-border bg-card"><summary className="cursor-pointer p-4 text-sm font-medium">Previous batches <span className="ml-1 text-xs font-normal text-muted-foreground">{history.length}</span></summary><div className="border-t border-border p-4">{history.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">No batches yet.</p> : <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{history.map((item) => <button key={item.id} type="button" onClick={() => void refreshBatch(item.id)} className="flex items-center justify-between rounded-xl border border-border p-3 text-left hover:bg-muted/40"><div><p className="font-medium">{monthLabel(item.payroll_month)}</p><p className="text-xs text-muted-foreground">{item.sent_count} sent · {item.failed_count} failed</p></div><span className={`rounded-full px-2 py-1 text-[11px] capitalize ${tone(item.status)}`}>{item.status}</span></button>)}</div>}</div></details>
 
-    {confirming && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Confirm salary slip delivery"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start gap-3"><span className="rounded-xl bg-amber-500/10 p-2 text-amber-400"><AlertTriangle className="h-5 w-5" /></span><div><h2 className="text-lg font-semibold">Send {batch?.pending_count} salary slips?</h2><p className="mt-1 text-sm text-muted-foreground">From AROMAZEN HR · {batch && monthLabel(batch.payroll_month)}</p></div></div>{Boolean(batch?.duplicate_email_count) && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-300">{batch?.duplicate_email_count} duplicate email {batch?.duplicate_email_count === 1 ? 'entry' : 'entries'} found. Each employee row will still be sent separately.</div>}<div className="mt-5 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button><Button disabled={busy !== null} onClick={() => void sendAll()}><Send className="mr-2 h-4 w-4" />Confirm & send</Button></div></div></div>}
+    {confirming && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Confirm salary slip delivery"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start gap-3"><span className="rounded-xl bg-amber-500/10 p-2 text-amber-400"><AlertTriangle className="h-5 w-5" /></span><div><h2 className="text-lg font-semibold">Send {batch?.pending_count} salary slips?</h2><p className="mt-1 text-sm text-muted-foreground">From AROMAZEN HR · {batch && monthLabel(batch.payroll_month)}</p></div></div>{ccEmails.length > 0 && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-300"><p className="font-medium">CC on every salary slip</p><p className="mt-1 break-words text-xs">{ccEmails.join(', ')}</p></div>}{Boolean(batch?.duplicate_email_count) && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-300">{batch?.duplicate_email_count} duplicate email {batch?.duplicate_email_count === 1 ? 'entry' : 'entries'} found. Each employee row will still be sent separately.</div>}<div className="mt-5 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button><Button disabled={busy !== null} onClick={() => void sendAll()}><Send className="mr-2 h-4 w-4" />Confirm & send</Button></div></div></div>}
   </main></AppLayout>
 }

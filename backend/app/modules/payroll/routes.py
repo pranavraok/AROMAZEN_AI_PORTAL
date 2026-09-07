@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -51,6 +51,19 @@ DEFAULT_SALARY_TEMPLATE = Path(__file__).resolve().parents[2] / "assets" / "payr
 class EmailDraftUpdate(BaseModel):
     subject: str
     body: str
+    cc_emails: list[EmailStr] = Field(default_factory=list, max_length=20)
+
+
+def _normalized_cc(cc_emails: list[EmailStr] | list[str], primary_email: str = "") -> list[str]:
+    seen = {primary_email.strip().casefold()} if primary_email.strip() else set()
+    recipients: list[str] = []
+    for value in cc_emails:
+        email = str(value).strip()
+        key = email.casefold()
+        if email and key not in seen:
+            recipients.append(email)
+            seen.add(key)
+    return recipients
 
 
 def _unit_from_template_name(filename: str) -> int | None:
@@ -132,6 +145,7 @@ async def _batch_response(session: AsyncSession, batch: PayrollBatch, include_re
         "template_name": "One master; unit address selected from Excel",
         "email_subject": batch.email_subject or DEFAULT_EMAIL_SUBJECT,
         "email_body": batch.email_body or DEFAULT_EMAIL_BODY,
+        "cc_emails": batch.cc_emails or [],
         "duplicate_email_count": batch.duplicate_email_count,
     }
     if include_recipients:
@@ -360,7 +374,8 @@ async def update_batch_email(
         raise HTTPException(status_code=422, detail="Email body is required and must be under 8,000 characters.")
     batch.email_subject = subject
     batch.email_body = body
-    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.email_updated", target_type="payroll_batch", target_id=str(batch_id), metadata_json={}))
+    batch.cc_emails = _normalized_cc(payload.cc_emails)
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.email_updated", target_type="payroll_batch", target_id=str(batch_id), metadata_json={"cc": batch.cc_emails}))
     await session.commit()
     await session.refresh(batch)
     return await _batch_response(session, batch)
@@ -389,9 +404,12 @@ def _render_email(value: str, item: PayrollRecipient, month_label: str) -> str:
 
 def _send_message(item: PayrollRecipient, batch: PayrollBatch, mailbox: EmailMailbox) -> None:
     month_label = datetime.strptime(batch.payroll_month, "%Y-%m").strftime("%B %Y")
+    cc_recipients = _normalized_cc(batch.cc_emails or [], item.personal_email)
     message = EmailMessage()
     message["From"] = formataddr((mailbox.from_name, mailbox.email))
     message["To"] = item.personal_email
+    if cc_recipients:
+        message["Cc"] = ", ".join(cc_recipients)
     message["Subject"] = _render_email(batch.email_subject or DEFAULT_EMAIL_SUBJECT, item, month_label)
     message.set_content(_render_email(batch.email_body or DEFAULT_EMAIL_BODY, item, month_label))
     path = Path(get_settings().upload_storage_path) / item.pdf_stored_filename
@@ -403,7 +421,7 @@ def _send_message(item: PayrollRecipient, batch: PayrollBatch, mailbox: EmailMai
             smtp.starttls()
             smtp.ehlo()
         smtp.login(mailbox.username, mailbox.password)
-        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[item.personal_email])
+        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[item.personal_email, *cc_recipients])
 
 
 async def _deliver_batch(batch_id: uuid.UUID, recipient_ids: list[uuid.UUID], mailbox: EmailMailbox) -> None:
@@ -458,7 +476,7 @@ async def _queue_delivery(batch_id: uuid.UUID, retry_failed: bool, background_ta
         for recipient in recipients:
             recipient.status = "pending"
             recipient.error_message = None
-    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.failed_retried" if retry_failed else "payroll.batch_send_started", target_type="payroll_batch", target_id=str(batch_id), metadata_json={"sender": mailbox.email, "recipient_count": len(recipients)}))
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.failed_retried" if retry_failed else "payroll.batch_send_started", target_type="payroll_batch", target_id=str(batch_id), metadata_json={"sender": mailbox.email, "recipient_count": len(recipients), "cc": batch.cc_emails or []}))
     await session.commit()
     background_tasks.add_task(_deliver_batch, batch_id, [item.id for item in recipients], mailbox)
     return await _batch_response(session, batch)
