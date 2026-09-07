@@ -127,6 +127,7 @@ export interface CreateChatMessageRequest {
   attachment_ids?: string[]
   mode?: 'chat' | 'image' | 'email'
   response_mode?: 'auto' | 'quick' | 'standard' | 'deep' | 'essential'
+  model_preference?: 'auto' | 'openai' | 'anthropic'
   sender_key?: string
 }
 

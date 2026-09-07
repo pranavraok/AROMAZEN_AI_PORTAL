@@ -8,6 +8,7 @@ import type { ChatAttachment, EmailMailboxStatus } from '@/lib/api/types'
 
 type ChatMode = 'chat' | 'image' | 'email'
 type ResponseMode = 'auto' | 'quick' | 'standard' | 'deep' | 'essential'
+type ModelPreference = 'auto' | 'openai' | 'anthropic'
 type OpenMenu = 'tools' | 'response' | null
 const EMPTY_EMAIL_MAILBOXES: EmailMailboxStatus[] = []
 
@@ -18,6 +19,11 @@ const RESPONSE_OPTIONS: { value: ResponseMode; label: string; description: strin
   { value: 'deep', label: 'Deep', description: 'Thorough answer' },
   { value: 'essential', label: 'Essential', description: 'Free-tier' },
 ]
+const RND_MODEL_OPTIONS: { value: ModelPreference; label: string; description: string }[] = [
+  { value: 'auto', label: 'Auto-select', description: 'Best model for the task' },
+  { value: 'openai', label: 'GPT-5.5', description: 'Deep reasoning and analysis' },
+  { value: 'anthropic', label: 'Claude Sonnet', description: 'Long-form research and writing' },
+]
 
 interface ChatComposerProps {
   disabled?: boolean
@@ -26,14 +32,17 @@ interface ChatComposerProps {
   emailMailboxes?: EmailMailboxStatus[]
   selectedSenderKey?: string
   showEmailSenderSelector?: boolean
+  advancedModelsEnabled?: boolean
+  modelPreference?: ModelPreference
   onStop?: () => void
   onEmailUnavailable?: () => void
   onSenderChange?: (senderKey: string) => void
-  onSend: (message: string, attachments: ChatAttachment[], mode: ChatMode, responseMode: ResponseMode) => Promise<boolean>
+  onModelPreferenceChange?: (model: ModelPreference) => void
+  onSend: (message: string, attachments: ChatAttachment[], mode: ChatMode, responseMode: ResponseMode, modelPreference: ModelPreference) => Promise<boolean>
   onUpload: (file: File) => Promise<ChatAttachment | null>
 }
 
-export function ChatComposer({ disabled = false, busy = false, emailAvailable = true, emailMailboxes = EMPTY_EMAIL_MAILBOXES, selectedSenderKey = '', showEmailSenderSelector = false, onStop, onEmailUnavailable, onSenderChange, onSend, onUpload }: ChatComposerProps) {
+export function ChatComposer({ disabled = false, busy = false, emailAvailable = true, emailMailboxes = EMPTY_EMAIL_MAILBOXES, selectedSenderKey = '', showEmailSenderSelector = false, advancedModelsEnabled = false, modelPreference = 'auto', onStop, onEmailUnavailable, onSenderChange, onModelPreferenceChange, onSend, onUpload }: ChatComposerProps) {
   const [message, setMessage] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(false)
@@ -69,7 +78,7 @@ export function ChatComposer({ disabled = false, busy = false, emailAvailable = 
     setAttachments([])
     setMode('chat')
     setOpenMenu(null)
-    const sent = await onSend(value, submittedAttachments, submittedMode, responseMode)
+    const sent = await onSend(value, submittedAttachments, submittedMode, responseMode, modelPreference)
     if (!sent) {
       setMessage(value)
       setAttachments(submittedAttachments)
@@ -139,6 +148,8 @@ export function ChatComposer({ disabled = false, busy = false, emailAvailable = 
                 {RESPONSE_OPTIONS.map((option) => <ChoiceButton key={option.value} selected={responseMode === option.value} label={option.label} description={option.description} onClick={() => { setResponseMode(option.value); setOpenMenu(null) }} />)}
               </div>}
             </div>
+
+            {advancedModelsEnabled && mode === 'chat' && <label className="flex items-center gap-1.5" title="R&D advanced model selection"><span className="hidden text-xs text-muted-foreground sm:inline">Model</span><select aria-label="Advanced LLM model" value={modelPreference} onChange={(event) => onModelPreferenceChange?.(event.target.value as ModelPreference)} disabled={disabled || busy} className="h-9 max-w-28 rounded-full border border-border bg-background px-2 text-xs text-foreground disabled:opacity-45 sm:max-w-36">{RND_MODEL_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>}
           </div>
 
           <div className="flex shrink-0 items-center gap-1">

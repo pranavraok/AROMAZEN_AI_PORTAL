@@ -399,12 +399,16 @@ class AIProviderRouter:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
 
-    def _providers(self, question: str, *, use_web_search: bool = False):
+    def _providers(self, question: str, *, use_web_search: bool = False, model_preference: str = "auto"):
         lowered = question.lower()
         complex_markers = ("[internal_exhaustive]", "[attachment_exhaustive]", "analyse", "analyze", "compare", "strategy", "calculate", "deep", "detailed", "complete", "all employees", "list of", "risk", "forecast", "formulation")
         complex_request = len(question) > 600 or any(marker in lowered for marker in complex_markers)
         openai = OpenAIProvider(self.settings)
         sonnet = AnthropicProvider(self.settings, self.settings.anthropic_default_model)
+        if model_preference == "openai":
+            return [openai] if openai.available else []
+        if model_preference == "anthropic":
+            return [sonnet] if sonnet.available else []
         if use_web_search:
             return [provider for provider in (openai, sonnet) if provider.available]
         # Routing is always automatic. Stale environment variables or legacy
@@ -417,7 +421,7 @@ class AIProviderRouter:
         fallback = openai if primary.name == "anthropic" else sonnet
         return [primary] + ([fallback] if fallback.available and (fallback.name, fallback.model) != (primary.name, primary.model) else [])
 
-    async def stream(self, system: str, prompt: str, question: str, *, use_web_search: bool = False, images: list[dict[str, str]] | None = None, response_mode: str = "deep") -> AsyncIterator[ProviderEvent]:
+    async def stream(self, system: str, prompt: str, question: str, *, use_web_search: bool = False, images: list[dict[str, str]] | None = None, response_mode: str = "deep", model_preference: str = "auto") -> AsyncIterator[ProviderEvent]:
         # Essential mode always routes through OpenRouter (free tier) — never touches paid keys.
         if response_mode == "essential":
             openrouter = OpenRouterProvider(self.settings)
@@ -426,7 +430,7 @@ class AIProviderRouter:
             async for event in openrouter.stream(system, prompt, images=images, response_mode=response_mode):
                 yield event
             return
-        providers = self._providers(question, use_web_search=use_web_search)
+        providers = self._providers(question, use_web_search=use_web_search, model_preference=model_preference)
         if not providers:
             raise ProviderError("router", "no_provider", "No AI provider is configured.")
         last_error: ProviderError | None = None

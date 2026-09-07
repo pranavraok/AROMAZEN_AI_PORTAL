@@ -938,6 +938,12 @@ async def stream_message(
     # OpenRouter enforces its own rate limits (20 RPM, 50-1000 req/day).
     if payload.response_mode != "essential":
         await _check_organization_limits(session, user.organization_id)
+    if payload.model_preference != "auto":
+        department = await session.get(Department, user.department_id) if user.department_id else None
+        role_keys = await role_keys_for_user(session, user.id)
+        if not department or department.slug != "r-d":
+            if not role_keys.intersection({"owner", "super_admin"}):
+                raise HTTPException(status_code=403, detail="Advanced model selection is available only in the R&D workspace.")
     await _validate_collections(session, user, payload.collection_ids)
     content = payload.content.strip()
     if not content:
@@ -993,6 +999,7 @@ async def stream_message(
     attachment_ids = [attachment.id for attachment in attachments]
     request_mode = payload.mode
     requested_response_mode = payload.response_mode
+    requested_model_preference = payload.model_preference
 
     async def generate() -> AsyncIterator[str]:
         started = time.perf_counter()
@@ -1223,7 +1230,7 @@ async def stream_message(
                     provider_images.append({"mime_type": attachment.mime_type, "data": base64.b64encode(image_bytes).decode("ascii")})
                 yield _event("status", message="Searching the web..." if use_web_search else "Building a complete answer..." if plan.exhaustive else "Thinking through your question...")
                 routing_question = f"[{plan.mode}] {content}"
-                async for provider_event in AIProviderRouter(runtime_settings).stream(system_prompt, prompt, routing_question, use_web_search=use_web_search, images=provider_images, response_mode=response_mode):
+                async for provider_event in AIProviderRouter(runtime_settings).stream(system_prompt, prompt, routing_question, use_web_search=use_web_search, images=provider_images, response_mode=response_mode, model_preference=requested_model_preference):
                     provider = provider_event.provider
                     model = provider_event.model
                     if provider_event.kind == "delta" and provider_event.text:
