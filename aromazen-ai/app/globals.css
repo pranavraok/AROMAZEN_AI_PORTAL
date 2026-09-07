@@ -527,6 +527,12 @@ body:has(.fixed.inset-0.z-50),
   }
 }
 
+@media (max-width: 767px) {
+  .viewport-toast {
+    top: max(8px, env(safe-area-inset-top));
+  }
+}
+
 /* The client-approved bright workspace is used for every saved appearance mode. */
 html:root.dark,
 html:root.light {
