@@ -309,10 +309,13 @@ table tbody tr:hover { background: rgba(255,255,255,.018); }
 
 @media (max-width: 767px) {
   .viewport-toast {
-    left: 50%;
-    right: auto;
+    left: 0;
+    right: 0;
     top: max(12px, calc(env(safe-area-inset-top) + 8px));
-    transform: translateX(-50%);
+    width: calc(100% - 2rem);
+    max-width: 24rem;
+    margin-inline: auto;
+    transform: none;
   }
   .top-bar {
     height: calc(60px + env(safe-area-inset-top));
