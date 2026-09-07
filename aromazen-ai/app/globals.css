@@ -511,7 +511,7 @@ body:has(.fixed.inset-0.z-50),
     max-height: calc(var(--app-viewport-height, 100dvh) - 2rem);
   }
   .viewport-toast {
-    top: calc(var(--app-viewport-offset-top, 0px) + (var(--app-viewport-height, 100dvh) / 2));
+    top: max(12px, calc(var(--app-viewport-offset-top, 0px) + env(safe-area-inset-top) + 8px));
   }
   .mobile-app-splash {
     top: var(--app-viewport-offset-top, 0px);
