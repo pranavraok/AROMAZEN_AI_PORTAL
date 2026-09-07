@@ -155,7 +155,7 @@ export function HrCustomLettersTool() {
       setEmail((current) => ({
         ...current,
         subject: current.subject || template.title,
-        message: current.message || 'Dear Employee,\n\nPlease find the attached letter from Human Resources.\n\nRegards,\nHuman Resources',
+        message: current.message || 'Dear Employee,\n\nPlease find the attached letter from Human Resources.',
       }))
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to generate this custom letter.')

@@ -154,7 +154,7 @@ export default function SalarySlipsPage() {
     </section>
 
     {batch && <>
-      <details className="rounded-2xl border border-border bg-card"><summary className="flex cursor-pointer list-none items-center gap-2 p-4 text-sm font-medium">Email message <InfoTip label="Email message help">Optional. You can use {'{employee_name}'} and {'{month}'} in the message.</InfoTip></summary><div className="border-t border-border p-4 md:p-5">
+      <details className="rounded-2xl border border-border bg-card"><summary className="flex cursor-pointer list-none items-center gap-2 p-4 text-sm font-medium">Email message <InfoTip label="Email message help">You can use {'{employee_name}'} and {'{month}'} in the message. The fixed HR signature and AROMAZEN logo are added automatically.</InfoTip></summary><div className="border-t border-border p-4 md:p-5">
         <div className="mb-3 flex items-center justify-end"><Button size="sm" variant="outline" disabled={busy !== null || batch.status === 'sending'} onClick={() => void saveEmail()}>{busy === 'save' ? 'Saving' : 'Save changes'}</Button></div>
         <label className="mb-3 block"><span className="mb-1.5 block text-xs text-muted-foreground">CC <span className="font-normal">(optional)</span></span><input type="text" inputMode="email" value={cc} onChange={(event) => setCc(event.target.value)} placeholder="Separate multiple emails with commas" className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm" /></label>
         {ccEmails.length > 0 && <p className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-300">Every CC recipient will receive a copy of each employee&apos;s salary slip in this batch.</p>}

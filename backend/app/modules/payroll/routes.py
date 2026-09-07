@@ -23,6 +23,7 @@ from openpyxl.utils import get_column_letter
 
 from app.core.config import get_settings
 from app.core.email_access import EMAIL_NOT_SET_DETAIL, EmailMailbox, resolve_mailbox_for_user
+from app.core.hr_email_signature import apply_hr_email_signature
 from app.db.session import SessionLocal, get_db_session
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User, collection_departments
@@ -39,11 +40,7 @@ DEFAULT_EMAIL_BODY = """Dear {employee_name},
 
 Please find attached your salary slip for {month}.
 
-The PDF password is the first four letters of your name in uppercase followed by your four-digit year of birth.
-
-Regards,
-HR Department
-AROMAZEN PVT LTD"""
+The PDF password is the first four letters of your name in uppercase followed by your four-digit year of birth."""
 SALARY_TEMPLATE_SOURCE_KEY = "salary-slip-template:master"
 DEFAULT_SALARY_TEMPLATE = Path(__file__).resolve().parents[2] / "assets" / "payroll" / "AROMAZEN_SalarySlip_Master.pdf"
 
@@ -411,7 +408,7 @@ def _send_message(item: PayrollRecipient, batch: PayrollBatch, mailbox: EmailMai
     if cc_recipients:
         message["Cc"] = ", ".join(cc_recipients)
     message["Subject"] = _render_email(batch.email_subject or DEFAULT_EMAIL_SUBJECT, item, month_label)
-    message.set_content(_render_email(batch.email_body or DEFAULT_EMAIL_BODY, item, month_label))
+    apply_hr_email_signature(message, _render_email(batch.email_body or DEFAULT_EMAIL_BODY, item, month_label))
     path = Path(get_settings().upload_storage_path) / item.pdf_stored_filename
     message.add_attachment(path.read_bytes(), maintype="application", subtype="pdf", filename=item.pdf_original_filename)
     smtp_client = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP

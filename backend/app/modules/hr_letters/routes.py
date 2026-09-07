@@ -45,6 +45,7 @@ import structlog
 
 from app.core.config import get_settings
 from app.core.email_access import EMAIL_NOT_SET_DETAIL, EmailMailbox, resolve_mailbox_for_user
+from app.core.hr_email_signature import apply_hr_email_signature
 from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_cost
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.db.session import get_db_session
@@ -1560,7 +1561,7 @@ def _send_email(payload: SendLetterRequest, pdf_bytes: bytes, mailbox: EmailMail
     if cc_recipients:
         message["Cc"] = ", ".join(cc_recipients)
     message["Subject"] = payload.subject.strip()
-    message.set_content(payload.message.strip())
+    apply_hr_email_signature(message, payload.message)
     employee = re.sub(r"[^A-Za-z0-9_-]+", "-", payload.fields.get("employee_name", "employee")).strip("-") or "employee"
     message.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=f"{payload.template_key}-unit-{payload.unit_number}-{employee}.pdf")
     client = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
@@ -1587,7 +1588,7 @@ def _send_custom_email(
     if cc_recipients:
         message["Cc"] = ", ".join(cc_recipients)
     message["Subject"] = payload.subject.strip()
-    message.set_content(payload.message.strip())
+    apply_hr_email_signature(message, payload.message)
     message.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=attachment_name)
     client = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
     with client(mailbox.host, mailbox.port, timeout=45) as smtp:
