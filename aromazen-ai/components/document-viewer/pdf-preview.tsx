@@ -21,7 +21,6 @@ interface PdfPageHandle {
 interface PdfDocumentHandle {
   numPages: number
   getPage: (pageNumber: number) => Promise<PdfPageHandle>
-  destroy: () => Promise<void>
 }
 
 export function PdfPreview({ data, initialPage = 1 }: { data: Uint8Array; initialPage?: number }) {
@@ -47,7 +46,6 @@ export function PdfPreview({ data, initialPage = 1 }: { data: Uint8Array; initia
 
   useEffect(() => {
     let cancelled = false
-    let loadedDocument: PdfDocumentHandle | null = null
     let loadingTask: { promise: Promise<PdfDocumentHandle>; destroy: () => Promise<void> } | null = null
     setLoading(true)
     setError('')
@@ -57,9 +55,9 @@ export function PdfPreview({ data, initialPage = 1 }: { data: Uint8Array; initia
         pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
         loadingTask = pdfjs.getDocument({ data: data.slice() }) as unknown as typeof loadingTask
         if (!loadingTask) throw new Error('Unable to start the PDF renderer.')
-        loadedDocument = await loadingTask.promise
+        const loadedDocument = await loadingTask.promise
         if (cancelled) {
-          await loadedDocument.destroy()
+          void loadingTask?.destroy().catch(() => undefined)
           return
         }
         setDocumentHandle(loadedDocument)
@@ -75,8 +73,9 @@ export function PdfPreview({ data, initialPage = 1 }: { data: Uint8Array; initia
     return () => {
       cancelled = true
       setDocumentHandle(null)
-      if (loadingTask && !loadedDocument) void loadingTask.destroy()
-      if (loadedDocument) void loadedDocument.destroy()
+      // pdfjs-dist v6: the document proxy has no destroy(); teardown goes through the loading task,
+      // which works whether the document is still loading or already loaded.
+      if (loadingTask) void loadingTask.destroy().catch(() => undefined)
     }
   }, [data, initialPage])
 

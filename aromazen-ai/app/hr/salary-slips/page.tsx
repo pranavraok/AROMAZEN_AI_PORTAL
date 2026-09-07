@@ -11,12 +11,13 @@ import { useToast } from '@/components/ui/toast-provider'
 import { api } from '@/lib/api/services'
 import type { PayrollBatch, PayrollRecipient, PayrollTemplate } from '@/lib/api/types'
 import { ApiError } from '@/lib/api/client'
+import { DocumentViewerModal } from '@/components/ui/document-viewer'
 
 function monthLabel(value: string) { const [year, month] = value.split('-').map(Number); return new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)) }
 function money(value: string | number) { const amount = Number(value); return Number.isFinite(amount) ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount) : String(value) }
 function tone(status: string) { return status === 'sent' || status === 'completed' ? 'bg-emerald-500/10 text-emerald-400' : status === 'failed' ? 'bg-red-500/10 text-red-400' : status === 'partial' ? 'bg-amber-500/10 text-amber-400' : status === 'sending' ? 'bg-blue-500/10 text-blue-400' : 'bg-muted text-muted-foreground' }
 function statusIcon(status: string) { return status === 'sent' ? <CheckCircle2 className="h-3.5 w-3.5" /> : status === 'failed' ? <XCircle className="h-3.5 w-3.5" /> : status === 'sending' ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null }
-function openBlob(blob: Blob) { const url = URL.createObjectURL(blob); window.open(url, '_blank', 'noopener,noreferrer'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) }
+
 
 export default function SalarySlipsPage() {
   const { accessToken, user, hasPermission } = useAuth()
@@ -32,6 +33,7 @@ export default function SalarySlipsPage() {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState<'upload' | 'save' | 'send' | 'retry' | null>(null)
   const [templateUploadUnit, setTemplateUploadUnit] = useState<number | null>(null)
+  const [viewing, setViewing] = useState<{ blob: Blob; filename: string; title: string } | null>(null)
   const canUse = user?.department_name === 'Human Resources' || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
   const recipients = useMemo(() => batch?.recipients ?? [], [batch?.recipients])
   const finished = (batch?.sent_count ?? 0) + (batch?.failed_count ?? 0)
@@ -62,7 +64,7 @@ export default function SalarySlipsPage() {
 
   async function viewTemplate(template: PayrollTemplate) {
     if (!accessToken) return
-    try { const result = await api.payroll.templateContent(accessToken, template.id); openBlob(result.blob) }
+    try { const result = await api.payroll.templateContent(accessToken, template.id); setViewing({ blob: result.blob, filename: result.filename && result.filename !== 'download' ? result.filename : template.original_filename, title: `Unit ${template.unit_number} payslip template` }) }
     catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to open template.') }
   }
 
@@ -123,7 +125,7 @@ export default function SalarySlipsPage() {
 
   async function viewSlip(item: PayrollRecipient) {
     if (!accessToken || !batch) return
-    try { const result = await api.payroll.pdf(accessToken, batch.id, item.id); openBlob(result.blob) }
+    try { const result = await api.payroll.pdf(accessToken, batch.id, item.id); setViewing({ blob: result.blob, filename: result.filename, title: `Salary slip · ${item.employee_name} · ${monthLabel(batch.payroll_month)}` }) }
     catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to open salary slip.') }
   }
 
@@ -173,5 +175,8 @@ export default function SalarySlipsPage() {
     <details className="rounded-2xl border border-border bg-card"><summary className="cursor-pointer p-4 text-sm font-medium">Previous batches <span className="ml-1 text-xs font-normal text-muted-foreground">{history.length}</span></summary><div className="border-t border-border p-4">{history.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">No batches yet.</p> : <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{history.map((item) => <button key={item.id} type="button" onClick={() => void refreshBatch(item.id)} className="flex items-center justify-between rounded-xl border border-border p-3 text-left hover:bg-muted/40"><div><p className="font-medium">{monthLabel(item.payroll_month)}</p><p className="text-xs text-muted-foreground">{item.sent_count} sent · {item.failed_count} failed</p></div><span className={`rounded-full px-2 py-1 text-[11px] capitalize ${tone(item.status)}`}>{item.status}</span></button>)}</div>}</div></details>
 
     {confirming && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Confirm salary slip delivery"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start gap-3"><span className="rounded-xl bg-amber-500/10 p-2 text-amber-400"><AlertTriangle className="h-5 w-5" /></span><div><h2 className="text-lg font-semibold">Send {batch?.pending_count} salary slips?</h2><p className="mt-1 text-sm text-muted-foreground">From AROMAZEN HR · {batch && monthLabel(batch.payroll_month)}</p></div></div>{Boolean(batch?.duplicate_email_count) && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-300">{batch?.duplicate_email_count} duplicate email {batch?.duplicate_email_count === 1 ? 'entry' : 'entries'} found. Each employee row will still be sent separately.</div>}<div className="mt-5 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button><Button disabled={busy !== null} onClick={() => void sendAll()}><Send className="mr-2 h-4 w-4" />Confirm & send</Button></div></div></div>}
-  </main></AppLayout>
+  </main>
+
+  <DocumentViewerModal file={viewing} onClose={() => setViewing(null)} />
+  </AppLayout>
 }
