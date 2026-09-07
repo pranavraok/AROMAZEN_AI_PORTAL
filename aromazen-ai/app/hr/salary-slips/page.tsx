@@ -13,12 +13,12 @@ import { api } from '@/lib/api/services'
 import type { PayrollBatch, PayrollRecipient, PayrollTemplate } from '@/lib/api/types'
 import { ApiError } from '@/lib/api/client'
 import { canvaEditUrlForSalarySlip } from '@/lib/template-canva-links'
+import { beginBlobPreview, showBlobPreview } from '@/lib/open-blob-preview'
 
 function monthLabel(value: string) { const [year, month] = value.split('-').map(Number); return new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)) }
 function money(value: string | number) { const amount = Number(value); return Number.isFinite(amount) ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount) : String(value) }
 function tone(status: string) { return status === 'sent' || status === 'completed' ? 'bg-emerald-500/10 text-emerald-400' : status === 'failed' ? 'bg-red-500/10 text-red-400' : status === 'partial' ? 'bg-amber-500/10 text-amber-400' : status === 'sending' ? 'bg-blue-500/10 text-blue-400' : 'bg-muted text-muted-foreground' }
 function statusIcon(status: string) { return status === 'sent' ? <CheckCircle2 className="h-3.5 w-3.5" /> : status === 'failed' ? <XCircle className="h-3.5 w-3.5" /> : status === 'sending' ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null }
-function openBlob(blob: Blob) { const url = URL.createObjectURL(blob); window.open(url, '_blank', 'noopener,noreferrer'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) }
 
 export default function SalarySlipsPage() {
   const { accessToken, user, hasPermission } = useAuth()
@@ -66,8 +66,9 @@ export default function SalarySlipsPage() {
 
   async function viewTemplate(template: PayrollTemplate) {
     if (!accessToken) return
-    try { const result = await api.payroll.templateContent(accessToken, template.id); openBlob(result.blob) }
-    catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to open template.') }
+    const preview = beginBlobPreview(template.original_filename)
+    try { const result = await api.payroll.templateContent(accessToken, template.id); showBlobPreview(preview, result.blob, template.original_filename) }
+    catch (error) { preview?.close(); notify('error', error instanceof ApiError ? error.message : 'Unable to open template.') }
   }
 
   async function replaceTemplate(file: File | null) {
@@ -127,8 +128,9 @@ export default function SalarySlipsPage() {
 
   async function viewSlip(item: PayrollRecipient) {
     if (!accessToken || !batch) return
-    try { const result = await api.payroll.pdf(accessToken, batch.id, item.id); openBlob(result.blob) }
-    catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to open salary slip.') }
+    const preview = beginBlobPreview('Salary slip')
+    try { const result = await api.payroll.pdf(accessToken, batch.id, item.id); showBlobPreview(preview, result.blob, 'salary-slip.pdf') }
+    catch (error) { preview?.close(); notify('error', error instanceof ApiError ? error.message : 'Unable to open salary slip.') }
   }
 
   if (!canUse) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="text-center"><ShieldCheck className="mx-auto h-10 w-10 text-muted-foreground" /><h1 className="mt-3 text-xl font-semibold">Access restricted</h1></div></main></AppLayout>

@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/toast-provider'
 import { ApiError } from '@/lib/api/client'
 import { api } from '@/lib/api/services'
 import type { HRCustomTemplate, HRTemplateField } from '@/lib/api/types'
+import { beginBlobPreview, showBlobPreview } from '@/lib/open-blob-preview'
 
 function FieldInputs({ items, values, onChange }: { items: HRTemplateField[]; values: Record<string, string>; onChange: (key: string, value: string) => void }) {
   return items.map((field) => <label key={field.key} className={field.multiline ? 'md:col-span-2' : ''}>
@@ -19,12 +20,6 @@ function FieldInputs({ items, values, onChange }: { items: HRTemplateField[]; va
       ? <textarea rows={3} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-xl border border-border bg-background p-3 text-sm" />
       : <input value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" />}
   </label>)
-}
-
-function openBlob(blob: Blob) {
-  const url = URL.createObjectURL(blob)
-  window.open(url, '_blank', 'noopener,noreferrer')
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 export function HrCustomLettersTool() {
@@ -129,9 +124,11 @@ export function HrCustomLettersTool() {
 
   async function viewTemplate() {
     if (!accessToken || !template) return
+    const preview = beginBlobPreview(template.filename)
     try {
-      openBlob((await api.hrTemplates.customContent(accessToken, template.id)).blob)
+      showBlobPreview(preview, (await api.hrTemplates.customContent(accessToken, template.id)).blob, template.filename)
     } catch (error) {
+      preview?.close()
       notify('error', error instanceof ApiError ? error.message : 'Unable to open this template.')
     }
   }

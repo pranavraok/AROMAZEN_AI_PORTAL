@@ -308,6 +308,12 @@ table tbody tr { transition: background-color .18s ease; }
 table tbody tr:hover { background: rgba(255,255,255,.018); }
 
 @media (max-width: 767px) {
+  .viewport-toast {
+    left: 50%;
+    right: auto;
+    top: max(12px, calc(env(safe-area-inset-top) + 8px));
+    transform: translateX(-50%);
+  }
   .top-bar {
     height: calc(60px + env(safe-area-inset-top));
     padding-top: env(safe-area-inset-top);
@@ -334,6 +340,9 @@ table tbody tr:hover { background: rgba(255,255,255,.018); }
   .app-main table th,
   .app-main table td { white-space: nowrap; }
   .app-main .overflow-hidden:has(> table) { overflow-x: auto; }
+  .app-main .qa-coa-preview-frame { height: min(68dvh, 620px); }
+  .app-main iframe { max-width: 100%; height: min(68dvh, 620px); }
+  .app-main section[class~="sticky"][class~="top-4"] { position: static; }
   .top-bar div[class*="min-w-[320px]"] {
     position: fixed;
     top: 68px;

@@ -143,7 +143,7 @@ export function ChatComposer({ disabled = false, busy = false, emailAvailable = 
 
           <div className="flex shrink-0 items-center gap-1">
             <VoiceInputButton disabled={disabled || uploading} label="Speak your question" onTranscript={(text) => setMessage((current) => current.trim() ? `${current.trim()} ${text}` : text)} />
-            {busy ? <Button type="button" size="icon" onClick={onStop} className="h-9 w-9 rounded-full bg-foreground text-background hover:bg-foreground/85" aria-label="Stop generating"><Square className="h-3.5 w-3.5 fill-current" /></Button> : <Button type="button" size="icon" onClick={() => void handleSend()} disabled={disabled || uploading || !message.trim()} className="h-9 w-9 rounded-full bg-foreground text-background hover:bg-foreground/85" aria-label="Send message"><Send className="h-4 w-4" /></Button>}
+            {busy ? <Button type="button" onClick={onStop} className="h-9 rounded-full bg-foreground px-3 text-background hover:bg-foreground/85" aria-label="Stop generating"><Square className="mr-1.5 h-3.5 w-3.5 fill-current" /><span>Stop</span></Button> : <Button type="button" size="icon" onClick={() => void handleSend()} disabled={disabled || uploading || !message.trim()} className="h-9 w-9 rounded-full bg-foreground text-background hover:bg-foreground/85" aria-label="Send message"><Send className="h-4 w-4" /></Button>}
           </div>
         </div>
       </div>
