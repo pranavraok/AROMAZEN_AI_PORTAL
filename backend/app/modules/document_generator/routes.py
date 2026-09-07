@@ -197,7 +197,7 @@ def _normalize_coa_value(parameter: str, column: str, value: str) -> str:
 DOCUMENT_DEPARTMENT_SLUGS = {"r-d", "qa", "quality-assurance", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"}
 QA_DEPARTMENT_SLUGS = {"qa", "quality-assurance", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"}
 QA_COA_MASTER_SOURCE = "qa-coa-master"
-QA_COA_CANVA_URL = "https://www.canva.com/d/22DzkdhTpOfj6CV"
+QA_COA_CANVA_URL = "https://www.canva.com/design/DAHUIbep1j4/h7gaNI5L-yAJ7wzdlCqT7g/edit"
 
 
 async def _require_document_department(session: AsyncSession, user: User) -> str:
