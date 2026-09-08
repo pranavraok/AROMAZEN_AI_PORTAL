@@ -31,6 +31,54 @@ const UNIT_ADDRESSES: Record<UnitNumber, string> = {
 }
 const AI_DRAFT_FIELD_MARKERS = ['reason', 'impact', 'message', 'statement', 'summary', 'remark', 'justification', 'performance', 'appreciation']
 
+type SalaryFormula = { inputs: string[]; multiplier?: number }
+
+const SALARY_FORMULAS: Record<string, Record<string, SalaryFormula>> = {
+  appointment: {
+    fixed_total: { inputs: ['basic', 'hra', 'conveyance', 'medical', 'special'] },
+    gross_total: { inputs: ['fixed_total', 'variable'] },
+    retiral_total: { inputs: ['pf', 'esi'] },
+    benefits_total: { inputs: ['gmc', 'gpa'] },
+    ctc_total: { inputs: ['gross_total', 'retiral_total', 'perquisites_total', 'benefits_total'] },
+  },
+  special_increment: {
+    f: { inputs: ['b', 'h', 'c', 'm', 's'] },
+    g: { inputs: ['f', 'v'] },
+    r: { inputs: ['pf', 'esi'] },
+    q: { inputs: ['ph', 'car'] },
+    bn: { inputs: ['gmc', 'gpa'] },
+    ctc: { inputs: ['g', 'r', 'q', 'bn'], multiplier: 12 },
+  },
+}
+
+function salaryNumber(value: string): number | null {
+  const normalized = value.replace(/[^0-9.-]/g, '')
+  if (!normalized || normalized === '-' || normalized === '.') return null
+  const number = Number(normalized)
+  return Number.isFinite(number) ? number : null
+}
+
+function calculatedSalaryValue(
+  templateKey: string,
+  rowKey: string,
+  column: SalaryColumn,
+  rawValue: (key: string) => string,
+  manualOverwrite: boolean,
+  resolving = new Set<string>(),
+): string {
+  const direct = rawValue(rowKey)
+  const formula = SALARY_FORMULAS[templateKey]?.[rowKey]
+  if (!formula || (manualOverwrite && direct.trim())) return direct
+  const identity = `${rowKey}:${column}`
+  if (resolving.has(identity)) return direct
+  const nextResolving = new Set(resolving).add(identity)
+  const inputs = formula.inputs.map((key) => calculatedSalaryValue(templateKey, key, column, rawValue, manualOverwrite, nextResolving))
+  const numbers = inputs.map(salaryNumber)
+  if (numbers.every((value) => value === null)) return ''
+  const total = numbers.reduce<number>((sum, value) => sum + (value ?? 0), 0) * (formula.multiplier ?? 1)
+  return total.toLocaleString('en-IN', { maximumFractionDigits: 2 })
+}
+
 function LetterFields({ items, values, onChange, canGenerate, generatingKey, onGenerate }: { items: HRTemplateField[]; values: Record<string, string>; onChange: (key: string, value: string) => void; canGenerate: (field: HRTemplateField) => boolean; generatingKey: string | null; onGenerate: (field: HRTemplateField) => void }) {
   return <>{items.map((field) => {
     const inputId = `hr-letter-${field.key}`
@@ -52,6 +100,7 @@ export function HrLettersTool() {
   const activeScope = activeKey
   const usesUnitAddress = activeKey === 'offer'
   const [values, setValues] = useState<Record<string, string>>({}); const [salaryValues, setSalaryValues] = useState<Record<string, string>>({})
+  const [manualSalaryOverwrite, setManualSalaryOverwrite] = useState(false)
   const [busy, setBusy] = useState(false); const [previewUrl, setPreviewUrl] = useState<string | null>(null); const [showEmail, setShowEmail] = useState(false); const [email, setEmail] = useState({ recipient: '', cc: '', subject: '', message: '' }); const [sending, setSending] = useState(false)
   const [viewing, setViewing] = useState<{ blob: Blob; filename: string; title: string } | null>(null)
   const [replacing, setReplacing] = useState(false)
@@ -69,9 +118,13 @@ export function HrLettersTool() {
     { key: 'existing' as SalaryColumn, label: 'Existing' }, { key: 'revised' as SalaryColumn, label: 'Revised' },
     { key: 'monthly' as SalaryColumn, label: 'Amount (per month)' }, { key: 'annual' as SalaryColumn, label: 'Amount (per annum)' },
   ]).filter((column) => template?.salary_rows.some((row) => row.columns.includes(column.key))), [template])
+  const resolvedSalaryValues = useMemo(() => Object.fromEntries((template?.salary_rows ?? []).flatMap((row) => row.columns.map((column) => {
+    const value = calculatedSalaryValue(activeKey, row.key, column, (key) => salaryValues[`${activeScope}:${key}:${column}`] ?? '', manualSalaryOverwrite)
+    return [`${activeScope}:${row.key}:${column}`, value]
+  }))), [activeKey, activeScope, manualSalaryOverwrite, salaryValues, template])
   const payloadFields = useMemo(() => ({ ...fields, ...(usesUnitAddress ? { signatory_name: OFFER_SIGNERS.find((signer) => signer.key === selectedSigner)?.name ?? 'Swathi Nayak' } : {}), ...Object.fromEntries((template?.salary_rows ?? []).flatMap((row) => row.columns.map((column) => [
-    `salary_${row.key}_${column}`, salaryValues[`${activeScope}:${row.key}:${column}`] ?? '',
-  ]))) }), [activeScope, fields, salaryValues, selectedSigner, template, usesUnitAddress])
+    `salary_${row.key}_${column}`, resolvedSalaryValues[`${activeScope}:${row.key}:${column}`] ?? '',
+  ]))) }), [activeScope, fields, resolvedSalaryValues, selectedSigner, template, usesUnitAddress])
   const visibleFields = useMemo(() => (template?.fields ?? []).filter((field) => !(usesUnitAddress && field.key === 'signatory_name')), [template, usesUnitAddress])
   const kannadaFields = useMemo(() => visibleFields.filter((field) => field.key.endsWith('_kannada')), [visibleFields])
   useEffect(() => {
@@ -122,7 +175,7 @@ export function HrLettersTool() {
       </div>
     </details>}
     <div className={`grid w-full gap-5 ${previewUrl ? 'xl:grid-cols-[minmax(0,1fr)_minmax(440px,.9fr)]' : 'mx-auto max-w-3xl'}`}><div className="space-y-4"><section className="rounded-2xl border border-border bg-card p-4 md:p-5"><div className="mb-4 flex items-center gap-2"><div className="flex items-center gap-1"><h2 className="text-lg font-semibold">{template.title}</h2><InfoTip label="About these fields">Only the mapped fields below change; approved wording in the master remains fixed.{(activeKey === 'spot_appreciation' || activeKey === 'special_increment') && <><br />For descriptive fields, enter keywords and select AI draft to create one short editable sentence.</>}</InfoTip></div></div><div className="grid gap-4 md:grid-cols-2"><LetterFields items={visibleFields.slice(0, 8)} values={fields} onChange={change} canGenerate={canGenerateField} generatingKey={generatingField} onGenerate={(field) => void generateField(field)} />{visibleFields.length > 8 && <details className="md:col-span-2 rounded-xl border border-border"><summary className="cursor-pointer p-3 text-sm font-medium">More fields <span className="ml-1 text-xs font-normal text-muted-foreground">{visibleFields.length - 8}</span></summary><div className="grid gap-4 border-t border-border p-3 md:grid-cols-2"><LetterFields items={visibleFields.slice(8)} values={fields} onChange={change} canGenerate={canGenerateField} generatingKey={generatingField} onGenerate={(field) => void generateField(field)} /></div></details>}</div></section>
-      {template.salary_rows.length > 0 && <details className="rounded-2xl border border-border bg-card"><summary className="flex cursor-pointer list-none items-center gap-2 p-4 text-sm font-medium">Compensation <span className="text-xs font-normal text-muted-foreground">{template.salary_rows.length}</span><InfoTip label="Compensation fields">Rows come from the active template. Blank cells print as NIL.</InfoTip></summary><div className="border-t border-border p-4 md:p-5"><div className="max-h-[32rem] overflow-auto rounded-xl border border-border"><table className="w-full min-w-[600px] text-sm"><thead className="sticky top-0 bg-muted"><tr><th className="p-3 text-left">Salary component</th>{salaryColumns.map((column) => <th key={column.key} className="p-3 text-left">{column.label}</th>)}</tr></thead><tbody>{template.salary_rows.map((row) => <tr key={row.key} className="border-t border-border"><td className="p-3 text-xs">{row.label}</td>{salaryColumns.map((column) => <td key={column.key} className="p-2">{row.columns.includes(column.key) ? <input value={salaryValues[`${activeScope}:${row.key}:${column.key}`] ?? ''} onChange={(event) => { setSalaryValues((current) => ({ ...current, [`${activeScope}:${row.key}:${column.key}`]: event.target.value })); clearPreview() }} className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm" placeholder="NIL when blank" /> : <span className="block text-center text-muted-foreground">—</span>}</td>)}</tr>)}</tbody></table></div></div></details>}
+      {template.salary_rows.length > 0 && <details className="rounded-2xl border border-border bg-card"><summary className="flex cursor-pointer list-none items-center gap-2 p-4 text-sm font-medium">Compensation <span className="text-xs font-normal text-muted-foreground">{template.salary_rows.length}</span><InfoTip label="Compensation fields">CTC and total rows are calculated automatically. Enable Manual overwrite only when HR needs to replace a calculated amount. Clearing an overwritten total restores automatic calculation. Blank component cells count as zero and print as NIL.</InfoTip></summary><div className="border-t border-border p-4 md:p-5"><label className="mb-4 flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-border bg-muted/30 p-3"><span><span className="block text-sm font-medium">Manual overwrite</span><span className="mt-0.5 block text-xs text-muted-foreground">Allow editing of automatically calculated CTC and total rows.</span></span><input type="checkbox" checked={manualSalaryOverwrite} onChange={(event) => { setManualSalaryOverwrite(event.target.checked); clearPreview() }} className="size-4 accent-primary" /></label><div className="max-h-[32rem] overflow-auto rounded-xl border border-border"><table className="w-full min-w-[600px] text-sm"><thead className="sticky top-0 bg-muted"><tr><th className="p-3 text-left">Salary component</th>{salaryColumns.map((column) => <th key={column.key} className="p-3 text-left">{column.label}</th>)}</tr></thead><tbody>{template.salary_rows.map((row) => { const calculated = Boolean(SALARY_FORMULAS[activeKey]?.[row.key]); return <tr key={row.key} className={`border-t border-border ${calculated ? 'bg-primary/[.04]' : ''}`}><td className="p-3 text-xs"><span>{row.label}</span>{calculated && <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">AUTO</span>}</td>{salaryColumns.map((column) => <td key={column.key} className="p-2">{row.columns.includes(column.key) ? <input value={resolvedSalaryValues[`${activeScope}:${row.key}:${column.key}`] ?? ''} readOnly={calculated && !manualSalaryOverwrite} onChange={(event) => { setSalaryValues((current) => ({ ...current, [`${activeScope}:${row.key}:${column.key}`]: event.target.value })); clearPreview() }} className={`h-9 w-full rounded-lg border border-border px-2 text-sm ${calculated && !manualSalaryOverwrite ? 'cursor-not-allowed bg-muted font-semibold text-primary' : 'bg-background'}`} placeholder={calculated ? 'Auto-calculated' : 'NIL when blank'} /> : <span className="block text-center text-muted-foreground">—</span>}</td>)}</tr>})}</tbody></table></div></div></details>}
       <section className="flex flex-wrap justify-end gap-2 rounded-2xl border border-border bg-card p-4"><Button onClick={() => void generatePreview()} disabled={busy}>{busy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}{busy ? 'Preparing review' : previewUrl ? 'Refresh preview' : 'Review final letter'}</Button></section></div>
       {previewUrl && <section className="h-fit overflow-hidden rounded-2xl border border-border bg-card xl:sticky xl:top-4"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4"><div><p className="text-xs font-medium uppercase tracking-[.14em] text-primary">Step 2 · Review</p><h2 className="mt-1 font-semibold">{template.title} · Final preview</h2></div><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={download}><Download className="mr-1.5 h-4 w-4" />PDF</Button><Button size="sm" variant="outline" onClick={print}><Printer className="mr-1.5 h-4 w-4" />Print</Button><Button size="sm" onClick={() => setShowEmail(true)}><Mail className="mr-1.5 h-4 w-4" />Email through HR</Button></div></div><iframe id="hr-letter-preview" title="Letter preview" src={previewUrl} className="h-[72vh] min-h-[32rem] w-full bg-white" /></section>}</div>
     {showEmail && <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Email reviewed PDF"><div className="w-full max-w-lg rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-medium uppercase tracking-[.14em] text-primary">Step 3 · Send</p><h2 className="mt-1 text-lg font-semibold">Email reviewed PDF</h2></div><button type="button" onClick={() => setShowEmail(false)} className="shrink-0 rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Close email dialog"><X className="h-4 w-4" /></button></div><div className="mt-5 space-y-3"><label><span className="mb-1 block text-xs text-muted-foreground">Recipient email</span><input type="email" value={email.recipient} onChange={(event) => setEmail((current) => ({ ...current, recipient: event.target.value }))} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" /></label><label><span className="mb-1 block text-xs text-muted-foreground">CC <span className="font-normal">(optional)</span></span><input type="text" inputMode="email" value={email.cc} onChange={(event) => setEmail((current) => ({ ...current, cc: event.target.value }))} placeholder="Separate multiple emails with commas" className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" /></label><label><span className="mb-1 block text-xs text-muted-foreground">Subject</span><input value={email.subject} onChange={(event) => setEmail((current) => ({ ...current, subject: event.target.value }))} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" /></label><label><span className="mb-1 block text-xs text-muted-foreground">Email message</span><textarea rows={6} value={email.message} onChange={(event) => setEmail((current) => ({ ...current, message: event.target.value }))} className="w-full rounded-xl border border-border bg-background p-3 text-sm" /></label></div><div className="mt-5 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setShowEmail(false)} disabled={sending}>Cancel</Button><Button onClick={() => void sendEmail()} disabled={sending || !email.recipient || !email.subject || !email.message}>{sending ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}{sending ? 'Sending' : 'Send with PDF'}</Button></div></div></div>}
