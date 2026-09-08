@@ -1557,6 +1557,15 @@ def _normalized_cc(primary_email: str, cc_emails: list[EmailStr]) -> list[str]:
     return recipients
 
 
+def _letter_attachment_filename(payload: SendLetterRequest) -> str:
+    employee_name = payload.fields.get("employee_name", "").strip()
+    if payload.template_key == "offer":
+        safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "-", employee_name).strip(" .-") or "Employee"
+        return f"Offer Letter -{safe_name}.pdf"
+    employee = re.sub(r"[^A-Za-z0-9_-]+", "-", employee_name or "employee").strip("-") or "employee"
+    return f"{payload.template_key}-unit-{payload.unit_number}-{employee}.pdf"
+
+
 def _send_email(payload: SendLetterRequest, pdf_bytes: bytes, mailbox: EmailMailbox) -> None:
     recipient = str(payload.recipient_email)
     cc_recipients = _normalized_cc(recipient, payload.cc_emails)
@@ -1567,8 +1576,7 @@ def _send_email(payload: SendLetterRequest, pdf_bytes: bytes, mailbox: EmailMail
         message["Cc"] = ", ".join(cc_recipients)
     message["Subject"] = payload.subject.strip()
     apply_hr_email_signature(message, payload.message)
-    employee = re.sub(r"[^A-Za-z0-9_-]+", "-", payload.fields.get("employee_name", "employee")).strip("-") or "employee"
-    message.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=f"{payload.template_key}-unit-{payload.unit_number}-{employee}.pdf")
+    message.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=_letter_attachment_filename(payload))
     client = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
     with client(mailbox.host, mailbox.port, timeout=45) as smtp:
         smtp.ehlo()
