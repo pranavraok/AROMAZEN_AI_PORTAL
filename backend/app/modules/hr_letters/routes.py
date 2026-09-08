@@ -1505,7 +1505,12 @@ async def translate_kannada(
         "and company names accurately. Return only the Kannada translation with no label, explanation, or quotes."
     )
     try:
-        async for event in AIProviderRouter(runtime_settings).stream(system, payload.text.strip(), payload.text):
+        async for event in AIProviderRouter(runtime_settings).stream(
+            system,
+            payload.text.strip(),
+            payload.text,
+            response_mode="quick",
+        ):
             provider = event.provider
             model = event.model
             if event.kind == "delta":
