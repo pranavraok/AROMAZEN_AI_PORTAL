@@ -6,6 +6,7 @@ import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/components/ui/toast-provider'
 import { ArrowLeft, CheckCircle, KeyRound, LoaderCircle, Mail, X } from 'lucide-react'
 import { PasswordInput } from '@/components/ui/password-input'
+import { ModalShell } from '@/components/ui/modal'
 
 type Step = 'email' | 'otp' | 'password' | 'done'
 
@@ -116,8 +117,8 @@ export function ForgotPasswordFlow({ open, onClose }: ForgotPasswordFlowProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Reset password">
-      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
+    <ModalShell label="Reset password" onClose={handleClose}>
+      <div className="p-6">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           {step !== 'done' && step !== 'email' ? (
@@ -262,7 +263,7 @@ export function ForgotPasswordFlow({ open, onClose }: ForgotPasswordFlowProps) {
           </div>
         )}
       </div>
-    </div>
+    </ModalShell>
   )
 }
 

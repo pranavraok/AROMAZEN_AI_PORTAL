@@ -308,10 +308,11 @@ table tbody tr:hover { background: rgba(255,255,255,.018); }
 @media (max-width: 767px) {
   /* iOS zooms the viewport when focusing inputs smaller than 16px and never
      zooms back out, which makes the whole site look broken on iPhones. */
-  .app-main input:not([type='checkbox']):not([type='radio']):not([type='range']),
-  .app-main select,
-  .top-bar input,
-  .app-main textarea {
+  /* Whole page, not just .app-main: login, accept-invitation and the auth modals
+     live outside .app-main and iOS zooms their 14px fields too, breaking scroll. */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
     font-size: 16px !important;
   }
   /* Comfortable touch targets for the small icon buttons inside table rows. */
@@ -399,7 +400,11 @@ body:has(.fixed.inset-0.z-50),
 }
 
 .fixed.inset-0.z-50 {
-  overflow: hidden;
+  /* The overlay layer itself must scroll: if any ancestor transform ever anchors
+     this "fixed" layer to the page, the panel's lower half would otherwise be
+     clipped away with no way to reach it. */
+  overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
 }
 
@@ -445,8 +450,13 @@ body:has(.fixed.inset-0.z-50),
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  /* Opacity ONLY. Animating transform here with fill-mode `both` leaves a computed
+     transform matrix on every page wrapper forever, which turns each page into the
+     containing block for position:fixed modals — overlays then span the whole page
+     instead of the viewport and their bottom (submit buttons) becomes unreachable
+     on phones. */
   .app-main > * { animation: aromazen-enter .35s ease-out both; }
-  @keyframes aromazen-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+  @keyframes aromazen-enter { from { opacity: 0; } to { opacity: 1; } }
 }
 
 /* The client-approved bright workspace is used for every saved appearance mode. */
