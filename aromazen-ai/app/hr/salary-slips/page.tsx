@@ -13,8 +13,8 @@ import { api } from '@/lib/api/services'
 import type { PayrollBatch, PayrollRecipient, PayrollTemplate } from '@/lib/api/types'
 import { ApiError } from '@/lib/api/client'
 import { canvaEditUrlForSalarySlip } from '@/lib/template-canva-links'
-import { beginBlobPreview, showBlobPreview } from '@/lib/open-blob-preview'
 import { parseEmailList } from '@/lib/email-recipients'
+import { DocumentViewerModal } from '@/components/ui/document-viewer'
 
 function monthLabel(value: string) { const [year, month] = value.split('-').map(Number); return new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)) }
 function money(value: string | number) { const amount = Number(value); return Number.isFinite(amount) ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount) : String(value) }
@@ -36,6 +36,7 @@ export default function SalarySlipsPage() {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState<'upload' | 'save' | 'send' | 'retry' | null>(null)
   const [replacingTemplate, setReplacingTemplate] = useState(false)
+  const [viewing, setViewing] = useState<{ blob: Blob; filename: string; title: string } | null>(null)
   const template = templates[0] ?? null
   const canvaEditUrl = canvaEditUrlForSalarySlip()
   const canUse = user?.department_name === 'Human Resources' || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin')
@@ -69,9 +70,10 @@ export default function SalarySlipsPage() {
 
   async function viewTemplate(template: PayrollTemplate) {
     if (!accessToken) return
-    const preview = beginBlobPreview(template.original_filename)
-    try { const result = await api.payroll.templateContent(accessToken, template.id); showBlobPreview(preview, result.blob, template.original_filename) }
-    catch (error) { preview?.close(); notify('error', error instanceof ApiError ? error.message : 'Unable to open template.') }
+    try {
+      const result = await api.payroll.templateContent(accessToken, template.id)
+      setViewing({ blob: result.blob, filename: result.filename && result.filename !== 'download' ? result.filename : template.original_filename, title: 'Salary-slip template' })
+    } catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to open template.') }
   }
 
   async function replaceTemplate(file: File | null) {
@@ -133,9 +135,10 @@ export default function SalarySlipsPage() {
 
   async function viewSlip(item: PayrollRecipient) {
     if (!accessToken || !batch) return
-    const preview = beginBlobPreview('Salary slip')
-    try { const result = await api.payroll.pdf(accessToken, batch.id, item.id); showBlobPreview(preview, result.blob, 'salary-slip.pdf') }
-    catch (error) { preview?.close(); notify('error', error instanceof ApiError ? error.message : 'Unable to open salary slip.') }
+    try {
+      const result = await api.payroll.pdf(accessToken, batch.id, item.id)
+      setViewing({ blob: result.blob, filename: result.filename, title: `Salary slip · ${item.employee_name} · ${monthLabel(batch.payroll_month)}` })
+    } catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to open salary slip.') }
   }
 
   if (!canUse) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="text-center"><ShieldCheck className="mx-auto h-10 w-10 text-muted-foreground" /><h1 className="mt-3 text-xl font-semibold">Access restricted</h1></div></main></AppLayout>
@@ -175,5 +178,6 @@ export default function SalarySlipsPage() {
     <details className="rounded-2xl border border-border bg-card"><summary className="cursor-pointer p-4 text-sm font-medium">Previous batches <span className="ml-1 text-xs font-normal text-muted-foreground">{history.length}</span></summary><div className="border-t border-border p-4">{history.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">No batches yet.</p> : <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{history.map((item) => <button key={item.id} type="button" onClick={() => void refreshBatch(item.id)} className="flex items-center justify-between rounded-xl border border-border p-3 text-left hover:bg-muted/40"><div><p className="font-medium">{monthLabel(item.payroll_month)}</p><p className="text-xs text-muted-foreground">{item.sent_count} sent · {item.failed_count} failed</p></div><span className={`rounded-full px-2 py-1 text-[11px] capitalize ${tone(item.status)}`}>{item.status}</span></button>)}</div>}</div></details>
 
     {confirming && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Confirm salary slip delivery"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start gap-3"><span className="rounded-xl bg-amber-500/10 p-2 text-amber-400"><AlertTriangle className="h-5 w-5" /></span><div><h2 className="text-lg font-semibold">Send {batch?.pending_count} salary slips?</h2><p className="mt-1 text-sm text-muted-foreground">From AROMAZEN HR · {batch && monthLabel(batch.payroll_month)}</p></div></div>{ccEmails.length > 0 && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-300"><p className="font-medium">CC on every salary slip</p><p className="mt-1 break-words text-xs">{ccEmails.join(', ')}</p></div>}{Boolean(batch?.duplicate_email_count) && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-300">{batch?.duplicate_email_count} duplicate email {batch?.duplicate_email_count === 1 ? 'entry' : 'entries'} found. Each employee row will still be sent separately.</div>}<div className="mt-5 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button><Button disabled={busy !== null} onClick={() => void sendAll()}><Send className="mr-2 h-4 w-4" />Confirm & send</Button></div></div></div>}
+    <DocumentViewerModal file={viewing} onClose={() => setViewing(null)} />
   </main></AppLayout>
 }

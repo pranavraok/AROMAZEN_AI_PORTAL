@@ -17,3 +17,6 @@ node_modules/
 
 # Generated reports and inspection artifacts
 /outputs/
+
+# Local editor/tool metadata
+.freebuff/

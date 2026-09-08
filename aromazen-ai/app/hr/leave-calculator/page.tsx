@@ -12,6 +12,7 @@ import { useAuth } from '@/components/auth/auth-provider'
 import { useToast } from '@/components/ui/toast-provider'
 import { api } from '@/lib/api/services'
 import { ApiError } from '@/lib/api/client'
+import { DocumentViewerModal } from '@/components/ui/document-viewer'
 import type { AttendanceShiftRule, KnowledgeCollection, KnowledgeDocument, LeaveCalculatorAnalysis } from '@/lib/api/types'
 
 const DEFAULT_SHIFTS: AttendanceShiftRule[] = [
@@ -35,6 +36,7 @@ export default function LeaveCalculatorPage() {
   const [hrRules, setHrRules] = useState<{ collection: KnowledgeCollection; document: KnowledgeDocument }[]>([])
   const [busy, setBusy] = useState<'analyze' | 'download' | 'template' | null>(null); const [downloaded, setDownloaded] = useState(false)
   const [showReview, setShowReview] = useState(false)
+  const [viewing, setViewing] = useState<{ blob: Blob; filename: string; title: string } | null>(null)
   const canUse = hasPermission('users.manage') && (user?.department_name === 'Human Resources' || user?.role_names.some((role) => role === 'Super Admin' || role === 'Admin'))
 
   const reviewedRows = useMemo(() => result?.rows.map((row) => {
@@ -53,7 +55,7 @@ export default function LeaveCalculatorPage() {
   function updateAdjustment(rowNumber: number, value: Partial<Adjustment>) { setAdjustments((current) => ({ ...current, [rowNumber]: { ...(current[rowNumber] ?? { paid_leave_days: 0, lop_override: '' }), ...value } })); setDownloaded(false) }
 
   async function downloadTemplate() { if (!accessToken) return; setBusy('template'); try { const file = await api.payroll.template(accessToken); saveBlob(file.blob, file.filename) } catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to download the final salary template.') } finally { setBusy(null) } }
-  async function openRule(item: { collection: KnowledgeCollection; document: KnowledgeDocument }) { if (!accessToken) return; try { const response = await fetch(api.knowledge.documentContentUrl(item.collection.id, item.document.id), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error(); const url = URL.createObjectURL(await response.blob()); window.open(url, '_blank', 'noopener,noreferrer'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) } catch { notify('error', 'Unable to open this HR rule.') } }
+  async function openRule(item: { collection: KnowledgeCollection; document: KnowledgeDocument }) { if (!accessToken) return; try { const response = await fetch(api.knowledge.documentContentUrl(item.collection.id, item.document.id), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error(); setViewing({ blob: await response.blob(), filename: item.document.name, title: item.document.name }) } catch { notify('error', 'Unable to open this HR rule.') } }
   async function analyze() {
     if (!accessToken || !salaryFile || !attendanceFile) return
     setBusy('analyze'); setDownloaded(false)
@@ -92,7 +94,10 @@ export default function LeaveCalculatorPage() {
       {downloaded && <section className="flex flex-col gap-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold text-emerald-300">Salary-ready Excel downloaded</h2><p className="mt-1 text-sm text-muted-foreground">Review its Leave Calculation Review sheet, then upload the same file to Salary Slips.</p></div><Link href="/hr/salary-slips" className={buttonVariants()}>Continue to Salary Slips <ArrowRight className="ml-2 h-4 w-4" /></Link></section>}
       </>}
       </>}
-  </main></AppLayout>
+  </main>
+
+  <DocumentViewerModal file={viewing} onClose={() => setViewing(null)} />
+  </AppLayout>
 }
 
 function FilePicker({ label, file, placeholder, onClick, children }: { label: string; file: File | null; placeholder: string; onClick: () => void; children: React.ReactNode }) { return <label><span className="mb-1.5 block text-xs text-muted-foreground">{label}</span><button type="button" onClick={onClick} className="flex h-11 w-full items-center rounded-xl border border-dashed border-border bg-background px-3 text-left text-sm hover:border-primary/50"><FileSpreadsheet className="mr-2 h-4 w-4 shrink-0 text-emerald-400" /><span className="truncate">{file?.name ?? placeholder}</span></button>{children}</label> }

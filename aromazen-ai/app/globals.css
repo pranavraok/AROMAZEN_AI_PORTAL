@@ -317,6 +317,21 @@ table tbody tr:hover { background: rgba(255,255,255,.018); }
     margin-inline: auto;
     transform: none;
   }
+
+  /* iOS zooms the viewport when focusing inputs smaller than 16px and never
+     zooms back out, which makes the whole site look broken on iPhones. */
+  .app-main input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  .app-main select,
+  .top-bar input,
+  .app-main textarea {
+    font-size: 16px !important;
+  }
+  /* Comfortable touch targets for the small icon buttons inside table rows. */
+  .app-main table button,
+  .app-main table a[class*="variants"] {
+    min-height: 40px;
+    min-width: 40px;
+  }
   .top-bar {
     height: calc(60px + env(safe-area-inset-top));
     padding-top: env(safe-area-inset-top);

@@ -9,49 +9,11 @@ import { AppLayout } from '@/components/layouts/app-layout'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/components/auth/auth-provider'
 import { api } from '@/lib/api/services'
-import mammoth from 'mammoth'
+import { isDocx, isExcel, isPdf, renderDocxToHtml, extractSpreadsheetWorkbook } from '@/components/document-viewer/preview-helpers'
 import { SpreadsheetPreview, type SpreadsheetWorkbook } from '@/components/document-viewer/spreadsheet-preview'
 import { PdfPreview } from '@/components/document-viewer/pdf-preview'
 
-const DOCX_TYPES = [
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/msword',
-]
 
-const EXCEL_TYPES = [
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-excel.sheet.macroenabled.12',
-  'application/vnd.ms-excel',
-]
-
-function isExcel(filename: string, ct: string): boolean {
-  if (EXCEL_TYPES.includes(ct.toLowerCase())) return true
-  return /\.(xlsx|xlsm|xls)$/i.test(filename)
-}
-
-function isDocx(filename: string, ct: string): boolean {
-  if (DOCX_TYPES.includes(ct)) return true
-  const lower = filename.toLowerCase()
-  return lower.endsWith('.docx') || lower.endsWith('.doc')
-}
-
-function isPdf(filename: string, ct: string): boolean {
-  return ct.split(';')[0].trim().toLowerCase() === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')
-}
-
-function sanitizeDocxHtml(html: string): string {
-  const parsed = new DOMParser().parseFromString(html, 'text/html')
-  parsed.querySelectorAll('script, iframe, object, embed, style, link, meta').forEach((element) => element.remove())
-  parsed.body.querySelectorAll('*').forEach((element) => {
-    for (const attribute of Array.from(element.attributes)) {
-      const name = attribute.name.toLowerCase()
-      const value = attribute.value.trim().toLowerCase()
-      const unsafeUrl = (name === 'href' || name === 'src') && (value.startsWith('javascript:') || (value.startsWith('data:') && !value.startsWith('data:image/')))
-      if (name.startsWith('on') || name === 'style' || unsafeUrl) element.removeAttribute(attribute.name)
-    }
-  })
-  return parsed.body.innerHTML
-}
 
 function DocumentViewer() {
   const searchParams = useSearchParams()
@@ -118,10 +80,9 @@ function DocumentViewer() {
         if (isDocx(docName, ct)) {
           setDocxLoading(true)
           try {
-            const arrayBuffer = await blob.arrayBuffer()
-            const result = await mammoth.convertToHtml({ arrayBuffer })
+            const html = await renderDocxToHtml(blob)
             if (!revoked) {
-              setDocxHtml(sanitizeDocxHtml(result.value))
+              setDocxHtml(html)
             }
           } catch (err) {
             console.error('mammoth error:', err)
@@ -133,31 +94,8 @@ function DocumentViewer() {
         if (isExcel(docName, ct)) {
           setSpreadsheetLoading(true)
           try {
-            const XLSX = await import('xlsx')
-            const workbook = XLSX.read(await blob.arrayBuffer(), { type: 'array', cellDates: true })
-            const sheets = workbook.SheetNames.flatMap((name) => {
-              const worksheet = workbook.Sheets[name]
-              if (!worksheet) return []
-              const reference = worksheet['!ref']
-              if (!reference) return [{ name, rows: [], startColumn: 0, startRow: 0, truncated: false }]
-              const fullRange = XLSX.utils.decode_range(reference)
-              const range = {
-                s: fullRange.s,
-                e: {
-                  r: Math.min(fullRange.e.r, fullRange.s.r + 1999),
-                  c: Math.min(fullRange.e.c, fullRange.s.c + 99),
-                },
-              }
-              const values = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, raw: false, defval: '', range })
-              return [{
-                name,
-                rows: values.map((row) => row.map((value) => value == null ? '' : String(value))),
-                startColumn: range.s.c,
-                startRow: range.s.r,
-                truncated: fullRange.e.r > range.e.r || fullRange.e.c > range.e.c,
-              }]
-            })
-            if (!revoked) setSpreadsheet({ sheets })
+            const sheets = await extractSpreadsheetWorkbook(blob)
+            if (!revoked) setSpreadsheet(sheets)
           } catch (err) {
             console.error('spreadsheet error:', err)
           } finally {
