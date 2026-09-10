@@ -12,6 +12,8 @@ class StreamChatRequest(BaseModel):
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=8)
     mode: Literal["chat", "image", "email"] = "chat"
     response_mode: Literal["auto", "quick", "standard", "deep", "essential"] = "auto"
+    model_preference: Literal["auto", "openai", "anthropic"] = "auto"
+    sender_key: str | None = Field(default=None, max_length=160)
 
 
 class ConversationUpdateRequest(BaseModel):
@@ -20,6 +22,7 @@ class ConversationUpdateRequest(BaseModel):
 
 class EmailSendRequest(BaseModel):
     message_id: UUID
+    sender_key: str | None = Field(default=None, max_length=160)
     to: list[EmailStr] = Field(min_length=1, max_length=20)
     cc: list[EmailStr] = Field(default_factory=list, max_length=20)
     bcc: list[EmailStr] = Field(default_factory=list, max_length=20)

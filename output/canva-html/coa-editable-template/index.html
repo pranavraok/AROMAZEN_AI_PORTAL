@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AROMAZEN Certificate of Analysis - Editable Master</title>
+  <style>
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #ececec; color: #111; font-family: "Times New Roman", Times, serif; }
+    .page {
+      position: relative;
+      width: 794px;
+      height: 1123px;
+      margin: 0 auto;
+      overflow: hidden;
+      background: #fff;
+      padding: 42px 78px 102px;
+    }
+    .brand { text-align: center; }
+    .brand img { display: block; width: 154px; height: 132px; object-fit: contain; margin: 0 auto; }
+    .date { margin-top: 12px; text-align: right; font-size: 17px; }
+    h1 {
+      width: max-content;
+      margin: 0 auto 28px;
+      border-bottom: 3px solid #111;
+      font-size: 21px;
+      line-height: 1.18;
+      font-weight: 700;
+      letter-spacing: .1px;
+    }
+    .meta { width: 516px; margin: 0 auto 22px; font-size: 16px; line-height: 1.25; }
+    .meta-row { display: grid; grid-template-columns: 190px 16px 1fr; align-items: baseline; min-height: 33px; }
+    .meta-row .colon { text-align: center; }
+    .analysis { width: 638px; margin: 0 auto; border-collapse: collapse; table-layout: fixed; font-size: 15px; }
+    .analysis col:nth-child(1) { width: 33%; }
+    .analysis col:nth-child(2) { width: 45%; }
+    .analysis col:nth-child(3) { width: 22%; }
+    .analysis th, .analysis td { border: 1px solid #222; padding: 6px 7px; text-align: center; vertical-align: middle; line-height: 1.15; }
+    .analysis th { height: 39px; font-size: 16px; font-weight: 700; }
+    .analysis td { height: 36px; }
+    .storage { width: 638px; margin: 21px auto 0; font-size: 16px; line-height: 1.35; }
+    .storage strong { font-weight: 700; }
+    .approvals { display: flex; justify-content: space-between; width: 592px; margin: 86px auto 0; font-size: 16px; }
+    .approval { width: 230px; }
+    .approval:last-child { text-align: right; }
+    .footer { position: absolute; left: 20px; right: 34px; bottom: 20px; display: grid; grid-template-columns: 340px 1fr; align-items: end; gap: 26px; }
+    .certifications { width: 340px; height: 72px; object-fit: contain; }
+    .address { font-family: Arial, Helvetica, sans-serif; font-size: 9.8px; line-height: 1.28; }
+    .address p { margin: 0; }
+  </style>
+</head>
+<body>
+  <section class="page" data-document-role="page" data-label="Certificate of Analysis">
+    <div class="brand">
+      <img src="assets/aromazen-logo.png" alt="AROMAZEN PRIVATE LIMITED">
+    </div>
+
+    <div class="date">Date: {{issue_date}}</div>
+    <h1>CERTIFICATE OF ANALYSIS</h1>
+
+    <div class="meta">
+      <div class="meta-row"><span>Name of the Product</span><span class="colon">:</span><span>{{product_name}}</span></div>
+      <div class="meta-row"><span>Product Code</span><span class="colon">:</span><span>{{product_code}}</span></div>
+      <div class="meta-row"><span>Batch Number</span><span class="colon">:</span><span>{{batch_number}}</span></div>
+      <div class="meta-row"><span>Customer Name</span><span class="colon">:</span><span>{{customer_name}}</span></div>
+      <div class="meta-row"><span>Date of Manufacturing</span><span class="colon">:</span><span>{{manufacturing_date}}</span></div>
+      <div class="meta-row"><span>Expiry Date</span><span class="colon">:</span><span>{{expiry_date}}</span></div>
+      <div class="meta-row"><span>Quantity</span><span class="colon">:</span><span>{{quantity}}</span></div>
+    </div>
+
+    <table class="analysis" aria-label="Certificate analysis results">
+      <colgroup><col><col><col></colgroup>
+      <thead><tr><th>PARAMETER</th><th>SPECIFICATION</th><th>RESULT</th></tr></thead>
+      <tbody>
+        <tr><td>{{parameter_1}}</td><td>{{specification_1}}</td><td>{{result_1}}</td></tr>
+        <tr><td>{{parameter_2}}</td><td>{{specification_2}}</td><td>{{result_2}}</td></tr>
+        <tr><td>{{parameter_3}}</td><td>{{specification_3}}</td><td>{{result_3}}</td></tr>
+        <tr><td>{{parameter_4}}</td><td>{{specification_4}}</td><td>{{result_4}}</td></tr>
+        <tr><td>{{parameter_5}}</td><td>{{specification_5}}</td><td>{{result_5}}</td></tr>
+        <tr><td>{{parameter_6}}</td><td>{{specification_6}}</td><td>{{result_6}}</td></tr>
+      </tbody>
+    </table>
+
+    <div class="storage"><strong>Storage Condition:</strong>&nbsp; {{storage_condition}}</div>
+
+    <div class="approvals">
+      <div class="approval">Tested By: {{tested_by}}</div>
+      <div class="approval">Checked By: {{checked_by}}</div>
+    </div>
+
+    <footer class="footer">
+      <img class="certifications" src="assets/certifications.jpeg" alt="AROMAZEN certifications">
+      <div class="address">
+        <p>Ground Floor, Plot No. 166A, Baikampady Industrial Road,</p>
+        <p>Baikampady, Mangaluru, Dakshina Kannada, Karnataka, 575 011, India.</p>
+        <p>Tel: 0824 2407350, Mob: +91 9483120350</p>
+        <p>email: info@aromazenind.com</p>
+        <p>www.aromazenind.com</p>
+      </div>
+    </footer>
+  </section>
+</body>
+</html>

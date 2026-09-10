@@ -58,6 +58,7 @@ export interface KnowledgeDocument {
   reminder_owner: string | null
   is_company_wide: boolean
   source_key: string | null
+  external_edit_url: string | null
 }
 
 export interface ChatCitation {
@@ -82,6 +83,8 @@ export interface ChatMessage {
 }
 
 export interface EmailDraft {
+  sender_key?: string
+  sender_email?: string
   to: string[]
   cc: string[]
   bcc: string[]
@@ -124,9 +127,11 @@ export interface CreateChatMessageRequest {
   attachment_ids?: string[]
   mode?: 'chat' | 'image' | 'email'
   response_mode?: 'auto' | 'quick' | 'standard' | 'deep' | 'essential'
+  model_preference?: 'auto' | 'openai' | 'anthropic'
+  sender_key?: string
 }
 
-export interface SendEmailRequest extends Omit<EmailDraft, 'status' | 'sent_at'> { message_id: string }
+export interface SendEmailRequest extends Omit<EmailDraft, 'status' | 'sent_at' | 'sender_email'> { message_id: string }
 
 export interface PayrollRecipient {
   id: string
@@ -161,6 +166,7 @@ export interface PayrollBatch {
   template_name: string
   email_subject: string
   email_body: string
+  cc_emails: string[]
   duplicate_email_count: number
   recipients?: PayrollRecipient[]
 }
@@ -201,6 +207,18 @@ export interface HRTemplate {
   source: 'knowledge' | 'built_in'
   uploaded_at: string | null
   supports_dynamic_fields: boolean
+  detected_field_count: number
+  fields: HRTemplateField[]
+  salary_rows: HRTemplateSalaryRow[]
+}
+
+export interface HRCustomTemplate {
+  id: string
+  title: string
+  filename: string
+  version: number
+  uploaded_at: string
+  canva_edit_url: string | null
   detected_field_count: number
   fields: HRTemplateField[]
   salary_rows: HRTemplateSalaryRow[]
@@ -394,7 +412,7 @@ export interface AssetMaintenanceEvent {
   created_at: string
 }
 
-export interface DocumentTemplate { id: string; name: string; collection_name: string; document_type: 'coa' | 'sds' }
+export interface DocumentTemplate { id: string; name: string; collection_name: string; document_type: 'coa' | 'sds'; version?: number; source_key?: string | null; external_edit_url?: string | null }
 export interface DocumentField { key: string; label: string; required: boolean }
 export interface DocumentTemplateSchema { document_type: 'coa' | 'sds'; fields: DocumentField[]; row_fields: string[]; default_rows: Record<string, string>[]; can_edit_filename: boolean }
 export interface GeneratedDocument { id: string; filename: string; status: 'draft'; warnings: string[] }
@@ -510,7 +528,7 @@ export interface OrganizationSettings {
   organization_name: string
   platform_name: string
   theme: 'dark' | 'light' | 'system'
-  default_ai_provider: 'auto' | 'openai' | 'anthropic'
+  default_ai_provider: 'auto'
   session_timeout_minutes: number
   timezone: string
   daily_ai_request_limit: number
@@ -522,12 +540,20 @@ export interface OrganizationSettings {
   exchange_rate_updated_at: string
   providers: { key: 'auto' | 'openai' | 'anthropic'; name: string; connected: boolean; models: string[] }[]
   zoho_email_connected: boolean
+  email_mailboxes: EmailMailboxStatus[]
   storage_bytes: number
   knowledge_documents: number
   generated_documents: number
   max_upload_size_mb: number
   max_excel_upload_size_mb: number
   updated_at: string | null
+}
+
+export interface EmailMailboxStatus {
+  key: string
+  department_slug: string
+  department_name: string
+  email: string
 }
 
 export type GstReconciliationStatus = 'matched' | 'mismatch' | 'books_only' | 'portal_only' | 'incomplete_books' | 'duplicate'
@@ -578,3 +604,26 @@ export interface GstReconciliationResult {
   ignored_non_invoice_rows: number
   amount_tolerance: number
 }
+
+export type RegulatoryDocumentType = 'sds' | 'ifra_certificate' | 'ifra_amendment' | 'allergen_report' | 'reach_declaration'
+export interface RegulatorySourceCheck {
+  status: 'matched' | 'listed' | 'not_listed' | 'not_found' | 'unavailable'
+  source: string
+  checked_at: string
+  details?: string
+}
+export interface RegulatoryIngredient {
+  name: string; canonical_name?: string; concentration: string; cas: string; ec: string; classification: string
+  hazard_statements?: string; precautionary_statements?: string; signal_word?: string; pictograms?: string
+  toxicology?: string; ecology?: string; transport?: string; allergen_identity?: string; svhc_identity?: string; ifra_limits?: string
+  aliases?: string[]; sources?: string[]; source_checks?: Record<string, RegulatorySourceCheck>; source_versions?: Record<string, string | number>
+  provenance?: 'excel' | 'official_database' | 'approved_master' | 'ai_suggested' | 'employee_approved'
+}
+export interface RegulatoryWorkflow {
+  id: string; product_name: string; product_code: string; market: 'other' | 'eu'; status: 'review' | 'approved'
+  source_files: Record<string, string>; sds_fields: Record<string, string>; ingredients: RegulatoryIngredient[]
+  generated: Partial<Record<RegulatoryDocumentType, string>>; approved_at: string | null
+  intake_warnings?: { code: string; message: string }[]
+  research_summary?: { mode: 'official' | 'ai'; attempted: number; populated: number; unresolved: number; failed: number; cached: number; ai_requests: number }
+}
+export interface RegulatoryTemplate { id: string; document_type: RegulatoryDocumentType; name: string; version: number }

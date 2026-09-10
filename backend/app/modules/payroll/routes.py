@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -22,14 +22,16 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from app.core.config import get_settings
+from app.core.email_access import EMAIL_NOT_SET_DETAIL, EmailMailbox, resolve_mailbox_for_user
+from app.core.hr_email_signature import apply_hr_email_signature
 from app.db.session import SessionLocal, get_db_session
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User, collection_departments
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.storage import organized_storage_name
-from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
+from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_master_templates
 from app.modules.payroll.attendance_rules import DEFAULT_LATE_GRACE_MINUTES, apply_monthly_late_policy
-from app.modules.payroll.engine import COLUMNS, create_excel_template, generate_salary_pdf, password_for, read_salary_excel, salary_template_form_fields, validate_template_pdf
+from app.modules.payroll.engine import COLUMNS, create_excel_template, generate_salary_pdf, password_for, read_salary_excel, salary_template_fields, validate_template_pdf
 
 router = APIRouter(dependencies=[Depends(require_department("hr"))])
 
@@ -38,16 +40,27 @@ DEFAULT_EMAIL_BODY = """Dear {employee_name},
 
 Please find attached your salary slip for {month}.
 
-The PDF password is the first four letters of your name in uppercase followed by your four-digit year of birth.
-
-Regards,
-HR Department
-AROMAZEN PVT LTD"""
+The PDF password is the first four letters of your name in uppercase followed by your four-digit year of birth."""
+SALARY_TEMPLATE_SOURCE_KEY = "salary-slip-template:master"
+DEFAULT_SALARY_TEMPLATE = Path(__file__).resolve().parents[2] / "assets" / "payroll" / "AROMAZEN_SalarySlip_Master.pdf"
 
 
 class EmailDraftUpdate(BaseModel):
     subject: str
     body: str
+    cc_emails: list[EmailStr] = Field(default_factory=list, max_length=20)
+
+
+def _normalized_cc(cc_emails: list[EmailStr] | list[str], primary_email: str = "") -> list[str]:
+    seen = {primary_email.strip().casefold()} if primary_email.strip() else set()
+    recipients: list[str] = []
+    for value in cc_emails:
+        email = str(value).strip()
+        key = email.casefold()
+        if email and key not in seen:
+            recipients.append(email)
+            seen.add(key)
+    return recipients
 
 
 def _unit_from_template_name(filename: str) -> int | None:
@@ -79,6 +92,24 @@ async def _knowledge_unit_templates(session: AsyncSession, organization_id: uuid
     return result
 
 
+async def _knowledge_salary_template(session: AsyncSession, organization_id: uuid.UUID) -> KnowledgeDocument | None:
+    return await session.scalar(
+        select(KnowledgeDocument)
+        .join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id)
+        .join(collection_departments, collection_departments.c.collection_id == KnowledgeCollection.id)
+        .join(Department, Department.id == collection_departments.c.department_id)
+        .where(
+            KnowledgeDocument.organization_id == organization_id,
+            KnowledgeDocument.status == "ready",
+            KnowledgeDocument.document_category == "salary_slip_template",
+            KnowledgeDocument.source_key == SALARY_TEMPLATE_SOURCE_KEY,
+            KnowledgeCollection.status == "active",
+            Department.slug.in_(["hr", "human-resources"]),
+        )
+        .order_by(KnowledgeDocument.version.desc(), KnowledgeDocument.created_at.desc())
+    )
+
+
 async def _ensure_hr_access(user: User, session: AsyncSession) -> None:
     roles = await role_keys_for_user(session, user.id)
     if roles.intersection({"owner", "super_admin"}):
@@ -108,9 +139,10 @@ async def _batch_response(session: AsyncSession, batch: PayrollBatch, include_re
         "status": batch.status, "total_count": batch.total_count, "sent_count": batch.sent_count,
         "failed_count": batch.failed_count, "pending_count": max(batch.total_count - batch.sent_count - batch.failed_count, 0),
         "created_at": batch.created_at.isoformat(), "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
-        "template_name": "Selected automatically by unit",
+        "template_name": "One master; unit address selected from Excel",
         "email_subject": batch.email_subject or DEFAULT_EMAIL_SUBJECT,
         "email_body": batch.email_body or DEFAULT_EMAIL_BODY,
+        "cc_emails": batch.cc_emails or [],
         "duplicate_email_count": batch.duplicate_email_count,
     }
     if include_recipients:
@@ -126,10 +158,15 @@ def _template_response(template: PayrollTemplate) -> dict:
     return {"id": str(template.id), "name": template.name, "original_filename": template.original_filename, "is_active": template.is_active, "created_at": template.created_at.isoformat(), "unit_number": _unit_from_template_name(template.original_filename), "source": "legacy"}
 
 
-def _knowledge_template_response(unit: int, document: KnowledgeDocument) -> dict:
+def _knowledge_template_response(document: KnowledgeDocument) -> dict:
     path = Path(get_settings().upload_storage_path) / document.stored_filename
-    fields = salary_template_form_fields(path) if path.is_file() else []
-    return {"id": str(document.id), "name": f"Unit {unit}", "original_filename": document.original_filename, "is_active": True, "created_at": document.created_at.isoformat(), "unit_number": unit, "source": "Human Resources knowledge", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
+    fields = salary_template_fields(path) if path.is_file() else []
+    return {"id": str(document.id), "name": "Salary slip master", "original_filename": document.original_filename, "is_active": True, "created_at": document.created_at.isoformat(), "unit_number": None, "source": "Human Resources knowledge", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
+
+
+def _built_in_template_response() -> dict:
+    fields = salary_template_fields(DEFAULT_SALARY_TEMPLATE)
+    return {"id": "built-in", "name": "Salary slip master", "original_filename": DEFAULT_SALARY_TEMPLATE.name, "is_active": True, "created_at": datetime.fromtimestamp(DEFAULT_SALARY_TEMPLATE.stat().st_mtime, timezone.utc).isoformat(), "unit_number": None, "source": "Built-in starter", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
 
 
 @router.get("/templates")
@@ -138,23 +175,19 @@ async def list_templates(
     session: AsyncSession = Depends(get_db_session),
 ) -> list[dict]:
     await _ensure_hr_access(user, session)
-    templates = await _knowledge_unit_templates(session, user.organization_id)
-    return [_knowledge_template_response(unit, document) for unit, document in sorted(templates.items())]
+    template = await _knowledge_salary_template(session, user.organization_id)
+    if template and (Path(get_settings().upload_storage_path) / template.stored_filename).is_file():
+        return [_knowledge_template_response(template)]
+    return [_built_in_template_response()]
 
 
 @router.post("/templates")
 async def upload_template(
-    template_name: str = Form(""),
-    unit_number: int | None = Form(None),
     template_file: UploadFile = File(...),
     user: User = Depends(require_permissions("users.manage")),
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     await _ensure_hr_access(user, session)
-    name = template_name.strip()
-    inferred_unit = unit_number or _unit_from_template_name(template_file.filename or "") or _unit_from_template_name(name)
-    if inferred_unit not in {1, 2, 3}:
-        raise HTTPException(status_code=422, detail="Select Unit 1, Unit 2 or Unit 3 for this salary-slip template.")
     if Path(template_file.filename or "").suffix.lower() != ".pdf":
         raise HTTPException(status_code=422, detail="Export the Canva template as an A4 portrait PDF before uploading.")
     content = await template_file.read()
@@ -164,16 +197,19 @@ async def upload_template(
         validate_template_pdf(content)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    canonical_name = f"UNIT-{inferred_unit}_SalarySlip.pdf"
-    templates = await replace_department_uploads(session, user, "hr", [DepartmentUpload(
-        f"salary-slip-template:unit-{inferred_unit}",
+    detected_fields = salary_template_fields(content)
+    if not detected_fields:
+        raise HTTPException(status_code=422, detail="Use an editable Canva PDF containing {{field_name}} placeholders or named PDF form fields.")
+    canonical_name = "AROMAZEN_SalarySlip_Master.pdf"
+    templates = await replace_department_master_templates(session, user, "hr", [DepartmentUpload(
+        SALARY_TEMPLATE_SOURCE_KEY,
         content,
         canonical_name,
         "application/pdf",
         "salary_slip_template",
     )])
     template = templates[0]
-    return _knowledge_template_response(inferred_unit, template)
+    return _knowledge_template_response(template)
 
 
 @router.post("/templates/{template_id}/activate")
@@ -196,16 +232,22 @@ async def activate_template(
 
 @router.get("/templates/{template_id}/content")
 async def template_content(
-    template_id: uuid.UUID,
+    template_id: str,
     user: User = Depends(require_permissions("users.manage")),
     session: AsyncSession = Depends(get_db_session),
 ) -> FileResponse:
     await _ensure_hr_access(user, session)
-    document = await session.get(KnowledgeDocument, template_id)
-    if document and document.organization_id == user.organization_id and _unit_from_template_name(document.original_filename):
+    if template_id == "built-in":
+        return FileResponse(DEFAULT_SALARY_TEMPLATE, media_type="application/pdf", filename=DEFAULT_SALARY_TEMPLATE.name, content_disposition_type="inline")
+    try:
+        identifier = uuid.UUID(template_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail="Salary-slip template not found.") from error
+    document = await session.get(KnowledgeDocument, identifier)
+    if document and document.organization_id == user.organization_id and document.source_key == SALARY_TEMPLATE_SOURCE_KEY:
         stored_filename, original_filename = document.stored_filename, document.original_filename
     else:
-        template = await session.get(PayrollTemplate, template_id)
+        template = await session.get(PayrollTemplate, identifier)
         if not template or template.organization_id != user.organization_id:
             raise HTTPException(status_code=404, detail="Salary-slip template not found.")
         stored_filename, original_filename = template.stored_filename, template.original_filename
@@ -243,12 +285,12 @@ async def create_batch(
         employee_rows = read_salary_excel(content)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    unit_templates = await _knowledge_unit_templates(session, user.organization_id)
+    salary_template = await _knowledge_salary_template(session, user.organization_id)
     used_units = sorted({int(item["details"]["unit"]) for item in employee_rows})
-    missing_units = [unit for unit in used_units if unit not in unit_templates]
-    if missing_units:
-        names = ", ".join(f"UNIT-{unit}_SalarySlip.pdf" for unit in missing_units)
-        raise HTTPException(status_code=422, detail=f"Upload the missing template(s) to the HR Knowledge Base: {names}.")
+    template_path = Path(get_settings().upload_storage_path) / salary_template.stored_filename if salary_template else DEFAULT_SALARY_TEMPLATE
+    template_name = salary_template.original_filename if salary_template and template_path.is_file() else DEFAULT_SALARY_TEMPLATE.name
+    if not template_path.is_file():
+        template_path = DEFAULT_SALARY_TEMPLATE
     duplicate_email_count = sum(count - 1 for count in Counter(item["personal_email"] for item in employee_rows).values() if count > 1)
     batch_id = uuid.uuid4()
     workbook_name = organized_storage_name(
@@ -273,21 +315,13 @@ async def create_batch(
             category=f"{payroll_month}/batches/{batch_id}/salary-slips",
             identifier=recipient_id,
         )
-        unit = int(item["details"]["unit"])
-        template = unit_templates[unit]
-        item["details"]["template_name"] = template.original_filename
-        template_path = Path(get_settings().upload_storage_path) / template.stored_filename
+        item["details"]["template_name"] = template_name
         pdf_path = Path(get_settings().upload_storage_path) / pdf_name
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         generate_salary_pdf(item["details"], payroll_month, pdf_path, password_for(item["employee_name"], item["birth_year"]), template_path)
         session.add(PayrollRecipient(id=recipient_id, batch_id=batch_id, organization_id=user.organization_id, row_number=item["row_number"], employee_name=item["employee_name"], employee_code=item["employee_code"], personal_email=item["personal_email"], birth_year=item["birth_year"], details_json=item["details"], pdf_stored_filename=pdf_name, pdf_original_filename=original_name, status="pending"))
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.batch_created", target_type="payroll_batch", target_id=str(batch_id), metadata_json={"payroll_month": payroll_month, "employee_count": len(employee_rows), "units": used_units, "duplicate_emails": duplicate_email_count}))
-    await replace_department_uploads(session, user, "hr", [DepartmentUpload(
-        "payroll:salary-data",
-        content,
-        excel_file.filename or "Salary_Data.xlsx",
-        excel_file.content_type,
-    )])
+    await session.commit()
     await session.refresh(batch)
     return await _batch_response(session, batch)
 
@@ -323,6 +357,8 @@ async def update_batch_email(
     session: AsyncSession = Depends(get_db_session),
 ) -> dict:
     await _ensure_hr_access(user, session)
+    if not await resolve_mailbox_for_user(session, user, target_department_slug="human-resources"):
+        raise HTTPException(status_code=503, detail=EMAIL_NOT_SET_DETAIL)
     batch = await session.get(PayrollBatch, batch_id)
     if not batch or batch.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Payroll batch not found.")
@@ -335,7 +371,8 @@ async def update_batch_email(
         raise HTTPException(status_code=422, detail="Email body is required and must be under 8,000 characters.")
     batch.email_subject = subject
     batch.email_body = body
-    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.email_updated", target_type="payroll_batch", target_id=str(batch_id), metadata_json={}))
+    batch.cc_emails = _normalized_cc(payload.cc_emails)
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.email_updated", target_type="payroll_batch", target_id=str(batch_id), metadata_json={"cc": batch.cc_emails}))
     await session.commit()
     await session.refresh(batch)
     return await _batch_response(session, batch)
@@ -362,35 +399,29 @@ def _render_email(value: str, item: PayrollRecipient, month_label: str) -> str:
     return value.replace("{employee_name}", item.employee_name).replace("{month}", month_label)
 
 
-def _send_message(item: PayrollRecipient, batch: PayrollBatch) -> None:
-    settings = get_settings()
-    username = settings.zoho_smtp_username
-    password = settings.zoho_smtp_password
-    from_email = settings.zoho_from_email or username
-    if not username or not password or not from_email:
-        raise RuntimeError("Zoho Mail is not configured.")
+def _send_message(item: PayrollRecipient, batch: PayrollBatch, mailbox: EmailMailbox) -> None:
     month_label = datetime.strptime(batch.payroll_month, "%Y-%m").strftime("%B %Y")
+    cc_recipients = _normalized_cc(batch.cc_emails or [], item.personal_email)
     message = EmailMessage()
-    message["From"] = formataddr((settings.zoho_from_name, from_email))
+    message["From"] = formataddr((mailbox.from_name, mailbox.email))
     message["To"] = item.personal_email
+    if cc_recipients:
+        message["Cc"] = ", ".join(cc_recipients)
     message["Subject"] = _render_email(batch.email_subject or DEFAULT_EMAIL_SUBJECT, item, month_label)
-    message.set_content(_render_email(batch.email_body or DEFAULT_EMAIL_BODY, item, month_label))
-    path = Path(settings.upload_storage_path) / item.pdf_stored_filename
+    apply_hr_email_signature(message, _render_email(batch.email_body or DEFAULT_EMAIL_BODY, item, month_label))
+    path = Path(get_settings().upload_storage_path) / item.pdf_stored_filename
     message.add_attachment(path.read_bytes(), maintype="application", subtype="pdf", filename=item.pdf_original_filename)
-    security = settings.zoho_smtp_security.strip().lower()
-    if security not in {"ssl", "starttls"}:
-        raise RuntimeError("Unsupported Zoho SMTP security mode.")
-    smtp_client = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
-    with smtp_client(settings.zoho_smtp_host, settings.zoho_smtp_port, timeout=45) as smtp:
+    smtp_client = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
+    with smtp_client(mailbox.host, mailbox.port, timeout=45) as smtp:
         smtp.ehlo()
-        if security == "starttls":
+        if mailbox.security == "starttls":
             smtp.starttls()
             smtp.ehlo()
-        smtp.login(username, password)
-        smtp.send_message(message, from_addr=from_email, to_addrs=[item.personal_email])
+        smtp.login(mailbox.username, mailbox.password)
+        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[item.personal_email, *cc_recipients])
 
 
-async def _deliver_batch(batch_id: uuid.UUID, recipient_ids: list[uuid.UUID]) -> None:
+async def _deliver_batch(batch_id: uuid.UUID, recipient_ids: list[uuid.UUID], mailbox: EmailMailbox) -> None:
     for recipient_id in recipient_ids:
         async with SessionLocal() as session:
             batch = await session.get(PayrollBatch, batch_id)
@@ -402,7 +433,7 @@ async def _deliver_batch(batch_id: uuid.UUID, recipient_ids: list[uuid.UUID]) ->
             item.error_message = None
             await session.commit()
             try:
-                await run_in_threadpool(_send_message, item, batch)
+                await run_in_threadpool(_send_message, item, batch, mailbox)
                 item.status = "sent"
                 item.sent_at = datetime.now(timezone.utc)
             except Exception as error:
@@ -426,9 +457,9 @@ async def _queue_delivery(batch_id: uuid.UUID, retry_failed: bool, background_ta
     batch = await session.get(PayrollBatch, batch_id)
     if not batch or batch.organization_id != user.organization_id:
         raise HTTPException(status_code=404, detail="Payroll batch not found.")
-    settings = get_settings()
-    if not settings.zoho_smtp_username or not settings.zoho_smtp_password or not (settings.zoho_from_email or settings.zoho_smtp_username):
-        raise HTTPException(status_code=503, detail="The HR Zoho Mail account is not configured on the server.")
+    mailbox = await resolve_mailbox_for_user(session, user, target_department_slug="human-resources")
+    if not mailbox:
+        raise HTTPException(status_code=503, detail=EMAIL_NOT_SET_DETAIL)
     if batch.status == "sending":
         raise HTTPException(status_code=409, detail="This payroll batch is already being sent.")
     target_status = "failed" if retry_failed else "pending"
@@ -442,9 +473,9 @@ async def _queue_delivery(batch_id: uuid.UUID, retry_failed: bool, background_ta
         for recipient in recipients:
             recipient.status = "pending"
             recipient.error_message = None
-    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.failed_retried" if retry_failed else "payroll.batch_send_started", target_type="payroll_batch", target_id=str(batch_id), metadata_json={"recipient_count": len(recipients)}))
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="payroll.failed_retried" if retry_failed else "payroll.batch_send_started", target_type="payroll_batch", target_id=str(batch_id), metadata_json={"sender": mailbox.email, "recipient_count": len(recipients), "cc": batch.cc_emails or []}))
     await session.commit()
-    background_tasks.add_task(_deliver_batch, batch_id, [item.id for item in recipients])
+    background_tasks.add_task(_deliver_batch, batch_id, [item.id for item in recipients], mailbox)
     return await _batch_response(session, batch)
 
 
@@ -867,10 +898,6 @@ async def analyze_attendance(
         records = _parse_tabular_attendance(workbook)
     workbook.close()
     result = _attendance_analysis(records, shifts, excel_file.filename or "attendance.xlsx", assignments)
-    uploads = [DepartmentUpload("attendance:fingerprint-data", content, excel_file.filename or "Fingerprint_Attendance.xlsx", excel_file.content_type)]
-    if roster_content is not None and shift_roster_file is not None:
-        uploads.append(DepartmentUpload("attendance:shift-roster", roster_content, shift_roster_file.filename or "Shift_Roster.xlsx", shift_roster_file.content_type))
-    await replace_department_uploads(session, user, "hr", uploads)
     return result
 
 
@@ -1099,13 +1126,6 @@ async def analyze_employee_leaves(
     roster_content = await shift_roster_file.read() if shift_roster_file and shift_roster_file.filename else None
     result, workbook, _sheet, _indexes = await run_in_threadpool(_leave_calculator_analysis, salary_content, attendance_content, payroll_month, shift_rules, attendance_file.filename or "attendance.xlsx", salary_file.filename or "salary.xlsx", roster_content, shift_roster_file.filename if shift_roster_file else "")
     workbook.close()
-    uploads = [
-        DepartmentUpload("leave-calculator:salary-data", salary_content, salary_file.filename or "Salary_Data.xlsx", salary_file.content_type),
-        DepartmentUpload("leave-calculator:attendance-data", attendance_content, attendance_file.filename or "Attendance_Data.xlsx", attendance_file.content_type),
-    ]
-    if roster_content is not None and shift_roster_file is not None:
-        uploads.append(DepartmentUpload("leave-calculator:shift-roster", roster_content, shift_roster_file.filename or "Shift_Roster.xlsx", shift_roster_file.content_type))
-    await replace_department_uploads(session, user, "hr", uploads)
     return result
 
 
@@ -1126,11 +1146,4 @@ async def merge_employee_leaves(
     analysis, workbook, salary_sheet, indexes = await run_in_threadpool(_leave_calculator_analysis, salary_content, attendance_content, payroll_month, shift_rules, attendance_file.filename or "attendance.xlsx", salary_file.filename or "salary.xlsx", roster_content, shift_roster_file.filename if shift_roster_file else "")
     content = await run_in_threadpool(_merged_leave_workbook, analysis, workbook, salary_sheet, indexes, adjustments_json)
     filename = f"AROMAZEN_Salary_With_Attendance_{payroll_month}.xlsx"
-    uploads = [
-        DepartmentUpload("leave-calculator:salary-data", salary_content, salary_file.filename or "Salary_Data.xlsx", salary_file.content_type),
-        DepartmentUpload("leave-calculator:attendance-data", attendance_content, attendance_file.filename or "Attendance_Data.xlsx", attendance_file.content_type),
-    ]
-    if roster_content is not None and shift_roster_file is not None:
-        uploads.append(DepartmentUpload("leave-calculator:shift-roster", roster_content, shift_roster_file.filename or "Shift_Roster.xlsx", shift_roster_file.content_type))
-    await replace_department_uploads(session, user, "hr", uploads)
     return StreamingResponse(io.BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{filename}"'})

@@ -39,7 +39,7 @@ class OrganizationSetting(Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True)
     platform_name: Mapped[str] = mapped_column(String(160), default="AROMAZEN AI")
     theme: Mapped[str] = mapped_column(String(20), default="dark")
-    default_ai_provider: Mapped[str] = mapped_column(String(20), default="anthropic")
+    default_ai_provider: Mapped[str] = mapped_column(String(20), default="auto")
     session_timeout_minutes: Mapped[int] = mapped_column(default=480)
     timezone: Mapped[str] = mapped_column(String(80), default="Asia/Calcutta")
     daily_ai_request_limit: Mapped[int] = mapped_column(default=100)
@@ -159,6 +159,7 @@ class KnowledgeDocument(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     document_category: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     source_key: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    external_edit_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     expiry_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     reminder_days_before: Mapped[int] = mapped_column(default=30)
     reminder_owner: Mapped[str | None] = mapped_column(String(160), nullable=True)
@@ -197,6 +198,39 @@ class DocumentGeneration(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class RegulatoryWorkflow(Base):
+    __tablename__ = "regulatory_workflows"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    product_name: Mapped[str] = mapped_column(String(300), default="")
+    product_code: Mapped[str] = mapped_column(String(160), default="")
+    market: Mapped[str] = mapped_column(String(40), default="other")
+    status: Mapped[str] = mapped_column(String(32), default="review", index=True)
+    source_files_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    sds_fields_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    ingredients_json: Mapped[list] = mapped_column(JSON, default=list)
+    generated_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class RegulatoryIngredientMaster(Base):
+    __tablename__ = "regulatory_ingredient_master"
+    __table_args__ = (UniqueConstraint("organization_id", "normalized_name", name="uq_regulatory_ingredient_org_name"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    normalized_name: Mapped[str] = mapped_column(String(300))
+    display_name: Mapped[str] = mapped_column(String(300))
+    data_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    sources_json: Mapped[list] = mapped_column(JSON, default=list)
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class PayrollBatch(Base):
     __tablename__ = "payroll_batches"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -208,6 +242,7 @@ class PayrollBatch(Base):
     stored_filename: Mapped[str] = mapped_column(String(500), unique=True)
     email_subject: Mapped[str] = mapped_column(String(240), default="AROMAZEN Salary Slip - {month}")
     email_body: Mapped[str] = mapped_column(Text(), default="")
+    cc_emails: Mapped[list] = mapped_column(JSON, default=list)
     duplicate_email_count: Mapped[int] = mapped_column(default=0)
     status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
     total_count: Mapped[int] = mapped_column(default=0)

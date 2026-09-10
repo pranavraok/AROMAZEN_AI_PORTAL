@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
 import { BrandMark } from '@/components/brand-mark'
 
 const REOPEN_SPLASH_AFTER_MS = 30 * 60 * 1000
@@ -13,17 +12,13 @@ function isInstalledMobileApp() {
   const standalone = window.matchMedia('(display-mode: standalone)').matches
     || Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
   const mobileLayout = window.matchMedia('(max-width: 767px)').matches
+    || window.matchMedia('(hover: none) and (pointer: coarse)').matches
   return standalone && mobileLayout
 }
 
 export function MobileAppLaunch() {
-  const pathname = usePathname()
-  const router = useRouter()
   const [showSplash, setShowSplash] = useState(false)
   const hideTimerRef = useRef<number | null>(null)
-  const pathnameRef = useRef(pathname)
-
-  useEffect(() => { pathnameRef.current = pathname }, [pathname])
 
   useEffect(() => {
     if (!isInstalledMobileApp()) return
@@ -33,15 +28,14 @@ export function MobileAppLaunch() {
       hideTimerRef.current = window.setTimeout(() => setShowSplash(false), SPLASH_DURATION_MS)
     }
 
-    function openWorkspaceWithSplash() {
+    function showLaunchSplash() {
       setShowSplash(true)
-      if (pathnameRef.current !== '/workspace') router.replace('/workspace')
       hideSplashLater()
     }
 
     if (sessionStorage.getItem(ACTIVE_SESSION_KEY) !== '1') {
       sessionStorage.setItem(ACTIVE_SESSION_KEY, '1')
-      openWorkspaceWithSplash()
+      showLaunchSplash()
     }
 
     function handleVisibilityChange() {
@@ -53,7 +47,7 @@ export function MobileAppLaunch() {
       const backgroundedAt = Number(sessionStorage.getItem(BACKGROUNDED_AT_KEY) || 0)
       sessionStorage.removeItem(BACKGROUNDED_AT_KEY)
       if (backgroundedAt > 0 && Date.now() - backgroundedAt >= REOPEN_SPLASH_AFTER_MS) {
-        openWorkspaceWithSplash()
+        showLaunchSplash()
       }
     }
 
@@ -62,7 +56,7 @@ export function MobileAppLaunch() {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current)
     }
-  }, [router])
+  }, [])
 
   useEffect(() => {
     document.documentElement.classList.toggle('mobile-splash-open', showSplash)

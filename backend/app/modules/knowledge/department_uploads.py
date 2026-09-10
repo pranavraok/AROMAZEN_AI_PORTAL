@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -24,16 +24,29 @@ class DepartmentUpload:
     document_category: str = "department_upload"
 
 
-async def replace_department_uploads(
+def is_master_template_upload(upload: DepartmentUpload) -> bool:
+    category = upload.document_category.strip().lower()
+    return (
+        category == "document_template"
+        or category == "salary_slip_template"
+        or category == "hr_custom_letter_template"
+        or category.startswith("hr_letter_template:")
+        or category.startswith("regulatory_template:")
+    )
+
+
+async def replace_department_master_templates(
     session: AsyncSession,
     user: User,
     department_slug: str,
     uploads: list[DepartmentUpload],
 ) -> list[KnowledgeDocument]:
-    """Atomically keep the latest copy of each departmental upload in its KB collection."""
+    """Atomically keep one latest KB copy for each approved master-template slot."""
     if not uploads:
         await session.commit()
         return []
+    if any(not is_master_template_upload(upload) for upload in uploads):
+        raise ValueError("Only master templates may be stored as departmental Knowledge Base uploads.")
     collection = await department_knowledge_collection(session, user.organization_id, department_slug)
     if collection is None:
         raise RuntimeError(f"The {department_slug} Knowledge Base collection is unavailable.")
@@ -151,3 +164,42 @@ async def replace_department_uploads(
         if path.resolve() not in current_paths:
             path.unlink(missing_ok=True)
     return documents
+
+
+TRANSIENT_WORKFLOW_SOURCE_PREFIXES = (
+    "assets:",
+    "attendance:",
+    "cash-flow:",
+    "document-generator:coa-data",
+    "document-generator:sds-data",
+    "gst:",
+    "leave-calculator:",
+    "payroll:salary-data",
+    "regulatory-workflow:",
+)
+
+
+async def purge_transient_workflow_kb_documents(session: AsyncSession) -> int:
+    """Remove legacy auto-saved workflow inputs/results while preserving masters and explicit KB uploads."""
+    conditions = [KnowledgeDocument.source_key.startswith(prefix) for prefix in TRANSIENT_WORKFLOW_SOURCE_PREFIXES]
+    conditions.append(KnowledgeDocument.document_category == "cash_flow_report")
+    documents = list(await session.scalars(select(KnowledgeDocument).where(or_(*conditions))))
+    if not documents:
+        return 0
+
+    storage_root = Path(get_settings().upload_storage_path).resolve()
+    stored_paths: list[Path] = []
+    for document in documents:
+        if document.stored_filename and document.stored_filename != "pending":
+            stored_paths.append(storage_root / document.stored_filename)
+        await session.delete(document)
+    await session.commit()
+
+    for path in stored_paths:
+        try:
+            resolved = path.resolve()
+            if resolved.is_relative_to(storage_root):
+                resolved.unlink(missing_ok=True)
+        except OSError:
+            continue
+    return len(documents)

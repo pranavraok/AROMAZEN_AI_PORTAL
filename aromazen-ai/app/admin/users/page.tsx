@@ -4,13 +4,13 @@ import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
+import { ViewportOverlay } from '@/components/ui/viewport-overlay'
 import { useToast } from '@/components/ui/toast-provider'
 import { useAuth } from '@/components/auth/auth-provider'
 import { ApiError } from '@/lib/api/client'
 import { api } from '@/lib/api/services'
 import type { AdminRole, AdminUser, AuditEvent, Department } from '@/lib/api/types'
 import { Plus } from 'lucide-react'
-import { ModalShell } from '@/components/ui/modal'
 
 type View = 'users' | 'departments' | 'audit'
 
@@ -96,5 +96,5 @@ function DepartmentCard({ department, canManage, onSave, onRemove }: { departmen
 }
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-  return <ModalShell label={title} onClose={onClose}><div className="p-6"><div className="mb-5 flex items-center justify-between gap-3"><h2 className="min-w-0 break-words text-lg font-semibold [overflow-wrap:anywhere]">{title}</h2><Button variant="ghost" size="sm" onClick={onClose} className="shrink-0">Close</Button></div>{children}</div></ModalShell>
+  return <ViewportOverlay label={title} onClose={onClose}><div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-border bg-card p-6 shadow-2xl"><div className="mb-5 flex items-center justify-between gap-3"><h2 className="min-w-0 break-words text-lg font-semibold [overflow-wrap:anywhere]">{title}</h2><Button variant="ghost" size="sm" onClick={onClose} className="shrink-0">Close</Button></div>{children}</div></ViewportOverlay>
 }

@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from redis.asyncio import Redis
+import structlog
 
 from app.api.router import api_router
 from app.core.config import get_settings
@@ -9,9 +10,13 @@ from app.core.logging import configure_logging
 from app.db.session import SessionLocal
 from app.modules.identity.service import bootstrap_owner
 from app.modules.hr_letters.seed import seed_hr_letter_templates
+from app.modules.document_generator.seed import seed_qa_coa_template
 from app.modules.assets.service import seed_asset_register
+from app.modules.regulatory.seed import seed_regulatory_templates
+from app.modules.knowledge.department_uploads import purge_transient_workflow_kb_documents
 
 settings = get_settings()
+logger = structlog.get_logger(__name__)
 
 
 @asynccontextmanager
@@ -22,8 +27,24 @@ async def lifespan(app: FastAPI):
     app.state.redis = redis
     async with SessionLocal() as session:
         await bootstrap_owner(session)
+        purged_documents = await purge_transient_workflow_kb_documents(session)
+        if purged_documents:
+            logger.info("transient_workflow_kb_documents_purged", count=purged_documents)
         await seed_hr_letter_templates(session)
+        try:
+            await seed_qa_coa_template(session)
+        except Exception as error:
+            # The bundled QA master is convenience data, not a prerequisite for
+            # serving requests. A storage or legacy-data problem must not make
+            # the entire production API fail its health check.
+            await session.rollback()
+            logger.exception("qa_coa_template_seed_failed", error=str(error))
         await seed_asset_register(session)
+        try:
+            await seed_regulatory_templates(session)
+        except Exception as error:
+            await session.rollback()
+            logger.exception("regulatory_template_seed_failed", error=str(error))
     yield
     await redis.aclose()
 

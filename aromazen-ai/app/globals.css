@@ -246,6 +246,8 @@
     font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     letter-spacing: -0.006em;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   ::selection { background: rgba(238, 234, 224, .22); color: #fff; }
   * { scrollbar-width: thin; scrollbar-color: #383a39 transparent; }
@@ -306,13 +308,22 @@ table tbody tr { transition: background-color .18s ease; }
 table tbody tr:hover { background: rgba(255,255,255,.018); }
 
 @media (max-width: 767px) {
+  .viewport-toast {
+    left: 0;
+    right: 0;
+    top: max(12px, calc(env(safe-area-inset-top) + 8px));
+    width: calc(100% - 2rem);
+    max-width: 24rem;
+    margin-inline: auto;
+    transform: none;
+  }
+
   /* iOS zooms the viewport when focusing inputs smaller than 16px and never
      zooms back out, which makes the whole site look broken on iPhones. */
-  /* Whole page, not just .app-main: login, accept-invitation and the auth modals
-     live outside .app-main and iOS zooms their 14px fields too, breaking scroll. */
-  input:not([type='checkbox']):not([type='radio']):not([type='range']),
-  select,
-  textarea {
+  .app-main input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  .app-main select,
+  .top-bar input,
+  .app-main textarea {
     font-size: 16px !important;
   }
   /* Comfortable touch targets for the small icon buttons inside table rows. */
@@ -347,6 +358,9 @@ table tbody tr:hover { background: rgba(255,255,255,.018); }
   .app-main table th,
   .app-main table td { white-space: nowrap; }
   .app-main .overflow-hidden:has(> table) { overflow-x: auto; }
+  .app-main .qa-coa-preview-frame { height: min(68dvh, 620px); }
+  .app-main iframe { max-width: 100%; height: min(68dvh, 620px); }
+  .app-main section[class~="sticky"][class~="top-4"] { position: static; }
   .top-bar div[class*="min-w-[320px]"] {
     position: fixed;
     top: 68px;
@@ -371,18 +385,19 @@ table tbody tr:hover { background: rgba(255,255,255,.018); }
   .docx-paper table td { white-space: normal; }
 }
 
-.app-shell { width: 100%; min-height: 100svh; }
+.app-shell { width: 100%; height: var(--app-viewport-height, 100dvh); min-height: 0; }
 .mobile-drawer-open,
 .mobile-drawer-open body { overflow: hidden; overscroll-behavior: none; }
 .mobile-splash-open,
 .mobile-splash-open body { overflow: hidden; overscroll-behavior: none; }
 .mobile-app-splash { display: none; }
-@media (max-width: 767px) {
+@media (max-width: 767px), (hover: none) and (pointer: coarse) {
   .mobile-app-splash-visible,
   html.mobile-app-launch-pending .mobile-app-splash { display: grid; }
 }
 .mobile-drawer-edge { touch-action: pan-y; }
 #app-sidebar { touch-action: pan-y; will-change: transform; }
+.conversation-actions { display: none; }
 .app-main > * { min-width: 0; }
 .app-main input,
 .app-main select,
@@ -400,11 +415,7 @@ body:has(.fixed.inset-0.z-50),
 }
 
 .fixed.inset-0.z-50 {
-  /* The overlay layer itself must scroll: if any ancestor transform ever anchors
-     this "fixed" layer to the page, the panel's lower half would otherwise be
-     clipped away with no way to reach it. */
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   overscroll-behavior: contain;
 }
 
@@ -450,13 +461,91 @@ body:has(.fixed.inset-0.z-50),
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Opacity ONLY. Animating transform here with fill-mode `both` leaves a computed
-     transform matrix on every page wrapper forever, which turns each page into the
-     containing block for position:fixed modals — overlays then span the whole page
-     instead of the viewport and their bottom (submit buttons) becomes unreachable
-     on phones. */
   .app-main > * { animation: aromazen-enter .35s ease-out both; }
+  /* Keep page entry animation transform-free. A transformed page becomes the
+     containing block for fixed dialogs and pulls them into the scroll area. */
   @keyframes aromazen-enter { from { opacity: 0; } to { opacity: 1; } }
+}
+
+@media (hover: none), (pointer: coarse) {
+  button, a, input, select, textarea, summary { touch-action: manipulation; }
+  .conversation-actions { display: flex; }
+}
+
+@media (max-width: 767px), (hover: none) and (pointer: coarse) {
+  button {
+    min-height: 44px;
+  }
+  input:not([type='checkbox']):not([type='radio']), select, textarea {
+    font-size: 16px !important;
+  }
+  button[aria-label], a[aria-label], [role='button'][aria-label] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .app-main {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  .top-bar {
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
+  .ios-safe-page {
+    min-height: var(--app-viewport-height, 100dvh);
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding-left: max(1rem, env(safe-area-inset-left));
+  }
+  .ios-safe-page > .grid {
+    min-height: calc(var(--app-viewport-height, 100dvh) - 2rem);
+  }
+  #app-sidebar {
+    height: var(--app-viewport-height, 100dvh);
+  }
+  .viewport-overlay {
+    top: var(--app-viewport-offset-top, 0px);
+    bottom: auto;
+    height: var(--app-viewport-height, 100dvh);
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding-left: max(1rem, env(safe-area-inset-left));
+  }
+  [role='dialog'].fixed.inset-0 {
+    top: var(--app-viewport-offset-top, 0px);
+    bottom: auto;
+    height: var(--app-viewport-height, 100dvh);
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding-left: max(1rem, env(safe-area-inset-left));
+  }
+  [role='dialog'].fixed.inset-0 > * {
+    max-height: calc(var(--app-viewport-height, 100dvh) - 2rem);
+  }
+  .viewport-dialog-panel {
+    max-height: calc(var(--app-viewport-height, 100dvh) - 2rem);
+  }
+  .viewport-toast {
+    top: max(12px, calc(var(--app-viewport-offset-top, 0px) + env(safe-area-inset-top) + 8px));
+  }
+  .mobile-app-splash {
+    top: var(--app-viewport-offset-top, 0px);
+    bottom: auto;
+    height: var(--app-viewport-height, 100dvh);
+    padding-top: env(safe-area-inset-top);
+    padding-right: max(2rem, env(safe-area-inset-right));
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: max(2rem, env(safe-area-inset-left));
+  }
+}
+
+@media (max-width: 767px) {
+  .viewport-toast {
+    top: max(8px, env(safe-area-inset-top));
+  }
 }
 
 /* The client-approved bright workspace is used for every saved appearance mode. */

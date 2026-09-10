@@ -4,9 +4,9 @@ import { useState } from 'react'
 import { api } from '@/lib/api/services'
 import { ApiError } from '@/lib/api/client'
 import { useToast } from '@/components/ui/toast-provider'
+import { ViewportOverlay } from '@/components/ui/viewport-overlay'
 import { ArrowLeft, CheckCircle, KeyRound, LoaderCircle, Mail, X } from 'lucide-react'
 import { PasswordInput } from '@/components/ui/password-input'
-import { ModalShell } from '@/components/ui/modal'
 
 type Step = 'email' | 'otp' | 'password' | 'done'
 
@@ -117,8 +117,8 @@ export function ForgotPasswordFlow({ open, onClose }: ForgotPasswordFlowProps) {
   }
 
   return (
-    <ModalShell label="Reset password" onClose={handleClose}>
-      <div className="p-6">
+    <ViewportOverlay label="Reset password" onClose={handleClose}>
+      <div className="viewport-dialog-panel w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-2xl">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           {step !== 'done' && step !== 'email' ? (
@@ -263,7 +263,7 @@ export function ForgotPasswordFlow({ open, onClose }: ForgotPasswordFlowProps) {
           </div>
         )}
       </div>
-    </ModalShell>
+    </ViewportOverlay>
   )
 }
 

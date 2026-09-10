@@ -28,6 +28,7 @@ import type {
   SendEmailRequest,
   PayrollBatch,
   PayrollTemplate,
+  HRCustomTemplate,
   HRTemplate,
   AttendanceAnalysis,
   AttendanceShiftRule,
@@ -39,6 +40,10 @@ import type {
   AssetNotificationSettings,
   GstReconciliationResult,
   OpenRouterUsage,
+  RegulatoryDocumentType,
+  RegulatoryIngredient,
+  RegulatoryTemplate,
+  RegulatoryWorkflow,
 } from './types'
 
 export const api = {
@@ -107,6 +112,7 @@ export const api = {
     processDocument: (accessToken: string, collectionId: string, documentId: string) => apiRequest<{ id: string; status: string; extracted_characters: number }>(`/knowledge/collections/${collectionId}/documents/${documentId}/process`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
     documentContentUrl: (collectionId: string, documentId: string) => `/api/v1/knowledge/collections/${collectionId}/documents/${documentId}/content`,
     uploadDocument: (accessToken: string, collectionId: string, file: File, reminder?: { document_category?: string; expiry_date?: string; reminder_days_before?: number; reminder_owner?: string; is_company_wide?: boolean }) => apiRequest<KnowledgeDocument>(`/knowledge/collections/${collectionId}/documents`, { method: 'POST', body: (() => { const form = new FormData(); form.append('file', file); if (reminder?.document_category) form.append('document_category', reminder.document_category); if (reminder?.expiry_date) form.append('expiry_date', reminder.expiry_date); form.append('reminder_days_before', String(reminder?.reminder_days_before ?? 30)); if (reminder?.reminder_owner) form.append('reminder_owner', reminder.reminder_owner); if (reminder?.is_company_wide) form.append('is_company_wide', 'true'); return form })(), headers: { Authorization: `Bearer ${accessToken}` } }),
+    renameDocument: (accessToken: string, collectionId: string, documentId: string, name: string) => apiRequest<KnowledgeDocument>(`/knowledge/collections/${collectionId}/documents/${documentId}/name`, { method: 'PATCH', body: { name }, headers: { Authorization: `Bearer ${accessToken}` } }),
     updateDocumentReminder: (accessToken: string, collectionId: string, documentId: string, reminder: { document_category?: string | null; expiry_date?: string | null; reminder_days_before: number; reminder_owner?: string | null; is_company_wide?: boolean | null }) => apiRequest<KnowledgeDocument>(`/knowledge/collections/${collectionId}/documents/${documentId}/reminder`, { method: 'PATCH', body: reminder, headers: { Authorization: `Bearer ${accessToken}` } }),
     rulesAndReminders: (accessToken: string) => apiRequest<(KnowledgeDocument & { collection_name: string })[]>('/knowledge/rules-and-reminders', { headers: { Authorization: `Bearer ${accessToken}` } }),
   },
@@ -134,31 +140,37 @@ export const api = {
       const form = new FormData(); form.append('document_type', documentType); form.append('template_file', file)
       return apiRequest<DocumentTemplate>('/document-generator/templates', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
+    replaceCoaMaster: (accessToken: string, file: File) => {
+      const form = new FormData(); form.append('template_file', file)
+      return apiRequest<DocumentTemplate>('/document-generator/templates/coa-master', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    templateContent: (accessToken: string, templateId: string) => apiFileRequest(`/document-generator/templates/${templateId}/content`, accessToken),
     schema: (accessToken: string, templateId: string) => apiRequest<DocumentTemplateSchema>(`/document-generator/templates/${templateId}/schema`, { headers: { Authorization: `Bearer ${accessToken}` } }),
     excelTemplate: (accessToken: string, templateId: string) => apiFileRequest(`/document-generator/templates/${templateId}/excel-template`, accessToken),
     transcribe: (accessToken: string, audio: File) => {
       const form = new FormData(); form.append('audio_file', audio)
       return apiRequest<{ text: string }>('/document-generator/transcribe', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
-    draftFromNotes: (accessToken: string, payload: { templateId: string; notes: string; currentFields: Record<string, string>; currentRows: Record<string, string>[] }) => apiRequest<DocumentDraftUpdate>('/document-generator/draft-from-notes', { method: 'POST', body: { template_document_id: payload.templateId, notes: payload.notes, current_fields: payload.currentFields, current_rows: payload.currentRows }, headers: { Authorization: `Bearer ${accessToken}` } }),
-    generate: (accessToken: string, payload: { templateId: string; documentType: 'coa' | 'sds'; fields: Record<string, string>; rows: Record<string, string>[]; outputFilename?: string; excel?: File | null }) => {
-      const form = new FormData(); form.append('template_document_id', payload.templateId); form.append('document_type', payload.documentType); form.append('fields_json', JSON.stringify(payload.fields)); form.append('rows_json', JSON.stringify(payload.rows)); if (payload.outputFilename?.trim()) form.append('output_filename', payload.outputFilename.trim()); if (payload.excel) form.append('excel_file', payload.excel)
+    draftFromNotes: (accessToken: string, payload: { templateId: string; notes: string; currentFields: Record<string, string>; currentRows: Record<string, string>[]; fieldLabels?: Record<string, string> }) => apiRequest<DocumentDraftUpdate>('/document-generator/draft-from-notes', { method: 'POST', body: { template_document_id: payload.templateId, notes: payload.notes, current_fields: payload.currentFields, current_rows: payload.currentRows, field_labels: payload.fieldLabels ?? {} }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    generate: (accessToken: string, payload: { templateId: string; documentType: 'coa' | 'sds'; fields: Record<string, string>; rows: Record<string, string>[]; fieldLabels?: Record<string, string>; columnLabels?: Record<string, string>; hiddenFieldKeys?: string[]; customFields?: { label: string; value: string }[]; outputFilename?: string; excel?: File | null }) => {
+      const form = new FormData(); form.append('template_document_id', payload.templateId); form.append('document_type', payload.documentType); form.append('fields_json', JSON.stringify(payload.fields)); form.append('rows_json', JSON.stringify(payload.rows)); form.append('field_labels_json', JSON.stringify(payload.fieldLabels ?? {})); form.append('column_labels_json', JSON.stringify(payload.columnLabels ?? {})); form.append('hidden_field_keys_json', JSON.stringify(payload.hiddenFieldKeys ?? [])); form.append('custom_fields_json', JSON.stringify(payload.customFields ?? [])); if (payload.outputFilename?.trim()) form.append('output_filename', payload.outputFilename.trim()); if (payload.excel) form.append('excel_file', payload.excel)
       return apiRequest<GeneratedDocument>('/document-generator/generate', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
     download: (accessToken: string, generationId: string) => apiFileRequest(`/document-generator/generations/${generationId}/download`, accessToken),
+    preview: (accessToken: string, generationId: string) => apiFileRequest(`/document-generator/generations/${generationId}/preview`, accessToken),
   },
   payroll: {
     template: (accessToken: string) => apiFileRequest('/payroll/template', accessToken),
     templates: (accessToken: string) => apiRequest<PayrollTemplate[]>('/payroll/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
-    uploadTemplate: (accessToken: string, unitNumber: number, file: File) => {
-      const form = new FormData(); form.append('template_name', `Unit ${unitNumber}`); form.append('unit_number', String(unitNumber)); form.append('template_file', file)
+    uploadTemplate: (accessToken: string, file: File) => {
+      const form = new FormData(); form.append('template_file', file)
       return apiRequest<PayrollTemplate>('/payroll/templates', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
     activateTemplate: (accessToken: string, templateId: string) => apiRequest<PayrollTemplate>(`/payroll/templates/${templateId}/activate`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
     templateContent: (accessToken: string, templateId: string) => apiFileRequest(`/payroll/templates/${templateId}/content`, accessToken),
     batches: (accessToken: string) => apiRequest<PayrollBatch[]>('/payroll/batches', { headers: { Authorization: `Bearer ${accessToken}` } }),
     batch: (accessToken: string, batchId: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
-    updateEmail: (accessToken: string, batchId: string, subject: string, body: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}/email`, { method: 'PATCH', body: { subject, body }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    updateEmail: (accessToken: string, batchId: string, subject: string, body: string, ccEmails: string[]) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}/email`, { method: 'PATCH', body: { subject, body, cc_emails: ccEmails }, headers: { Authorization: `Bearer ${accessToken}` } }),
     upload: (accessToken: string, payrollMonth: string, file: File) => {
       const form = new FormData(); form.append('payroll_month', payrollMonth); form.append('excel_file', file)
       return apiRequest<PayrollBatch>('/payroll/batches', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
@@ -179,6 +191,21 @@ export const api = {
       return apiFileRequest('/payroll/leave-calculator/merge', accessToken, { method: 'POST', body: form })
     },
   },
+  regulatory: {
+    templates: (accessToken: string) => apiRequest<RegulatoryTemplate[]>('/regulatory/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    uploadTemplate: (accessToken: string, documentType: RegulatoryDocumentType, file: File) => { const form = new FormData(); form.append('template_file', file); return apiRequest<RegulatoryTemplate>(`/regulatory/templates/${documentType}`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } }) },
+    templateContent: (accessToken: string, documentType: RegulatoryDocumentType) => apiFileRequest(`/regulatory/templates/${documentType}/content`, accessToken),
+    createWorkflow: (accessToken: string, excel: File, coa: File) => { const form = new FormData(); form.append('regulatory_excel', excel); form.append('creation_coa', coa); return apiRequest<RegulatoryWorkflow>('/regulatory/workflows', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } }) },
+    updateWorkflow: (accessToken: string, workflowId: string, payload: { product_name: string; product_code: string; market: 'other' | 'eu'; sds_fields: Record<string, string>; ingredients: RegulatoryIngredient[] }) => apiRequest<RegulatoryWorkflow>(`/regulatory/workflows/${workflowId}`, { method: 'PATCH', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    enrich: (accessToken: string, workflowId: string, force = false) => apiRequest<RegulatoryWorkflow>(`/regulatory/workflows/${workflowId}/enrich`, { method: 'POST', body: { force }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    aiIdentityFallback: (accessToken: string, workflowId: string, ingredientIndex: number) => apiRequest<RegulatoryWorkflow>(`/regulatory/workflows/${workflowId}/ai-identity-fallback`, { method: 'POST', body: { ingredient_index: ingredientIndex }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    applyVoiceNotes: (accessToken: string, workflowId: string, notes: string) => apiRequest<RegulatoryWorkflow>(`/regulatory/workflows/${workflowId}/apply-voice-notes`, { method: 'POST', body: { notes }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    approve: (accessToken: string, workflowId: string, payload: { product_name: string; product_code: string; market: 'other' | 'eu'; sds_fields: Record<string, string>; ingredients: RegulatoryIngredient[]; source_warnings_acknowledged?: boolean }) => apiRequest<RegulatoryWorkflow>(`/regulatory/workflows/${workflowId}/approve`, { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    generate: (accessToken: string, workflowId: string, documentType: RegulatoryDocumentType) => apiRequest<{ id: string; filename: string; document_type: RegulatoryDocumentType }>(`/regulatory/workflows/${workflowId}/generate/${documentType}`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    download: (accessToken: string, generationId: string) => apiFileRequest(`/regulatory/generations/${generationId}/download`, accessToken),
+    preview: (accessToken: string, generationId: string) => apiFileRequest(`/regulatory/generations/${generationId}/preview`, accessToken),
+    pdf: (accessToken: string, generationId: string) => apiFileRequest(`/regulatory/generations/${generationId}/pdf`, accessToken),
+  },
   hrTemplates: {
     list: (accessToken: string) => apiRequest<HRTemplate[]>('/hr-letters/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
     replace: (accessToken: string, templateKey: string, file: File) => {
@@ -186,6 +213,16 @@ export const api = {
       return apiRequest<HRTemplate>(`/hr-letters/templates/${templateKey}`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
     content: (accessToken: string, templateKey: string) => apiFileRequest(`/hr-letters/templates/${templateKey}/content`, accessToken),
+    customList: (accessToken: string) => apiRequest<HRCustomTemplate[]>('/hr-letters/custom-templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    customCreate: (accessToken: string, file: File, canvaEditUrl: string) => {
+      const form = new FormData(); form.append('template_file', file); form.append('canva_edit_url', canvaEditUrl)
+      return apiRequest<HRCustomTemplate>('/hr-letters/custom-templates', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    customReplace: (accessToken: string, templateId: string, file: File, canvaEditUrl?: string) => {
+      const form = new FormData(); form.append('template_file', file); if (canvaEditUrl !== undefined) form.append('canva_edit_url', canvaEditUrl)
+      return apiRequest<HRCustomTemplate>(`/hr-letters/custom-templates/${templateId}`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    customContent: (accessToken: string, templateId: string) => apiFileRequest(`/hr-letters/custom-templates/${templateId}/content`, accessToken),
   },
   admin: {
     users: (accessToken: string) => apiRequest<AdminUser[]>('/admin/users', { headers: { Authorization: `Bearer ${accessToken}` } }),

@@ -1,6 +1,7 @@
 import io
 import re
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import datetime
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from openpyxl import load_workbook
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.utils import ImageReader
+from reportlab.lib.utils import ImageReader, simpleSplit
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen.canvas import Canvas
 
@@ -33,6 +34,7 @@ class BankSummary:
     opening: float | None
     closing: float | None
     balance_type: str | None
+    statement_month: str | None = None
 
 
 def number(value: object) -> float:
@@ -47,12 +49,14 @@ def number(value: object) -> float:
 
 
 def indian(value: float) -> str:
-    rounded = int(round(abs(value)))
+    amount = Decimal(str(abs(value))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    rounded = int(amount)
     digits = str(rounded)
     if len(digits) > 3:
         digits = digits[:-3][::-1]
         digits = ",".join(digits[i:i + 2] for i in range(0, len(digits), 2))[::-1] + "," + str(rounded)[-3:]
-    return ("-" if value < 0 else "") + "₹" + digits
+    fraction = int((amount - rounded) * 100)
+    return ("-" if value < 0 else "") + "INR " + digits + (f".{fraction:02d}" if fraction else "")
 
 
 def _sheet(workbook, name: str):
@@ -196,15 +200,23 @@ def _sum_labeled_details(sheet, header_aliases: tuple[tuple[str, ...], ...], cat
     label_column = min(cell.column for cell in header_cells)
     value_column = label_column + 1
     total = 0.0
+    has_numeric_value = False
     for row in range(1, sheet.max_row + 1):
         label = sheet.cell(row, label_column).value
-        amount = number(sheet.cell(row, value_column).value)
+        raw_amount = sheet.cell(row, value_column).value
+        amount = number(raw_amount)
+        is_header = any(_matches(label, aliases) for aliases in header_aliases)
+        if isinstance(label, str) and label.strip() and raw_amount not in (None, "") and (not is_header or amount == 0):
+            try:
+                has_numeric_value |= Decimal(str(raw_amount).replace(',', '').strip()).is_finite()
+            except InvalidOperation:
+                pass
         if not isinstance(label, str) or not label.strip() or not amount:
             continue
-        if any(_matches(label, aliases) for aliases in header_aliases):
+        if is_header:
             continue
         total += amount
-    if not total:
+    if not has_numeric_value:
         raise ValueError(f"No numeric {category} entries were found on sheet '{sheet.title}'.")
     return total
 
@@ -307,14 +319,46 @@ def read_bank(name: str, content: bytes) -> BankSummary:
         raise ValueError(f"The {name} statement has no readable text.")
     opening = re.search(r"opening\s+balance\D{0,30}([\d,]+\.\d{2})\s*(Cr|Dr)?", text, re.I)
     explicit = re.search(r"closing\s+balance\D{0,30}([\d,]+\.\d{2})\s*(Cr|Dr)?", text, re.I)
-    matches = re.findall(r"([\d,]+\.\d{2})\s*(Cr|Dr)", text, re.I)
-    match = (explicit.group(1), explicit.group(2) or "Cr") if explicit else (matches[0] if matches else None)
+    # A transaction balance is not evidence of the statement's closing balance.
+    match = (explicit.group(1), explicit.group(2) or "Cr") if explicit else None
     opening_value = number(opening.group(1)) if opening else None
     if opening and (opening.group(2) or "Cr").lower() == "dr": opening_value = -opening_value
-    return BankSummary(name, opening_value, number(match[0]) if match else None, match[1].title() if match else None)
+    period = re.search(r"(?:statement\s+(?:month|period)|test\s+period)\s*:?\s*([A-Za-z]+)\s+(\d{4})", text, re.I)
+    statement_month = None
+    if period:
+        for pattern in ("%B %Y", "%b %Y"):
+            try:
+                statement_month = datetime.strptime(' '.join(period.groups()), pattern).strftime('%Y-%m')
+                break
+            except ValueError:
+                continue
+    return BankSummary(name, opening_value, number(match[0]) if match else None, match[1].title() if match else None, statement_month)
+
+
+def reconciliation_checks(month: str, receipts, payments, banks) -> tuple[list[str], list[tuple[str, float]]]:
+    warnings = []
+    for bank in banks:
+        if bank.statement_month is None:
+            warnings.append(f"{bank.name}: statement period could not be verified. Check it against the report month.")
+        elif bank.statement_month != month:
+            warnings.append(f"{bank.name}: statement period {bank.statement_month} differs from report month {month}.")
+    metrics = []
+    if len(banks) != 3 or any(b.opening is None or b.closing is None for b in banks):
+        warnings.append("Bank reconciliation is incomplete: all three opening and closing balances are required.")
+    else:
+        opening = sum(Decimal(str(b.opening)) for b in banks)
+        closing = sum(Decimal(str(b.closing)) * (-1 if b.balance_type == 'Dr' else 1) for b in banks)
+        net = sum((Decimal(str(v)) for _, v in receipts), Decimal(0)) - sum((Decimal(str(v)) for _, v in payments), Decimal(0))
+        expected = opening + net
+        variance = (closing - expected).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        metrics = [("Opening bank position", float(opening)), ("Receipts less payments", float(net)), ("Expected closing bank position", float(expected)), ("Actual closing bank position", float(closing)), ("Unreconciled difference", float(variance))]
+        if abs(variance) > Decimal('1.00'):
+            warnings.append(f"Unreconciled bank difference: {indian(float(variance))}. Review cash movements and adjustments before relying on this report.")
+    return warnings, metrics
 
 
 def _text(canvas, x, y, value, size=9, color=NAVY, font="Helvetica", align="left"):
+    value = str(value).replace('₹', 'INR ').replace('•', '|')
     canvas.setFillColor(color); canvas.setFont(font, size)
     if align == "right": canvas.drawRightString(x, y, str(value))
     elif align == "center": canvas.drawCentredString(x, y, str(value))
@@ -336,7 +380,8 @@ def _card(canvas, x, y, w, label, value, accent):
     canvas.setStrokeColor(colors.HexColor("#DCE6EA")); canvas.roundRect(x, y, w, 78, 10, fill=0, stroke=1)
     canvas.setFillColor(accent); canvas.roundRect(x, y, 5, 78, 3, fill=1, stroke=0)
     _text(canvas, x + 17, y + 51, label.upper(), 7, MUTED, "Helvetica-Bold")
-    _text(canvas, x + 17, y + 22, value, 15, NAVY, "Helvetica-Bold")
+    size = min(15, 15 * (w - 34) / max(1, stringWidth(str(value), "Helvetica-Bold", 15)))
+    _text(canvas, x + 17, y + 22, value, size, NAVY, "Helvetica-Bold")
 
 
 def _bars(canvas, rows, x, y, w, row_height=28):
@@ -453,8 +498,9 @@ def build_report(month: str, receipts, payments, banks, assets, password: str, p
     inflow = sum(v for _, v in receipts); outflow = sum(v for _, v in payments); net = inflow - outflow
     known_openings = [b.opening for b in banks if b.opening is not None]
     known_closings = [(-b.closing if b.balance_type == "Dr" else b.closing) for b in banks if b.closing is not None]
+    warnings, reconciliation = reconciliation_checks(month, receipts, payments, banks)
     _header(canvas, "MONTHLY CASH FLOW OVERVIEW", month_label, 1)
-    _text(canvas, width / 2, height - 109, "OWNER DASHBOARD", 8, TEAL, "Helvetica-Bold", "center")
+    _text(canvas, width / 2, height - 109, "REVIEW REQUIRED - SEE BANK RECONCILIATION" if warnings else "BANK TOTALS RECONCILED (INR 1 TOLERANCE)", 9, colors.HexColor('#B42318') if warnings else TEAL, "Helvetica-Bold", "center")
     gap = 14; card_w = (width - 60 - gap * 3) / 4
     cards = [("Opening bank position", indian(sum(known_openings)) if len(known_openings) == 3 else "See bank page", NAVY), ("Cash receipts", indian(inflow), TEAL), ("Cash payments", indian(outflow), ORANGE), ("Closing bank position", indian(sum(known_closings)) if len(known_closings) == 3 else "See bank page", GREEN)]
     for i, item in enumerate(cards): _card(canvas, 30 + i * (card_w + gap), height - 215, card_w, *item)
@@ -470,6 +516,19 @@ def build_report(month: str, receipts, payments, banks, assets, password: str, p
     canvas.showPage()
 
     page = 3
+    _header(canvas, "BANK RECONCILIATION AND VALIDATION", month_label, page)
+    y = height - 110
+    for label, value in reconciliation:
+        _text(canvas, 45, y, label, 10)
+        _text(canvas, width - 45, y, indian(value), 10, NAVY, "Helvetica-Bold", "right")
+        y -= 25
+    y -= 12
+    for warning in warnings or ["Bank totals agree within INR 1 and all statement periods match the selected month."]:
+        for line in simpleSplit(warning, 'Helvetica', 10, width - 90):
+            _text(canvas, 45, y, line, 10, colors.HexColor('#B42318') if warnings else GREEN)
+            y -= 15
+        y -= 12
+    canvas.showPage(); page += 1
     if previous:
         _comparison_page(canvas, month_label, previous, receipts, payments, page); canvas.showPage(); page += 1
 
@@ -483,14 +542,20 @@ def build_report(month: str, receipts, payments, banks, assets, password: str, p
         _card(canvas, 45 + i * 260, height - 205, 235, bank.name, value, (TEAL, ORANGE, GREEN)[i])
     canvas.showPage(); page += 1
     if assets:
-        for start in range(0, len(assets), 40):
-            _header(canvas, "FIXED-ASSET REGISTER", f"Optional register • items {start + 1}–{min(start + 40, len(assets))}", page)
-            rows = assets[start:start + 40]; columns = [rows[:20], rows[20:]]
-            for col, values in enumerate(columns):
-                x = 42 + col * 395
-                for i,(label,value) in enumerate(values):
-                    y = height - 115 - i * 22; _text(canvas,x,y,label[:45],7.5); _text(canvas,x+355,y,indian(value),7.5,NAVY,"Helvetica-Bold","right")
-            canvas.showPage(); page += 1
+        _header(canvas, "FIXED-ASSET REGISTER", "Full asset descriptions and values", page)
+        y = height - 115
+        for label, value in assets:
+            lines = simpleSplit(label, 'Helvetica', 9, width - 235)
+            for index, line in enumerate(lines):
+                if y < 55:
+                    canvas.showPage(); page += 1
+                    _header(canvas, "FIXED-ASSET REGISTER", "Continued", page); y = height - 115
+                _text(canvas, 42, y, line, 9)
+                if index == 0:
+                    _text(canvas, width - 45, y, indian(value), 9, NAVY, "Helvetica-Bold", "right")
+                y -= 14
+            y -= 12
+        canvas.showPage(); page += 1
     _insights_page(canvas, month_label, receipts, payments, banks, previous, page); canvas.showPage()
     canvas.save(); raw.seek(0)
     reader = PdfReader(raw); writer = PdfWriter(); [writer.add_page(p) for p in reader.pages]

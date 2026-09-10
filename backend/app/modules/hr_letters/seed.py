@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
+from hashlib import sha256
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,6 +22,11 @@ TEMPLATE_KEYS = {
     "spot-appreciation-template.docx": "spot_appreciation",
     "special-increment-template.docx": "special_increment",
 }
+LEGACY_STARTER_HASHES = {
+    "appointment-template.docx": "30BEE1D4A95ABBAF5DD1475D5C785927152072F245EC5289FE8370E76BB19DCA",
+    "spot-appreciation-template.docx": "4D923592B496E843A3E1A375F308FDD7098B1BCD25F0AAF102BE8E787EE93E4C",
+    "special-increment-template.docx": "F0D5ABB3B89D2496D799736040677FA2B3DFD2C9998DD64E024EA0F8895163CF",
+}
 
 
 async def seed_hr_letter_templates(session: AsyncSession) -> None:
@@ -33,12 +39,40 @@ async def seed_hr_letter_templates(session: AsyncSession) -> None:
         collection = await department_knowledge_collection(session, organization.id, "hr")
         if collection is None:
             continue
-        for asset in ASSET_ROOT.iterdir():
+        # The asset directory also contains supporting resources such as the
+        # signatures folder. Only registered master templates belong in the
+        # Knowledge Base seed loop.
+        for asset_name in TEMPLATE_KEYS:
+            asset = ASSET_ROOT / asset_name
+            if not asset.is_file():
+                continue
             display_name = asset.name.replace("-template", " Template").replace("-", " ").title().replace(".Docx", ".docx").replace(".Pdf", ".pdf")
             category = f"hr_letter_template:{TEMPLATE_KEYS[asset.name]}"
-            exists = await session.scalar(select(KnowledgeDocument).where(KnowledgeDocument.organization_id == organization.id, KnowledgeDocument.document_category == category))
+            exists = await session.scalar(
+                select(KnowledgeDocument)
+                .where(
+                    KnowledgeDocument.organization_id == organization.id,
+                    KnowledgeDocument.document_category == category,
+                )
+                .order_by(KnowledgeDocument.version.desc(), KnowledgeDocument.created_at.desc())
+            )
             if exists:
                 exists.collection_id = collection.id
+                existing_path = storage / exists.stored_filename
+                legacy_hash = LEGACY_STARTER_HASHES.get(asset.name)
+                if (
+                    legacy_hash
+                    and exists.version == 1
+                    and existing_path.is_file()
+                    and sha256(existing_path.read_bytes()).hexdigest().upper() == legacy_hash
+                ):
+                    shutil.copy2(asset, existing_path)
+                    extension = asset.suffix.lower()
+                    extracted = extract_text(existing_path, extension)
+                    exists.size_bytes = existing_path.stat().st_size
+                    exists.extracted_text = extracted
+                    exists.extracted_characters = len(extracted)
+                    exists.processed_at = datetime.now(timezone.utc)
                 continue
             document_id = uuid.uuid4()
             stored_name = organized_storage_name(

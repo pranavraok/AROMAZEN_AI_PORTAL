@@ -98,7 +98,7 @@ class OpenAIProvider:
             "store": False,
         }
         if use_web_search:
-            payload["tools"] = [{"type": "web_search", "search_context_size": "medium"}]
+            payload["tools"] = [{"type": "web_search", "search_context_size": "low" if response_mode == "quick" else "medium"}]
         web_sources: list[dict[str, str]] = []
         seen_source_urls: set[str] = set()
 
@@ -158,7 +158,7 @@ class AnthropicProvider:
     def available(self) -> bool:
         return bool(self.settings.anthropic_api_key)
 
-    async def stream(self, system: str, prompt: str, *, images: list[dict[str, str]] | None = None, response_mode: str = "deep") -> AsyncIterator[ProviderEvent]:
+    async def stream(self, system: str, prompt: str, *, use_web_search: bool = False, images: list[dict[str, str]] | None = None, response_mode: str = "deep") -> AsyncIterator[ProviderEvent]:
         if not self.settings.anthropic_api_key:
             raise ProviderError(self.name, "not_configured", "Anthropic is not configured.")
         headers = {
@@ -180,8 +180,24 @@ class AnthropicProvider:
             "messages": [{"role": "user", "content": message_content}],
             "stream": True,
         }
+        if use_web_search:
+            payload["tools"] = [{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 1 if response_mode == "quick" else 3,
+                "allowed_domains": ["echa.europa.eu", "pubchem.ncbi.nlm.nih.gov", "ifrafragrance.org", "unece.org", "eur-lex.europa.eu"],
+            }]
         input_tokens = 0
         output_tokens = 0
+        web_sources: list[dict[str, str]] = []
+        seen_source_urls: set[str] = set()
+
+        def remember_web_source(result: dict) -> None:
+            url = str(result.get("url") or "")
+            if not url or url in seen_source_urls:
+                return
+            seen_source_urls.add(url)
+            web_sources.append({"title": str(result.get("title") or url), "url": url})
         try:
             async with httpx.AsyncClient(timeout=_timeouts(self.settings)) as client:
                 async with client.stream("POST", "https://api.anthropic.com/v1/messages", headers=headers, json=payload) as response:
@@ -193,6 +209,12 @@ class AnthropicProvider:
                         event_type = event.get("type")
                         if event_type == "message_start":
                             input_tokens = int((event.get("message", {}).get("usage") or {}).get("input_tokens") or 0)
+                        elif event_type == "content_block_start" and use_web_search:
+                            block = event.get("content_block") or {}
+                            if block.get("type") == "web_search_tool_result" and isinstance(block.get("content"), list):
+                                for result in block["content"]:
+                                    if isinstance(result, dict) and result.get("type") == "web_search_result":
+                                        remember_web_source(result)
                         elif event_type == "content_block_delta" and (event.get("delta") or {}).get("type") == "text_delta":
                             yield ProviderEvent("delta", self.name, self.model, text=(event.get("delta") or {}).get("text", ""))
                         elif event_type == "message_delta":
@@ -200,6 +222,8 @@ class AnthropicProvider:
                         elif event_type == "error":
                             error = event.get("error") or {}
                             raise ProviderError(self.name, str(error.get("type") or "stream_error"), "Anthropic stream failed.")
+                    if web_sources:
+                        yield ProviderEvent("sources", self.name, self.model, sources=web_sources)
                     yield ProviderEvent("usage", self.name, self.model, input_tokens=input_tokens, output_tokens=output_tokens)
         except ProviderError:
             raise
@@ -375,21 +399,21 @@ class AIProviderRouter:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
 
-    def _providers(self, question: str, *, use_web_search: bool = False):
+    def _providers(self, question: str, *, use_web_search: bool = False, model_preference: str = "auto"):
         lowered = question.lower()
         complex_markers = ("[internal_exhaustive]", "[attachment_exhaustive]", "analyse", "analyze", "compare", "strategy", "calculate", "deep", "detailed", "complete", "all employees", "list of", "risk", "forecast", "formulation")
         complex_request = len(question) > 600 or any(marker in lowered for marker in complex_markers)
         openai = OpenAIProvider(self.settings)
         sonnet = AnthropicProvider(self.settings, self.settings.anthropic_default_model)
-        if use_web_search:
+        if model_preference == "openai":
             return [openai] if openai.available else []
-        routing_mode = self.settings.ai_default_provider.lower()
-        if routing_mode == "auto":
-            preferred = openai if complex_request else sonnet
-        elif routing_mode == "openai":
-            preferred = openai
-        else:
-            preferred = sonnet
+        if model_preference == "anthropic":
+            return [sonnet] if sonnet.available else []
+        if use_web_search:
+            return [provider for provider in (openai, sonnet) if provider.available]
+        # Routing is always automatic. Stale environment variables or legacy
+        # organization settings must never pin every request to one provider.
+        preferred = openai if complex_request else sonnet
         alternate = sonnet if preferred.name == "openai" else openai
         primary = preferred if preferred.available else alternate if alternate.available else None
         if primary is None:
@@ -397,7 +421,7 @@ class AIProviderRouter:
         fallback = openai if primary.name == "anthropic" else sonnet
         return [primary] + ([fallback] if fallback.available and (fallback.name, fallback.model) != (primary.name, primary.model) else [])
 
-    async def stream(self, system: str, prompt: str, question: str, *, use_web_search: bool = False, images: list[dict[str, str]] | None = None, response_mode: str = "deep") -> AsyncIterator[ProviderEvent]:
+    async def stream(self, system: str, prompt: str, question: str, *, use_web_search: bool = False, images: list[dict[str, str]] | None = None, response_mode: str = "deep", model_preference: str = "auto") -> AsyncIterator[ProviderEvent]:
         # Essential mode always routes through OpenRouter (free tier) — never touches paid keys.
         if response_mode == "essential":
             openrouter = OpenRouterProvider(self.settings)
@@ -406,7 +430,7 @@ class AIProviderRouter:
             async for event in openrouter.stream(system, prompt, images=images, response_mode=response_mode):
                 yield event
             return
-        providers = self._providers(question, use_web_search=use_web_search)
+        providers = self._providers(question, use_web_search=use_web_search, model_preference=model_preference)
         if not providers:
             raise ProviderError("router", "no_provider", "No AI provider is configured.")
         last_error: ProviderError | None = None
@@ -418,7 +442,7 @@ class AIProviderRouter:
                     if isinstance(provider, OpenAIProvider):
                         event_stream = provider.stream(system, prompt, use_web_search=use_web_search, images=images, response_mode=response_mode)
                     else:
-                        event_stream = provider.stream(system, prompt, images=images, response_mode=response_mode)
+                        event_stream = provider.stream(system, prompt, use_web_search=use_web_search, images=images, response_mode=response_mode)
                     async for event in event_stream:
                         if event.kind == "delta" and event.text:
                             emitted_text = True

@@ -1,0 +1,2 @@
+"""IT asset management module."""
+

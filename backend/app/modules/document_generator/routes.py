@@ -5,6 +5,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -24,7 +25,8 @@ from app.modules.identity.models import AIUsageEvent, AuditEvent, Department, Do
 from app.modules.settings.service import provider_runtime_settings
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.storage import organized_storage_name
-from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
+from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_master_templates
+from app.modules.hr_letters.routes import _convert_docx_to_pdf
 
 router = APIRouter(dependencies=[Depends(require_department("r-d"))])
 
@@ -34,6 +36,7 @@ class DraftNotesRequest(BaseModel):
     notes: str = Field(min_length=1, max_length=20000)
     current_fields: dict[str, str] = Field(default_factory=dict)
     current_rows: list[dict[str, str]] = Field(default_factory=list, max_length=200)
+    field_labels: dict[str, str] = Field(default_factory=dict)
 
 
 def _parse_ai_json(text: str) -> dict:
@@ -191,7 +194,10 @@ def _normalize_coa_value(parameter: str, column: str, value: str) -> str:
     return text[:2000]
 
 
-DOCUMENT_DEPARTMENT_SLUGS = {"r-d", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"}
+DOCUMENT_DEPARTMENT_SLUGS = {"r-d", "qa", "quality-assurance", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"}
+QA_DEPARTMENT_SLUGS = {"qa", "quality-assurance", "qa-qc", "qa-and-qc", "quality-assurance-quality-control"}
+QA_COA_MASTER_SOURCE = "qa-coa-master"
+QA_COA_CANVA_URL = "https://www.canva.com/design/DAHUIbep1j4/h7gaNI5L-yAJ7wzdlCqT7g/edit"
 
 
 async def _require_document_department(session: AsyncSession, user: User) -> str:
@@ -200,11 +206,24 @@ async def _require_document_department(session: AsyncSession, user: User) -> str
         return "r-d"
     department = await session.get(Department, user.department_id) if user.department_id else None
     if not department or department.slug not in DOCUMENT_DEPARTMENT_SLUGS:
-        raise HTTPException(status_code=403, detail="SDS and COA creation is limited to the R&D and QA & QC departments.")
+        raise HTTPException(status_code=403, detail="SDS and COA creation is limited to the R&D and Quality Assurance departments.")
     return department.slug
 
 
-def _type_for(name: str) -> str:
+async def _require_qa_department(session: AsyncSession, user: User) -> None:
+    roles = await role_keys_for_user(session, user.id)
+    if roles.intersection({"owner", "super_admin"}):
+        return
+    department = await session.get(Department, user.department_id) if user.department_id else None
+    if not department or department.slug not in QA_DEPARTMENT_SLUGS:
+        raise HTTPException(status_code=403, detail="This master template is restricted to the Quality Assurance department.")
+
+
+def _type_for(name: str, source_key: str | None = None) -> str:
+    if source_key and source_key.startswith("document-generator-template:"):
+        template_type = source_key.split(":", 2)[1]
+        if template_type in {"coa", "sds"}:
+            return template_type
     return "sds" if "sds" in name.lower() else "coa"
 
 
@@ -258,7 +277,12 @@ async def list_templates(user: User = Depends(require_permissions("ai.workspace.
     ).order_by(KnowledgeDocument.created_at.desc())
     result = []
     for document, collection in (await session.execute(query)).all():
-        result.append({"id": str(document.id), "name": document.original_filename, "collection_name": collection.name, "document_type": _type_for(document.original_filename)})
+        result.append({
+            "id": str(document.id), "name": document.original_filename,
+            "collection_name": collection.name, "document_type": _type_for(document.original_filename, document.source_key),
+            "version": document.version, "source_key": document.source_key,
+            "external_edit_url": document.external_edit_url,
+        })
     return result
 
 
@@ -285,7 +309,7 @@ async def upload_template(
         raise HTTPException(status_code=422, detail="The uploaded file is not a valid DOCX Word document.") from exc
     type_label = document_type.upper()
     stored_name = original_name if document_type in original_name.lower() else f"{Path(original_name).stem}-{type_label}.docx"
-    documents = await replace_department_uploads(session, user, department_slug, [DepartmentUpload(
+    documents = await replace_department_master_templates(session, user, department_slug, [DepartmentUpload(
         f"document-generator-template:{document_type}:{user.id}",
         content,
         stored_name,
@@ -299,14 +323,63 @@ async def upload_template(
         "name": document.original_filename,
         "collection_name": collection.name if collection else "R&D",
         "document_type": document_type,
+        "version": document.version,
+        "source_key": document.source_key,
+        "external_edit_url": document.external_edit_url,
     }
+
+
+@router.post("/templates/coa-master")
+async def replace_qa_coa_master(
+    template_file: UploadFile = File(...),
+    user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read", "knowledge.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _require_qa_department(session, user)
+    original_name = Path(template_file.filename or "").name
+    if Path(original_name).suffix.lower() != ".docx":
+        raise HTTPException(status_code=422, detail="The COA master must be a DOCX Word file.")
+    settings = get_settings()
+    content = await template_file.read(settings.max_upload_size_mb * 1024 * 1024 + 1)
+    if not content or len(content) > settings.max_upload_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"The template is empty or exceeds the {settings.max_upload_size_mb} MB limit.")
+    try:
+        WordDocument(io.BytesIO(content))
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="The uploaded file is not a valid DOCX Word document.") from exc
+    document = (await replace_department_master_templates(session, user, "quality-assurance", [DepartmentUpload(
+        QA_COA_MASTER_SOURCE,
+        content,
+        "AROMAZEN COA Master.docx",
+        template_file.content_type or "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        document_category="document_template",
+    )]))[0]
+    document.external_edit_url = QA_COA_CANVA_URL
+    await session.commit()
+    collection = await session.get(KnowledgeCollection, document.collection_id)
+    return {
+        "id": str(document.id), "name": document.original_filename,
+        "collection_name": collection.name if collection else "Quality Assurance",
+        "document_type": "coa", "version": document.version,
+        "source_key": document.source_key, "external_edit_url": document.external_edit_url,
+    }
+
+
+@router.get("/templates/{template_id}/content")
+async def template_content(template_id: str, user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> FileResponse:
+    await _require_document_department(session, user)
+    document, _ = await _template(session, user, template_id)
+    path = Path(get_settings().upload_storage_path) / document.stored_filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="The stored Word template is unavailable.")
+    return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=document.original_filename)
 
 
 @router.get("/templates/{template_id}/schema")
 async def template_schema(template_id: str, user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> dict:
     await _require_document_department(session, user)
     document, _ = await _template(session, user, template_id)
-    document_type = _type_for(document.original_filename)
+    document_type = _type_for(document.original_filename, document.source_key)
     row_fields = (["parameter", "specification", "result"] if document_type == "coa" else ["name", "cas_number", "ec_number", "concentration", "classification", "notes"])
     template_path = Path(get_settings().upload_storage_path) / document.stored_filename
     roles = await role_keys_for_user(session, user.id)
@@ -318,7 +391,7 @@ async def template_schema(template_id: str, user: User = Depends(require_permiss
 async def excel_template(template_id: str, user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> StreamingResponse:
     await _require_document_department(session, user)
     document, _ = await _template(session, user, template_id)
-    document_type = _type_for(document.original_filename)
+    document_type = _type_for(document.original_filename, document.source_key)
     workbook = Workbook()
     fields_sheet = workbook.active
     fields_sheet.title = "Fields"
@@ -391,7 +464,7 @@ async def transcribe_draft_audio(
 async def draft_from_notes(payload: DraftNotesRequest, user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session)) -> dict:
     await _require_document_department(session, user)
     document, _ = await _template(session, user, payload.template_document_id)
-    document_type = _type_for(document.original_filename)
+    document_type = _type_for(document.original_filename, document.source_key)
     template_path = Path(get_settings().upload_storage_path) / document.stored_filename
     schema = field_schema(document_type, template_path)
     allowed_fields = {item["key"] for item in schema}
@@ -404,7 +477,7 @@ async def draft_from_notes(payload: DraftNotesRequest, user: User = Depends(requ
     system = """You are a precise professional COA/SDS dictation editor. Return JSON only with keys field_updates, row_updates, and unassigned_notes. Input may contain a professional audio transcript and a browser transcript of the same speech; reconcile them as alternate evidence, do not treat their headings as values, and prefer the version that is complete and professionally plausible. Process notes in spoken order. When the speaker says 'sorry', 'no', 'I mean', 'correct that to', 'change that to', or otherwise revises a fact, replace the earlier value: the latest clear correction wins and old/new values must never be concatenated. Never invent. Correct only obvious speech-recognition artifacts using COA/SDS vocabulary, such as 'fail yellowish liquid' meaning 'pale yellowish liquid'. Omit genuinely unclear values. field_updates may use only supplied keys. For COA, 'name Rose' means product_name/Name of Product unless 'customer name' is explicitly spoken. Product codes and batch numbers must not absorb neighbouring fields. Preserve individually spoken code letters, full four-digit years, units, decimals, and numeric ranges. Expiry must not silently become the manufacturing year. Each value ends when another field or COA parameter is spoken. A COA parameter followed by one value normally updates result; if specification/result are named, map them exactly. Use only supplied fixed COA parameter names and never create or rename a parameter. For SDS, 'name Rose' means product_identifier. Treat deterministic updates as hints only: correct them when the complete sentence or a later correction provides a better value or boundary."""
     prompt = json.dumps({
         "document_type": document_type,
-        "available_fields": [{"key": item["key"], "label": item["label"]} for item in schema],
+        "available_fields": [{"key": item["key"], "label": str(payload.field_labels.get(item["key"]) or item["label"])[:160]} for item in schema],
         "fixed_coa_parameters": [row["parameter"] for row in fixed_parameters],
         "current_fields": {key: str(value)[:4000] for key, value in payload.current_fields.items() if key in allowed_fields and str(value).strip()},
         "current_rows": payload.current_rows[:200],
@@ -454,25 +527,28 @@ async def draft_from_notes(payload: DraftNotesRequest, user: User = Depends(requ
 @router.post("/generate")
 async def generate(
     template_document_id: str = Form(...), document_type: str = Form(...), fields_json: str = Form("{}"), rows_json: str = Form("[]"),
-    output_filename: str | None = Form(None), excel_file: UploadFile | None = File(None), user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session),
+    field_labels_json: str = Form("{}"), column_labels_json: str = Form("{}"), hidden_field_keys_json: str = Form("[]"), custom_fields_json: str = Form("[]"), output_filename: str | None = Form(None), excel_file: UploadFile | None = File(None), user: User = Depends(require_permissions("ai.workspace.use", "knowledge.read")), session: AsyncSession = Depends(get_db_session),
 ) -> dict:
-    document_department_slug = await _require_document_department(session, user)
+    await _require_document_department(session, user)
     document, _ = await _template(session, user, template_document_id)
-    actual_type = _type_for(document.original_filename)
+    actual_type = _type_for(document.original_filename, document.source_key)
     if document_type not in {"coa", "sds"} or document_type != actual_type:
         raise HTTPException(status_code=422, detail="The selected document type does not match this template.")
     try:
         manual_fields = json.loads(fields_json)
         manual_rows = json.loads(rows_json)
+        field_labels = json.loads(field_labels_json)
+        column_labels = json.loads(column_labels_json)
+        hidden_field_keys = json.loads(hidden_field_keys_json)
+        custom_fields = json.loads(custom_fields_json)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=422, detail="The form data is invalid.") from exc
-    if not isinstance(manual_fields, dict) or not isinstance(manual_rows, list):
+    if not isinstance(manual_fields, dict) or not isinstance(manual_rows, list) or not isinstance(field_labels, dict) or not isinstance(column_labels, dict) or not isinstance(hidden_field_keys, list) or not isinstance(custom_fields, list):
         raise HTTPException(status_code=422, detail="The form data is invalid.")
     storage = Path(get_settings().upload_storage_path)
     excel_fields: dict[str, str] = {}
     excel_rows: list[dict[str, str]] = []
     temporary_excel: Path | None = None
-    excel_content: bytes | None = None
     if excel_file:
         if Path(excel_file.filename or "").suffix.lower() != ".xlsx":
             raise HTTPException(status_code=422, detail="Please upload an XLSX Excel file.")
@@ -529,7 +605,12 @@ async def generate(
         identifier=generated_id,
     )
     (storage / output_stored).parent.mkdir(parents=True, exist_ok=True)
-    warnings = generate_docx(template_path, storage / output_stored, document_type, fields, rows)
+    safe_field_labels = {str(key): str(value)[:160] for key, value in field_labels.items() if str(value).strip()}
+    safe_column_labels = {str(key): str(value)[:160] for key, value in column_labels.items() if str(value).strip()}
+    allowed_field_keys = {item["key"] for item in field_schema(document_type, template_path)}
+    safe_hidden_field_keys = {str(key) for key in hidden_field_keys if str(key) in allowed_field_keys}
+    safe_custom_fields = [{"label": str(item.get("label", ""))[:160], "value": str(item.get("value", ""))[:4000]} for item in custom_fields[:50] if isinstance(item, dict) and str(item.get("label", "")).strip()]
+    warnings = generate_docx(template_path, storage / output_stored, document_type, fields, rows, safe_field_labels, safe_column_labels, safe_hidden_field_keys, safe_custom_fields)
     if document_type == "coa" and fields.get("manufacturing_date") and fields.get("expiry_date"):
         try:
             manufacturing = datetime.strptime(fields["manufacturing_date"], "%d %B %Y")
@@ -541,15 +622,7 @@ async def generate(
     generation = DocumentGeneration(id=generated_id, organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, template_document_id=document.id, document_type=document_type, input_mode="mixed" if excel_file and manual_fields else "excel" if excel_file else "manual", output_stored_filename=output_stored, output_original_filename=output_name, warnings_json=warnings, status="draft")
     session.add(generation)
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="document.generated", target_type="document_generation", target_id=str(generated_id), metadata_json={"document_type": document_type, "template_document_id": str(document.id), "input_mode": generation.input_mode, "warning_count": len(warnings)}))
-    if excel_content is not None and excel_file is not None:
-        await replace_department_uploads(session, user, document_department_slug, [DepartmentUpload(
-            f"document-generator:{document_type}-data",
-            excel_content,
-            excel_file.filename or f"{document_type.upper()}_Input.xlsx",
-            excel_file.content_type,
-        )])
-    else:
-        await session.commit()
+    await session.commit()
     return {"id": str(generated_id), "filename": output_name, "status": "draft", "warnings": warnings}
 
 
@@ -564,3 +637,23 @@ async def download(generation_id: str, user: User = Depends(require_permissions(
     if not path.is_file():
         raise HTTPException(status_code=404, detail="The generated file is unavailable.")
     return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=generation.output_original_filename)
+
+
+@router.get("/generations/{generation_id}/preview")
+async def preview_generation(generation_id: str, user: User = Depends(require_permissions("ai.workspace.use")), session: AsyncSession = Depends(get_db_session)) -> StreamingResponse:
+    await _require_document_department(session, user)
+    generation = await session.get(DocumentGeneration, generation_id)
+    roles = await role_keys_for_user(session, user.id)
+    if not generation or generation.organization_id != user.organization_id or (generation.user_id != user.id and not roles.intersection({"owner", "super_admin"})):
+        raise HTTPException(status_code=404, detail="Generated document not found.")
+    path = Path(get_settings().upload_storage_path) / generation.output_stored_filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="The generated file is unavailable.")
+    try:
+        with TemporaryDirectory(prefix="coa-preview-") as directory:
+            pdf_path = _convert_docx_to_pdf(path, Path(directory))
+            pdf_bytes = pdf_path.read_bytes()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="PDF preview is unavailable because document conversion is not configured.") from exc
+    pdf_name = f"{Path(generation.output_original_filename).stem}.pdf"
+    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{pdf_name}"'})

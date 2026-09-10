@@ -1,23 +1,17 @@
 import io
-import uuid
-from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from pypdf import PdfReader
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
-from app.core.config import get_settings
 from app.modules.cash_flow.service import ASSET_TEMPLATE, CASH_FLOW_TEMPLATE, build_report, read_assets, read_bank, read_cash_flow
 from app.modules.identity.authorization import require_permissions
-from app.modules.identity.models import AuditEvent, CashFlowReportSnapshot, Department, KnowledgeCollection, KnowledgeDocument, User
+from app.modules.identity.models import AuditEvent, CashFlowReportSnapshot, Department, User
 from app.modules.identity.service import role_keys_for_user
-from app.modules.knowledge.storage import organized_storage_name
-from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_uploads
 
 router = APIRouter()
 
@@ -61,15 +55,6 @@ async def generate(
 ):
     await ensure_access(user, session)
     if len(pdf_password) < 8: raise HTTPException(status_code=422, detail="Use a PDF password of at least 8 characters.")
-    accounts_collection = await session.scalar(
-        select(KnowledgeCollection).where(
-            KnowledgeCollection.organization_id == user.organization_id,
-            KnowledgeCollection.slug == "accounts",
-            KnowledgeCollection.status == "active",
-        )
-    )
-    if accounts_collection is None:
-        raise HTTPException(status_code=500, detail="The Accounts Knowledge Base is unavailable. Ask an administrator to restore the Accounts collection before generating the report.")
     try:
         bob, axis, indus = [await checked_read(file, (".pdf",), label) for file, label in ((bob_statement,"BOB statement PDF"),(axis_statement,"Axis statement PDF"),(indusind_statement,"IndusInd statement PDF"))]
         cash = await checked_read(cash_flow_excel, (".xlsx", ".xlsm"), "monthly cash-flow Excel")
@@ -133,62 +118,6 @@ async def generate(
     snapshot.net_movement = total_receipts - total_payments
     snapshot.assets_included = bool(assets)
     filename = f"AROMAZEN_Cash_Flow_{report_month}.pdf"
-    previous_version = await session.scalar(
-        select(func.max(KnowledgeDocument.version)).where(
-            KnowledgeDocument.collection_id == accounts_collection.id,
-            KnowledgeDocument.original_filename == filename,
-        )
-    )
-    settings = get_settings()
-    storage_root = Path(settings.upload_storage_path)
-    document_id = uuid.uuid4()
-    stored_filename = organized_storage_name(
-        "knowledge",
-        user.organization_id,
-        filename,
-        category=f"{getattr(accounts_collection, 'slug', 'accounts')}/cash-flow-reports/{report_month}",
-        identifier=document_id,
-        version=(previous_version or 0) + 1,
-    )
-    destination = storage_root / stored_filename
-    try:
-        await run_in_threadpool(destination.parent.mkdir, parents=True, exist_ok=True)
-        await run_in_threadpool(destination.write_bytes, output)
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail="The protected report could not be saved to the Accounts Knowledge Base, so the download was stopped.") from exc
-
-    knowledge_document = KnowledgeDocument(
-        id=document_id,
-        organization_id=user.organization_id,
-        collection_id=accounts_collection.id,
-        uploaded_by_user_id=user.id,
-        original_filename=filename,
-        stored_filename=stored_filename,
-        mime_type="application/pdf",
-        size_bytes=len(output),
-        version=(previous_version or 0) + 1,
-        status="ready",
-        extracted_text=None,
-        extracted_characters=0,
-        processed_at=datetime.now(timezone.utc),
-        document_category="cash_flow_report",
-    )
-    try:
-        session.add(knowledge_document)
-        accounts_collection.updated_at = datetime.now(timezone.utc)
-        await session.flush()
-        session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="cash_flow.report_generated", target_type="cash_flow_report", target_id=report_month, metadata_json={"fixed_assets_included": bool(assets), "page_source_files": 5 if assets_content else 4, "previous_comparison_included": include_previous_comparison, "previous_report_month": previous_snapshot.report_month if previous_snapshot else None, "knowledge_collection_id": str(accounts_collection.id), "knowledge_document_id": str(knowledge_document.id), "password_protected": True}))
-        source_uploads = [
-            DepartmentUpload("cash-flow:bank-of-baroda", bob, bob_statement.filename or "Bank_of_Baroda_Statement.pdf", bob_statement.content_type),
-            DepartmentUpload("cash-flow:axis-bank", axis, axis_statement.filename or "Axis_Bank_Statement.pdf", axis_statement.content_type),
-            DepartmentUpload("cash-flow:indusind-bank", indus, indusind_statement.filename or "IndusInd_Bank_Statement.pdf", indusind_statement.content_type),
-            DepartmentUpload("cash-flow:monthly-data", cash, cash_flow_excel.filename or "Monthly_Cash_Flow.xlsx", cash_flow_excel.content_type),
-        ]
-        if assets_content is not None and fixed_assets_excel is not None:
-            source_uploads.append(DepartmentUpload("cash-flow:fixed-assets", assets_content, fixed_assets_excel.filename or "Fixed_Assets.xlsx", fixed_assets_excel.content_type))
-        await replace_department_uploads(session, user, "accounts", source_uploads)
-    except Exception:
-        await session.rollback()
-        await run_in_threadpool(destination.unlink, missing_ok=True)
-        raise
+    session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="cash_flow.report_generated", target_type="cash_flow_report", target_id=report_month, metadata_json={"fixed_assets_included": bool(assets), "page_source_files": 5 if assets_content else 4, "previous_comparison_included": include_previous_comparison, "previous_report_month": previous_snapshot.report_month if previous_snapshot else None, "password_protected": True}))
+    await session.commit()
     return StreamingResponse(io.BytesIO(output), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})

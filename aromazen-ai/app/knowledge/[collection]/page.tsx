@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ChevronLeft, Download, ExternalLink, FileText, Folder, Lock, LockKeyhole, Shield, Users } from 'lucide-react'
+import { Check, ChevronLeft, Download, ExternalLink, FileText, Folder, Lock, LockKeyhole, Pencil, Shield, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/toast-provider'
 import { ApiError } from '@/lib/api/client'
 import { api } from '@/lib/api/services'
 import type { KnowledgeCollection, KnowledgeDocument } from '@/lib/api/types'
+import { canvaEditUrlForKnowledgeTemplate } from '@/lib/template-canva-links'
 
 interface Props { params: Promise<{ collection: string }> }
 
@@ -25,6 +26,7 @@ const FOLDER_DEFINITIONS = [
   { key: 'hr_policy', label: 'HR policy', icon: Shield },
   { key: 'other', label: 'Other', icon: Folder },
   { key: 'department_upload', label: 'Department uploads', icon: Folder },
+  { key: 'hr_custom_letter_template', label: 'Custom HR templates', icon: FileText },
 ] as const
 
 function formatSize(bytes: number) {
@@ -35,6 +37,7 @@ function folderLabel(doc: KnowledgeDocument) {
   const cat = doc.document_category ?? 'general'
   if (cat.startsWith('other:')) return cat.slice(6)
   if (cat.startsWith('hr_letter_template:')) return `HR letter template · ${cat.slice('hr_letter_template:'.length).replaceAll('_', ' ')}`
+  if (cat === 'hr_custom_letter_template') return 'Custom HR letter template'
   if (cat === 'salary_slip_template') return 'Salary-slip template'
   if (cat === 'document_template') return 'Document template'
   if (cat === 'department_upload') return doc.source_key ? `Department upload · ${doc.source_key.replaceAll(':', ' · ').replaceAll('-', ' ')}` : 'Department upload'
@@ -59,6 +62,9 @@ export default function CollectionDetailPage({ params }: Props) {
   const [loading, setLoading] = useState(true)
   const [collectionFilter, setCollectionFilter] = useState<string | null>(null)
   const [activeFolder, setActiveFolder] = useState<string | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [savingName, setSavingName] = useState(false)
 
   useEffect(() => { void params.then(({ collection }) => setSlug(collection)) }, [params])
 
@@ -139,6 +145,31 @@ export default function CollectionDetailPage({ params }: Props) {
     } catch { notify('error', 'Unable to download document.') }
   }
 
+  function beginRename(document: KnowledgeDocument) {
+    setRenamingId(document.id)
+    setRenameValue(document.name)
+  }
+
+  function cancelRename() {
+    setRenamingId(null)
+    setRenameValue('')
+  }
+
+  async function saveDocumentName(item: { document: KnowledgeDocument; collection: KnowledgeCollection }) {
+    if (!accessToken || !renameValue.trim() || savingName) return
+    setSavingName(true)
+    try {
+      const updated = await api.knowledge.renameDocument(accessToken, item.collection.id, item.document.id, renameValue)
+      setDocsWithCollection((current) => current.map((pair) => pair.document.id === updated.id ? { ...pair, document: updated } : pair))
+      cancelRename()
+      notify('success', `Renamed to ${updated.name}.`)
+    } catch (reason) {
+      notify('error', reason instanceof ApiError ? reason.message : 'Unable to rename this document.')
+    } finally {
+      setSavingName(false)
+    }
+  }
+
   const currentCollection = allCollections.find((c) => c.id === collectionFilter)
 
   return <AppLayout><div className="space-y-6 p-6">
@@ -188,11 +219,18 @@ export default function CollectionDetailPage({ params }: Props) {
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <div className="border-b border-border px-5 py-4"><h2 className="font-semibold">Documents</h2></div>
         {filteredDocs.length === 0 ? <p className="p-6 text-sm text-muted-foreground">No documents found for this filter.</p> : <div className="divide-y divide-border">
-          {filteredDocs.map((item) => { const protectedCashFlow = item.document.document_category === 'cash_flow_report'; return <div key={item.document.id} className="grid min-w-0 gap-3 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+          {filteredDocs.map((item) => { const protectedCashFlow = item.document.document_category === 'cash_flow_report'; const canvaEditUrl = item.document.external_edit_url ?? canvaEditUrlForKnowledgeTemplate(item.document.document_category); return <div key={item.document.id} className="grid min-w-0 gap-3 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
             <div className="flex min-w-0 items-start gap-3">
               {protectedCashFlow ? <LockKeyhole className="mt-0.5 h-5 w-5 shrink-0 text-primary" /> : <FileText className="mt-0.5 h-5 w-5 shrink-0 text-primary" />}
               <div className="min-w-0 flex-1">
-                <p className="break-words text-sm font-medium [overflow-wrap:anywhere] sm:truncate" title={item.document.name}>{item.document.name}</p>
+                {renamingId === item.document.id ? <div className="flex max-w-xl items-center gap-1.5">
+                  <input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void saveDocumentName(item); if (event.key === 'Escape') cancelRename() }} disabled={savingName} aria-label={`Rename ${item.document.name}`} className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" />
+                  <Button variant="outline" size="sm" disabled={savingName || !renameValue.trim()} onClick={() => void saveDocumentName(item)} title="Save name" aria-label="Save file name"><Check className="h-3.5 w-3.5" /></Button>
+                  <Button variant="outline" size="sm" disabled={savingName} onClick={cancelRename} title="Cancel rename" aria-label="Cancel rename"><X className="h-3.5 w-3.5" /></Button>
+                </div> : <div className="flex min-w-0 items-center gap-1.5">
+                  <p className="min-w-0 break-words text-sm font-medium [overflow-wrap:anywhere] sm:truncate" title={item.document.name}>{item.document.name}</p>
+                  {hasPermission('knowledge.write') && <button type="button" onClick={() => beginRename(item.document)} className="shrink-0 rounded p-1 text-muted-foreground transition hover:bg-muted hover:text-foreground" title="Rename file" aria-label={`Rename ${item.document.name}`}><Pencil className="h-3.5 w-3.5" /></button>}
+                </div>}
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
                   {collectionFilter === null && <><span className="max-w-full break-words font-medium text-foreground/70">{item.collection.name}</span><span aria-hidden="true">·</span></>}
                   <span>{folderLabel(item.document)}</span><span aria-hidden="true">·</span><span>{formatSize(item.document.size_bytes)}</span><span aria-hidden="true">·</span><span>v{item.document.version}</span><span aria-hidden="true">·</span><span>{protectedCashFlow ? 'Password required to open' : `${item.document.extracted_characters.toLocaleString()} chars`}</span>
@@ -202,6 +240,7 @@ export default function CollectionDetailPage({ params }: Props) {
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">
               <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${protectedCashFlow || item.document.status === 'ready' ? 'bg-emerald-500/15 text-emerald-600' : item.document.status === 'failed' ? 'bg-destructive/15 text-destructive' : 'bg-amber-500/15 text-amber-700'}`}>{protectedCashFlow ? 'Protected' : item.document.status === 'ready' ? 'Ready' : item.document.status === 'failed' ? 'Failed' : item.document.status === 'uploaded' ? 'Needs processing' : 'Processing'}</span>
+              {canvaEditUrl && hasPermission('knowledge.write') && <Button className="min-w-32 flex-1 md:flex-none" variant="outline" size="sm" onClick={() => window.open(canvaEditUrl, '_blank', 'noopener,noreferrer')}>Edit in Canva <ExternalLink className="ml-1 h-3 w-3" /></Button>}
               <Button className="min-w-24 flex-1 md:flex-none" variant="outline" size="sm" onClick={() => void viewDocument(item)}>View <ExternalLink className="ml-1 h-3 w-3" /></Button>
               <Button className="min-w-11 md:min-w-0" variant="outline" size="sm" onClick={() => void downloadDocument(item)} title="Download" aria-label={`Download ${item.document.name}`}><Download className="h-3 w-3" /></Button>
             {!protectedCashFlow && item.document.status !== 'ready' && hasPermission('knowledge.write') && <Button variant="outline" size="sm" onClick={() => void processDocument(item)}>Process now</Button>}

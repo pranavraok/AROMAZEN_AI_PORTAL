@@ -33,13 +33,14 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     openai_transcription_model: str = "gpt-4o-mini-transcribe"
     openai_image_model: str = "gpt-image-2"
+    epa_comptox_api_key: str | None = None
     anthropic_api_key: str | None = None
     anthropic_default_model: str = "claude-sonnet-4-6"
     anthropic_fast_model: str = "claude-haiku-4-5"
     openrouter_api_key: str | None = None
     openrouter_model: str = "z-ai/glm-5.2:free"
     openrouter_daily_token_limit: int = 1_000_000
-    ai_default_provider: str = "anthropic"
+    ai_default_provider: str = "auto"
     ai_request_timeout_seconds: float = 240.0
     ai_connect_timeout_seconds: float = 10.0
     ai_max_output_tokens: int = 12000
@@ -55,6 +56,7 @@ class Settings(BaseSettings):
     zoho_smtp_password: str | None = None
     zoho_from_email: str | None = None
     zoho_from_name: str = "AROMAZEN INDIA"
+    zoho_department_accounts_json: str | None = None
     usd_to_inr_fallback_rate: float = 95.0
     currency_rate_cache_seconds: int = 3600
     login_rate_limit_per_minute: int = 10
