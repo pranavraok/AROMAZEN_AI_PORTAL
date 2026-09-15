@@ -1,0 +1,1437 @@
+{
+  "source": "SOME RAW MATERIALS LIST WITH CLP.docx",
+  "transport_source": "TRANSPORT INFORMATION UN 3082 MATERIALS LIST.docx",
+  "materials": [
+    {
+      "name": "101 KETONE",
+      "cas": "23787-90-8",
+      "ec": "245-890-3",
+      "classification": "Skin Sens. 1B: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "2-ACETYL PYRAZINE",
+      "cas": "22047-25-2",
+      "ec": "244-753-5",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319, Acute Tox. 4: H302",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "ACETOIN",
+      "cas": "513-86-0",
+      "ec": "208-174-1",
+      "classification": "Flam.Liq.3: H226, Eye Dam. 1: H318",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "ACHP",
+      "cas": "2705-87-5",
+      "ec": "220-292-5",
+      "classification": "Acute Tox. 4: H302, Acute Tox. 4: H312, Skin Sens. 1B: H317, Acute Tox. 4: H332, Aquatic Acute 1: H400, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": "Oral: LD50 380 mg/kg bw; Dermal: LD50 1 600 mg/kg bw"
+    },
+    {
+      "name": "ALDEHYDE C-10",
+      "cas": "112-31-2",
+      "ec": "203-957-4",
+      "classification": "Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 33 320 mg/kg bw; Dermal: LD50 4 173 mg/kg bw"
+    },
+    {
+      "name": "ALDEHYDE C-11",
+      "cas": "112-44-7",
+      "ec": "203-972-6",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "ALDEHYDE C-12 DIMETHYL ACETAL",
+      "cas": "14620-52-1",
+      "ec": "238-659-3",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "ALDEHYDE C-12 LAURIC",
+      "cas": "112-54-9",
+      "ec": "203-983-6",
+      "classification": "Skin Irrit. 2: H315, Sens. 1B: H317, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 23 100 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "ALDEHYDE C-12 M.N.A.",
+      "cas": "110-41-8",
+      "ec": "203-765-0",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Aquatic Acute 1: H400, Aquatic Acute 1: H410",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 8 280 mg/kg bw"
+    },
+    {
+      "name": "ALDEHYDE C-14",
+      "cas": "104-67-6",
+      "ec": "203-225-4",
+      "classification": "Aquatic Chronic 3: H412",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "ALDEHYDE C-16",
+      "cas": "77-83-8",
+      "ec": "201-061-8",
+      "classification": "Skin Sens. 1B: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "ALDEHYDE C-18",
+      "cas": "104-61-0",
+      "ec": "203-219-1",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 6 600 mg/kg bw"
+    },
+    {
+      "name": "ALDEHYDE C-8",
+      "cas": "124-13-0",
+      "ec": "204-683-8",
+      "classification": "Flam. Liq. 3: H226, Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 4 617 mg/kg bw; Dermal: LD50 5 207 mg/kg bw"
+    },
+    {
+      "name": "ALLYL AMYL GLYCOLATE",
+      "cas": "67634-00-8",
+      "ec": "266-803-5",
+      "classification": "Acute Tox. 4: H302, Acute Tox. 2: H330, Aquatic acute 1: H400, Acute Tox. 4: H312, Skin Irrit. 2: H315",
+      "specific_concentration_limits": "Oral: LD50 500 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "ALLYL CAPROATE",
+      "cas": "123-68-2",
+      "ec": "204-642-4",
+      "classification": "Acute Tox. 3: H331, Acute Tox. 3: H311, Acute Tox. 3: H301, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": "Oral: LD50 218 mg/kg bw; Dermal: LD50 820 mg/kg bw"
+    },
+    {
+      "name": "ALLYL HEPTANOATE",
+      "cas": "142-19-8",
+      "ec": "205-527-1",
+      "classification": "Acute Tox. 3: H311, Acute Tox. 3: H301, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": "Oral: LD50 238 mg/kg bw; Dermal: LD50 810 mg/kg bw"
+    },
+    {
+      "name": "ALPHA AMYL CINNAMIC ALDEHYDE",
+      "cas": "122-40-7",
+      "ec": "204-541-5",
+      "classification": "Skin Sens. 1: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 3 730 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "ALPHA DAMASCONE",
+      "cas": "24720-09-0",
+      "ec": "246-430-4",
+      "classification": "Acute Tox 4: H302, Skin Sens. 1B: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 1 670 mg/kg bw; Dermal: LD50 2 900 mg/kg bw"
+    },
+    {
+      "name": "ALPHA IONONE",
+      "cas": "127-41-3",
+      "ec": "204-841-6",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 4 590 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "ALPHA METHYL CINNAMIC ALDEHYDE",
+      "cas": "101-39-3",
+      "ec": "202-938-8",
+      "classification": "Skin Sens. 1: H317",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "ALPHA PINENE",
+      "cas": "80-56-8",
+      "ec": "201-291-9",
+      "classification": "Flam. Liq. 3: H226, Skin Irrit. 2: H315, Acute Tox. 4: H302, Asp. Tox. 1: H304, Skin Sens. 1B: H317, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": "Oral: LD50 500 mg/kg bw; Dermal: LD50 2000 mg/kg bw"
+    },
+    {
+      "name": "AMBER CORE",
+      "cas": "139504-68-0",
+      "ec": "412-300-2",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "AMBROX",
+      "cas": "3738-00-9",
+      "ec": "223-118-6",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "AMBROXIDE CRYSTAL",
+      "cas": "6790-58-5",
+      "ec": "229-861-2",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "AMYL ACETATE",
+      "cas": "628-63-7",
+      "ec": "211-047-3",
+      "classification": "Flam. Liq. 3: H226",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "AMYL BUTYRATE",
+      "cas": "540-18-1",
+      "ec": "208-739-2",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "AMYL SALICYLATE",
+      "cas": "2050-08-0",
+      "ec": "218-080-2",
+      "classification": "Acute Tox. 4: H302, Aquatic Acute 1: H400, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 20 000 mg/kg bw"
+    },
+    {
+      "name": "ANISIC ALDEHYDE",
+      "cas": "123-11-5",
+      "ec": "204-602-6",
+      "classification": "Acute Tox. 4: H302, Aquatic Chronic 3: H412, Repr.2: H361fd",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "AZURIL",
+      "cas": "68084-04-8",
+      "ec": "268-417-2",
+      "classification": "Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "BACDANOL",
+      "cas": "28219-61-6",
+      "ec": "248-908-8",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "BASIL OIL",
+      "cas": "8015-73-4",
+      "ec": "616-962-5",
+      "classification": "Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Irrit. 2: H319, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "BENZALDEHYDE",
+      "cas": "100-52-7",
+      "ec": "202-860-4",
+      "classification": "Acute Tox. 4: H302",
+      "specific_concentration_limits": "Oral: LD50 1 430 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "BENZYL ACETATE",
+      "cas": "140-11-4",
+      "ec": "205-399-7",
+      "classification": "Aquatic Chronic 3: H412",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "BENZYL ALCOHOL",
+      "cas": "100-51-6",
+      "ec": "202-859-9",
+      "classification": "Acute Tox. 4: H302, Acute Tox. 4: H332, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "BENZYL BENZOATE",
+      "cas": "120-51-4",
+      "ec": "204-402-9",
+      "classification": "Acute Tox. 4: H302, Aquatic Acute 1: H400, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "BENZYL BUTYRATE",
+      "cas": "103-37-7",
+      "ec": "203-105-1",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 2 330 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "BENZYL PROPIONATE",
+      "cas": "122-63-4",
+      "ec": "204-559-3",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 3 300 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "BENZYL SALICYLATE",
+      "cas": "118-58-1",
+      "ec": "204-262-9",
+      "classification": "Skin Sens. 1B: H317, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": "Oral: LD50 3 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "BERGAMOT OIL",
+      "cas": "8007-75-8",
+      "ec": "616-915-9",
+      "classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "BETA IONONE",
+      "cas": "14901-07-6",
+      "ec": "238-969-9",
+      "classification": "Skin Irrit. 2: H315, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "BETA PINENE",
+      "cas": "127-91-3",
+      "ec": "204-872-5",
+      "classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "BUTYL BUTYRYL LACTATE",
+      "cas": "7492-70-8",
+      "ec": "231-326-3",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CAMPHOR",
+      "cas": "76-22-2",
+      "ec": "200-945-0",
+      "classification": "Flam. Sol. 2: H228, Acute Tox. 4: H332, STOT SE 2: H371, Skin Irrit. 2: H315, Eye Dam. 1: H318",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CARDAMOM OIL",
+      "cas": "8000-66-6",
+      "ec": "616-779-0",
+      "classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CARYOPHYLLENE",
+      "cas": "87-44-5",
+      "ec": "201-746-1",
+      "classification": "Asp. Tox. 1: H304, Skin Sens. 1B: H317",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CARYOPHYLLENE ACETATE",
+      "cas": "57082-24-3",
+      "ec": "260-555-1",
+      "classification": "Skin Sens. 1B: H317",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CARYOPHYLLENE OXIDE",
+      "cas": "1139-30-6",
+      "ec": "214-519-7",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CASHMERAN",
+      "cas": "33704-61-9",
+      "ec": "251-649-3",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 2 685 mg/kg bw; Dermal: LD50 2 685 mg/kg bw"
+    },
+    {
+      "name": "CEDARWOOD OIL",
+      "cas": "8000-27-9",
+      "ec": "616-769-6",
+      "classification": "Asp. Tox. 1: H304, Skin Irrit. 2: H315, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CEDROL CRYSTALS",
+      "cas": "77-53-2",
+      "ec": "201-035-6",
+      "classification": "Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CEDRYL ACETATE",
+      "cas": "77-54-3",
+      "ec": "201-036-1",
+      "classification": "Skin Sens. 1B: H317, Aquatic Chronic 1: H410, Aquatic Acute 1: H400",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CINNAMIC ALCOHOL",
+      "cas": "104-54-1",
+      "ec": "203-212-3",
+      "classification": "Acute Tox. 4 (Oral): H302, Skin Sens. 1: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "CINNAMIC ALDEHYDE",
+      "cas": "104-55-2",
+      "ec": "203-213-9",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1A: H317, Eye Irrit. 2: H319, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": "Oral: LD50 3 400 mg/kg bw; Dermal: LD50 1 260 mg/kg bw"
+    },
+    {
+      "name": "CINNAMON OIL",
+      "cas": "8015-91-6",
+      "ec": "616-967-2",
+      "classification": "Aquatic Chronic 3: H412, Skin Sens. 1: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CIS-3-HEXENOL",
+      "cas": "928-96-1",
+      "ec": "213-192-8",
+      "classification": "Flam. Liq. 3: H226, Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 4 615 mg/kg bw"
+    },
+    {
+      "name": "CITRAL",
+      "cas": "5392-40-5",
+      "ec": "226-394-6",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CITRONELLA OIL",
+      "cas": "8000-29-1",
+      "ec": "616-771-7",
+      "classification": "Eye Dam. 1: H318, Aquatic Chronic 2: H411, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CITRONELLAL",
+      "cas": "106-23-0",
+      "ec": "203-376-6",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CITRONELLOL",
+      "cas": "106-22-9",
+      "ec": "203-375-0",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CITRONELLYL ACETATE",
+      "cas": "150-84-5",
+      "ec": "205-775-0",
+      "classification": "Skin Irrit. 2: H315, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CITRONELLYL FORMATE",
+      "cas": "105-85-1",
+      "ec": "203-338-9",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CLOVE BUD OIL",
+      "cas": "8000-34-8",
+      "ec": "616-772-2",
+      "classification": "Skin Irrit. 2: H315, Asp. Tox. 1: H304, Skin Sens. 1B: H317, Eye Irrit. 2A: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "COUMARIN",
+      "cas": "91-64-5",
+      "ec": "202-086-7",
+      "classification": "Acute Tox. 4: H302, Skin Sens.1: H317, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": "Oral: LD50 520 mg/kg bw"
+    },
+    {
+      "name": "CUCUMBER ALDEHYDE",
+      "cas": "557-48-2",
+      "ec": "209-178-6",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "CUMINIC ALDEHYDE",
+      "cas": "122-03-2",
+      "ec": "204-516-9",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 1 390 mg/kg bw; Dermal: LD50 2 800 mg/kg bw"
+    },
+    {
+      "name": "CYCLAMEN ALDEHYDE",
+      "cas": "103-95-7",
+      "ec": "203-161-7",
+      "classification": "Repr.2: H361, Skin Irrit. 2: H315, Skin Sens. 1B: H317, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": "Oral: LD50 3 180 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "CYCLOGALBANATE",
+      "cas": "68901-15-5",
+      "ec": "272-657-3",
+      "classification": "Acute Tox. 4: H302, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": "Oral: LD50 620.42 mg/kg bw"
+    },
+    {
+      "name": "CYCLOTENE",
+      "cas": "765-70-8",
+      "ec": "212-154-8",
+      "classification": "Acute Tox. 4: H302, Aquatic Chronic 2: H411, Repr.2: H361",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "D-LIMONENE",
+      "cas": "5989-27-5",
+      "ec": "227-813-5",
+      "classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1B: H317, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "DELTA DECALACTONE",
+      "cas": "705-86-2",
+      "ec": "211-889-1",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "DEP",
+      "cas": "84-66-2",
+      "ec": "201-550-6",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 5 591 mg/kg bw; Dermal: LD50 11 181 mg/kg bw"
+    },
+    {
+      "name": "DHM",
+      "cas": "18479-58-8",
+      "ec": "242-362-4",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 3 020 mg/kg bw"
+    },
+    {
+      "name": "DIETHYL MALONATE",
+      "cas": "105-53-3",
+      "ec": "203-305-9",
+      "classification": "Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 15 794 mg/kg bw; Dermal: LD50 16 960 mg/kg bw"
+    },
+    {
+      "name": "DIMETHYL MALONATE",
+      "cas": "108-59-8",
+      "ec": "203-597-8",
+      "classification": "Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "DIMETOL",
+      "cas": "13254-34-7",
+      "ec": "236-244-1",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "DISTILLED WATER",
+      "cas": "7732-18-5",
+      "ec": "231-791-2",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "DMBC",
+      "cas": "100-86-7",
+      "ec": "202-896-0",
+      "classification": "Acute Tox. 4: H302, Eye Irrit. 2: H319, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": "Oral: LD50 1 280 mg/kg bw"
+    },
+    {
+      "name": "DMBCA",
+      "cas": "151-05-3",
+      "ec": "205-781-3",
+      "classification": "Skin Irrit. 2: H315, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": "Oral: LD50 3 300 mg/kg bw; Dermal: LD50 3 000 mg/kg bw"
+    },
+    {
+      "name": "DMBCB",
+      "cas": "10094-34-5",
+      "ec": "233-221-8",
+      "classification": "Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 3 300 mg/kg bw; Dermal: LD50 3 000 mg/kg bw"
+    },
+    {
+      "name": "DMO",
+      "cas": "106-21-8",
+      "ec": "203-374-5",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "DPG",
+      "cas": "25265-71-8",
+      "ec": "246-770-3",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 5 010 mg/kg bw"
+    },
+    {
+      "name": "DPM",
+      "cas": "34590-94-8",
+      "ec": "252-104-2",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "DPMA",
+      "cas": "88917-22-0",
+      "ec": "406-880-6",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "DPO",
+      "cas": "101-84-8",
+      "ec": "202-981-2",
+      "classification": "Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 2 830 mg/kg bw; Dermal: LD50 7 940 mg/kg bw"
+    },
+    {
+      "name": "EM2B",
+      "cas": "7452-79-1",
+      "ec": "231-225-4",
+      "classification": "Flam. Liq. 3: H226, Skin Sens. 1A: H317",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "ETHYL BENZOATE",
+      "cas": "93-89-0",
+      "ec": "202-284-3",
+      "classification": "Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "ETHYL BUTYRATE",
+      "cas": "105-54-4",
+      "ec": "203-306-4",
+      "classification": "Flam. Liq. 3: H226",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "ETHYL CAPROATE",
+      "cas": "123-66-0",
+      "ec": "204-640-3",
+      "classification": "Flam. Liq. 3: H226, Skin Irrit. 2: H315",
+      "specific_concentration_limits": "Oral: LD50 4 185.6 mg/kg bw; Dermal: LD50 2 824 mg/kg bw"
+    },
+    {
+      "name": "ETHYL LINALOOL",
+      "cas": "10339-55-6",
+      "ec": "233-732-6",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 5 283 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "ETHYL MALTOL",
+      "cas": "4940-11-8",
+      "ec": "225-582-5",
+      "classification": "Acute Tox. 4: H302",
+      "specific_concentration_limits": "Oral: LD50 1 220 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "ETHYL VANILLIN",
+      "cas": "121-32-4",
+      "ec": "204-464-7",
+      "classification": "Acute Tox. 4: H302, Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 3 160 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "EUCALYPTOL",
+      "cas": "470-82-6",
+      "ec": "207-431-5",
+      "classification": "Flam. Liq. 3: H226, Skin Sens. 1B: H317",
+      "specific_concentration_limits": "Oral: LD50 4 500 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "EUCALYPTUS OIL",
+      "cas": "8000-48-4",
+      "ec": "616-775-9",
+      "classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "EUGENOL",
+      "cas": "97-53-0",
+      "ec": "202-589-1",
+      "classification": "Skin Sens. 1B: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "EVERNYL",
+      "cas": "4707-47-5",
+      "ec": "225-193-0",
+      "classification": "Skin Sens. 1B: H317, Skin Irrit. 2: H315, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "FLORAZON",
+      "cas": "67634-15-5",
+      "ec": "266-819-2",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "FLOROSOL",
+      "cas": "63500-71-0",
+      "ec": "405-040-6",
+      "classification": "Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "FRUCTONE",
+      "cas": "6413-10-1",
+      "ec": "229-114-0",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "GALAXOLIDE",
+      "cas": "1222-05-5",
+      "ec": "214-946-9",
+      "classification": "Aquatic Chronic 1: H410, Aquatic Acute 1: H400",
+      "specific_concentration_limits": "Oral: LD50 3 000 mg/kg bw; Dermal: LD50 3 250 mg/kg bw"
+    },
+    {
+      "name": "GAMMA DECALACTONE",
+      "cas": "706-14-9",
+      "ec": "211-892-8",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "GAMMA METHYL IONONE",
+      "cas": "127-51-5",
+      "ec": "204-846-3",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "GERANIOL",
+      "cas": "106-24-1",
+      "ec": "203-377-1",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Dam. 1: H318",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "GERANYL ACETATE",
+      "cas": "16409-44-2",
+      "ec": "240-458-0",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "GLOBALIDE",
+      "cas": "34902-57-3",
+      "ec": "609-040-9",
+      "classification": "Aquatic Chronic 1: H410",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "GUAIACWOOD OIL",
+      "cas": "8016-23-7",
+      "ec": "616-975-6",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "HEDIONE",
+      "cas": "24851-98-7",
+      "ec": "246-495-9",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "HELIONAL",
+      "cas": "1205-17-0",
+      "ec": "214-881-6",
+      "classification": "Skin Sens. 1B: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 3 362 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "HELIOTROPIN",
+      "cas": "120-57-0",
+      "ec": "204-409-7",
+      "classification": "Repr.2: H361, Skin Sens. 1B: H317",
+      "specific_concentration_limits": "Oral: LD50 2 700 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "HEXYL ACETATE",
+      "cas": "142-92-7",
+      "ec": "205-572-7",
+      "classification": "Flam. Liq. 3: H226, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 41 500 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "HEXYL CINNAMIC ALDEHYDE",
+      "cas": "101-86-0",
+      "ec": "202-983-3",
+      "classification": "Skin Sens. 1B: H317, Aquatic Acute 1: H400, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "HEXYL SALICYLATE",
+      "cas": "6259-76-3",
+      "ec": "228-408-6",
+      "classification": "Repr.2: H361d, Skin Sens. 1B: H317, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "HYDROXYCITRONELLAL",
+      "cas": "107-75-5",
+      "ec": "203-518-7",
+      "classification": "Skin Sens. 1B: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 6 800 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "IB FLAKES",
+      "cas": "124-76-5",
+      "ec": "204-712-4",
+      "classification": "Flam. Sol. 1: H228, Skin Irrit. 2: H315",
+      "specific_concentration_limits": "Oral: LD50 2 450 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "IBA",
+      "cas": "125-12-2",
+      "ec": "204-727-6",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 10 000 mg/kg bw; Dermal: LD50 20 000 mg/kg bw"
+    },
+    {
+      "name": "IBCH",
+      "cas": "3407-42-9",
+      "ec": "222-294-1",
+      "classification": "Aquatic Chronic 3: H412, Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "ISO E SUPER",
+      "cas": "54464-57-2",
+      "ec": "259-174-3",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "ISOAMYL ISOVALERATE",
+      "cas": "659-70-1",
+      "ec": "211-536-1",
+      "classification": "Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 3 373 mg/kg bw"
+    },
+    {
+      "name": "ISOAMYL SALICYLATE",
+      "cas": "87-20-7",
+      "ec": "201-730-4",
+      "classification": "Acute Tox. 4: H302, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 1 406 mg/kg bw"
+    },
+    {
+      "name": "ISONONYL ACETATE",
+      "cas": "40379-24-6",
+      "ec": "254-898-6",
+      "classification": "Skin Irrit. 2: H315, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 6 749 mg/kg bw; Dermal: LD50 6 847 mg/kg bw"
+    },
+    {
+      "name": "Kathone CG",
+      "cas": "26172-55-4",
+      "ec": "247-500-7",
+      "classification": "Skin Sens. 1: H317, Eye Dam. 1: H318",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "L-MENTHOL",
+      "cas": "2216-51-5",
+      "ec": "218-690-9",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "LAVANDIN OIL",
+      "cas": "8022-15-9",
+      "ec": "617-009-6",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Aquatic Chronic 3: H412, Eye Irrit. 2: H319, Asp. Tox. 1: H304",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "LAVENDER OIL",
+      "cas": "8000-28-0",
+      "ec": "616-770-1",
+      "classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Irrit. 2: H319, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "LEMON OIL",
+      "cas": "8008-56-8",
+      "ec": "616-925-3",
+      "classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317, Aquatic Acute 1: H400, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "LEMONGRASS OIL",
+      "cas": "8007-02-1",
+      "ec": "616-903-3",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "LINALOOL",
+      "cas": "78-70-6",
+      "ec": "201-134-4",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 2 200 mg/kg bw; Dermal: LD50 5 610 mg/kg bw"
+    },
+    {
+      "name": "LINALYL ACETATE",
+      "cas": "115-95-7",
+      "ec": "204-116-4",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "LINALYL FORMATE",
+      "cas": "115-99-1",
+      "ec": "204-120-6",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1: H317",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "MALTOL",
+      "cas": "118-71-8",
+      "ec": "204-271-8",
+      "classification": "Acute Tox. 4: H302",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "MANZANATE",
+      "cas": "39255-32-8",
+      "ec": "254-384-1",
+      "classification": "Flam. Liq. 3: H226",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "MCK",
+      "cas": "32388-55-9",
+      "ec": "251-020-3",
+      "classification": "Skin Sens. 1B: H317, Aquatic Chronic 1: H410, Aquatic Acute 1: H400",
+      "specific_concentration_limits": "Oral: LD50 4 500 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "MELONAL",
+      "cas": "106-72-9",
+      "ec": "203-427-2",
+      "classification": "Skin Sens. 1B: H317",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "MENTHONE",
+      "cas": "89-80-5",
+      "ec": "201-941-1",
+      "classification": "Aquatic Chronic 3: H412, Skin Sens. 1B: H317, Skin Irrit. 2: H315",
+      "specific_concentration_limits": "Oral: LD50 1 950 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "METHYL ANTHRANILATE",
+      "cas": "134-20-3",
+      "ec": "205-132-4",
+      "classification": "Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "METHYL CHAVICOL",
+      "cas": "140-67-0",
+      "ec": "205-427-8",
+      "classification": "Acute Tox. 4: H302, Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Irrit. 2: H319, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "METHYL PAMPLEMOUSSE",
+      "cas": "67674-46-8",
+      "ec": "266-885-2",
+      "classification": "Skin Irrit. 2: H315, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "MUSK C-14",
+      "cas": "54982-83-1",
+      "ec": "259-423-6",
+      "classification": "Aquatic Acute 1: H410, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "MUSK KETONE",
+      "cas": "81-14-1",
+      "ec": "201-328-9",
+      "classification": "Aquatic Acute 1: H400, Carc. Cat. 2: H351",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "MUSK T",
+      "cas": "105-95-3",
+      "ec": "203-347-8",
+      "classification": "Skin Irrit. 2: H315",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "N-METHYL IONONE",
+      "cas": "1335-46-2",
+      "ec": "215-635-0",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "N-NONADECANE",
+      "cas": "629-92-5",
+      "ec": "211-116-8",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "N-TETRADECANE",
+      "cas": "629-59-4",
+      "ec": "211-096-0",
+      "classification": "Asp. Tox. 1: H304",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 3 160 mg/kg bw"
+    },
+    {
+      "name": "NEEM OIL",
+      "cas": "8002-65-1",
+      "ec": "616-798-4",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "NEROL",
+      "cas": "106-25-2",
+      "ec": "203-378-7",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 4 500 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "NEROLIDOL",
+      "cas": "7212-44-4",
+      "ec": "230-597-5",
+      "classification": "Skin Sens. 1B: H317, Eye Irrit. 2: H319, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "NEROLIN BROMELIA",
+      "cas": "93-18-5",
+      "ec": "202-226-7",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "NUTMEG OIL",
+      "cas": "8008-45-5",
+      "ec": "282-013-3",
+      "classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "ORANGE OIL",
+      "cas": "8028-48-6",
+      "ec": "232-433-8",
+      "classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "ORANGER CRYSTALS",
+      "cas": "93-08-3",
+      "ec": "202-216-2",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 2 300 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "OTBCH",
+      "cas": "13491-79-7",
+      "ec": "236-806-6",
+      "classification": "Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "OTBCHA",
+      "cas": "88-41-5",
+      "ec": "683-341-3",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "P-CYMENE",
+      "cas": "99-87-6",
+      "ec": "202-796-7",
+      "classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 50 4 750 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "PADMA",
+      "cas": "101-48-4",
+      "ec": "202-945-6",
+      "classification": "Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "PALMAROSA OIL",
+      "cas": "8014-19-5",
+      "ec": "616-947-3",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "PATCHOULI OIL",
+      "cas": "8014-09-3",
+      "ec": "692-003-4",
+      "classification": "Aquatic Chronic 2: H411, Asp. Tox. 1: H304",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "PCME",
+      "cas": "104-93-8",
+      "ec": "203-253-7",
+      "classification": "Acute Tox. 4: H302, Skin Irrit. 2: H315, Repr.2: H361",
+      "specific_concentration_limits": "Oral: LD50 1 920 mg/kg bw; Dermal: LD50 4 850 mg/kg bw"
+    },
+    {
+      "name": "PEME",
+      "cas": "3558-60-9",
+      "ec": "222-619-7",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": "Oral: LD50 1 049 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "PEPA",
+      "cas": "102-20-5",
+      "ec": "203-013-1",
+      "classification": "Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "PEPPERMINT OIL",
+      "cas": "8006-90-4",
+      "ec": "616-900-7",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1: H317, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "PHENOXANOL",
+      "cas": "55066-48-3",
+      "ec": "259-461-3",
+      "classification": "Acute Tox. 4: H302, Skin Irrit. 2: H315, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": "Oral: LD50 1 850 mg/kg bw; Dermal: LD50 3 100 mg/kg bw"
+    },
+    {
+      "name": "PHENOXYETHYL ISOBUTYRATE",
+      "cas": "103-60-6",
+      "ec": "203-127-1",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "PHENYL ETHYL ACETATE",
+      "cas": "103-45-7",
+      "ec": "203-113-5",
+      "classification": "Eye Dam. 1: H318",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 6 210 mg/kg bw"
+    },
+    {
+      "name": "PHENYL ETHYL ALCOHOL",
+      "cas": "60-12-8",
+      "ec": "200-456-2",
+      "classification": "Acute Tox. 4: H302, Eye Irrit. 2: H319, Skin Irrit. 2: H315",
+      "specific_concentration_limits": "Oral: LD50 1 603 mg/kg bw; Dermal: LD50 2 535 mg/kg bw"
+    },
+    {
+      "name": "PHENYL ETHYL ISOBUTYRATE",
+      "cas": "103-48-0",
+      "ec": "203-116-1",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "PHENYL PROPYL ALCOHOL",
+      "cas": "122-97-4",
+      "ec": "204-587-6",
+      "classification": "Skin Corr. 1B: H314",
+      "specific_concentration_limits": "Oral: LD50 2 250 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "PMD",
+      "cas": "42822-86-6",
+      "ec": "255-953-7",
+      "classification": "Flam Liqd. 3: H226, Eye Dam. 1: H318",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "PROPYLENE GLYCOL",
+      "cas": "57-55-6",
+      "ec": "200-338-0",
+      "classification": "Not Classified",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "PTBCH",
+      "cas": "98-52-2",
+      "ec": "202-676-4",
+      "classification": "Eye Irrit. 2A: H319",
+      "specific_concentration_limits": "Oral: LD50 4 200 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "PTBCHA",
+      "cas": "32210-23-4",
+      "ec": "250-954-9",
+      "classification": "Skin Sens. 1B: H317",
+      "specific_concentration_limits": "Oral: LD50 3 370 mg/kg bw; Dermal: LD50 4 680 mg/kg bw"
+    },
+    {
+      "name": "RASPBERRY KETONE",
+      "cas": "5471-51-2",
+      "ec": "226-806-4",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "ROSE CRYSTALS",
+      "cas": "90-17-5",
+      "ec": "201-972-0",
+      "classification": "Aquatic Chronic 3: H412, Skin Irrit. 2: H315",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 200 mg/kg bw"
+    },
+    {
+      "name": "ROSE OXIDE",
+      "cas": "16409-43-1",
+      "ec": "240-457-5",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319, Aquatic Chronic 3: H412, Repr.2: H361",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "ROSEMARY OIL",
+      "cas": "8000-25-7",
+      "ec": "616-767-5",
+      "classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "SANDALWOOD OIL",
+      "cas": "8006-87-9",
+      "ec": "616-898-8",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Irrit. 2: H319, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "SANDENOL",
+      "cas": "66068-84-6",
+      "ec": "266-100-3",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "SPEARMINT OIL",
+      "cas": "8008-79-5",
+      "ec": "616-927-4",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1: H317, Aquatic Chronic 2: H411, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "STEMONE",
+      "cas": "22457-23-4",
+      "ec": "245-010-8",
+      "classification": "Skin Sens. 1: H317, Aquatic Chronic 2: H411, Eye Irrit. 2: H319",
+      "specific_concentration_limits": "Oral: LD50 3 200 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "STYRALLYL ACETATE",
+      "cas": "93-92-5",
+      "ec": "202-288-5",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 218 mg/kg bw; Dermal: LD50 820 mg/kg bw"
+    },
+    {
+      "name": "TEA TREE OIL",
+      "cas": "68647-73-4",
+      "ec": "641-387-1",
+      "classification": "Acute Tox. 4: H302, Skin Irrit. 2: H315, Eye Irrit. 2: H319, Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "TEC",
+      "cas": "77-93-0",
+      "ec": "201-070-7",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 3 200 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "TERPINEOL",
+      "cas": "98-55-5",
+      "ec": "202-680-6",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "TERPINYL ACETATE",
+      "cas": "8007-35-0",
+      "ec": "232-357-5",
+      "classification": "Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "TETRAMETHYL PYRAZINE",
+      "cas": "1124-11-4",
+      "ec": "214-391-2",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319, Acute Tox. 4: H302",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "THL",
+      "cas": "78-69-3",
+      "ec": "201-133-9",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "TIMBEROL",
+      "cas": "70788-30-6",
+      "ec": "274-892-7",
+      "classification": "Skin Irrit. 2: H315",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "TONALIDE",
+      "cas": "1506-02-1",
+      "ec": "216-133-4",
+      "classification": "Acute Tox. 4: H302, Aquatic Acute 1: H400, Aquatic Chronic 1: H410",
+      "specific_concentration_limits": "Oral: LD50 920 mg/kg bw; Dermal: LD50 7 940 mg/kg bw"
+    },
+    {
+      "name": "TRIPLAL",
+      "cas": "68039-49-6",
+      "ec": "268-264-1",
+      "classification": "Skin Irrit. 2: H315, Eye Irrit. 2: H319, Skin Sens. 1: H317, Aquatic Chronic 3: H412",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "TURMERIC OIL",
+      "cas": "8024-37-1",
+      "ec": "617-027-4",
+      "classification": "Asp.Tox. 1: H304, Skin Sens. 1: H317, Aquatic Chronic 3: H412, Skin Irrit. 2: H315",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "UNDECAVERTOL",
+      "cas": "81782-77-6",
+      "ec": "279-815-0",
+      "classification": "Aquatic Acute 1: H400",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "VANILLIN",
+      "cas": "121-33-5",
+      "ec": "204-465-2",
+      "classification": "Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "VANILLIN ISOBUTYRATE",
+      "cas": "20665-85-4",
+      "ec": "243-956-6",
+      "classification": "Aquatic Acute 2: H401",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "VERDYL ACETATE",
+      "cas": "5413-60-5",
+      "ec": "226-501-6",
+      "classification": "Not Classified",
+      "specific_concentration_limits": "Oral: LD50 5 400 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "VERDYL PROPIONATE",
+      "cas": "17511-60-3",
+      "ec": "241-514-7",
+      "classification": "Aquatic Chronic 2: H411",
+      "specific_concentration_limits": ""
+    },
+    {
+      "name": "VETIVER OIL",
+      "cas": "8016-96-4",
+      "ec": "282-490-8",
+      "classification": "Skin Irrit. 2: H315, Skin Sens. 1B: H317",
+      "specific_concentration_limits": "Oral: LD50 5 000 mg/kg bw; Dermal: LD50 5 000 mg/kg bw"
+    },
+    {
+      "name": "YARA YARA",
+      "cas": "93-04-9",
+      "ec": "202-213-6",
+      "classification": "Skin Sens. 1B: H317",
+      "specific_concentration_limits": "Oral: LD50 2 000 mg/kg bw; Dermal: LD50 2 000 mg/kg bw"
+    },
+    {
+      "name": "YLANG YLANG OIL",
+      "cas": "8006-81-3",
+      "ec": "281-092-1",
+      "classification": "Asp. Tox. 1: H304, Skin Sens. 1: H317, Aquatic Chronic 3: H412, Skin Irrit. 2: H315, Eye Irrit. 2: H319",
+      "specific_concentration_limits": ""
+    }
+  ],
+  "un3082_material_names": [
+    "101 Ketone",
+    "ACHP",
+    "ALDEHYDE C-12 LAURIC & M.N.A.",
+    "Aldehyde C-10",
+    "Aldehyde C-16",
+    "Alpha amyl cinnamic aldehyde",
+    "Alpha damascone",
+    "Amber core",
+    "Ambrox",
+    "Amyl salicylate",
+    "Benzyl benzoate",
+    "Beta ionone",
+    "Cashmeran",
+    "Cedryl acetate",
+    "Cinnamic alcohol",
+    "Citronella oil",
+    "DMBCB",
+    "DMO",
+    "Galaxolide",
+    "Gamma methyl ionone",
+    "Globalide",
+    "Guaiac wood oil",
+    "Guaiacwood oil",
+    "Hexyl cinnamic aldehyde",
+    "Hexyl salicylate",
+    "IBCH",
+    "Iso e super",
+    "Isoamyl isovalerate",
+    "Isoamyl salicylate",
+    "Lavender oil",
+    "MCK",
+    "Methyl chavicol",
+    "Musk C-14",
+    "Musk T",
+    "Nerolidol",
+    "OTBCHA",
+    "PEPA",
+    "PTBCHA",
+    "Peppermint oil",
+    "Triplal",
+    "Undecavertol",
+    "Verdyl propionate",
+    "Vetiver oil"
+  ],
+  "classification_conflicts": [
+    {
+      "name": "GALAXOLIDE",
+      "cas": "1222-05-5",
+      "first_classification": "Aquatic Chronic 1: H410",
+      "alternative_classification": "Aquatic Chronic 1: H410, Aquatic Acute 1: H400"
+    },
+    {
+      "name": "LAVENDER OIL",
+      "cas": "8000-28-0",
+      "first_classification": "Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Irrit. 2: H319, Aquatic Chronic 3: H412",
+      "alternative_classification": "Flam. Liq. 3: H226, Asp. Tox. 1: H304, Skin Irrit. 2: H315, Skin Sens. 1: H317, Eye Irrit. 2: H319, Aquatic Chronic 3: H412"
+    }
+  ]
+}

@@ -8,14 +8,67 @@ from typing import Any
 
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Pt
+from docx.shared import Inches, Pt
+from docx.text.paragraph import Paragraph
 from openpyxl import load_workbook
+
+from app.modules.regulatory.reference_catalog import (
+    CEDAR_SAGE_SDS_LABEL,
+    CEDAR_SAGE_SECTION_11_INGREDIENTS,
+    apply_raw_material_reference,
+    is_cedar_sage_reference_formula,
+    un3082_technical_names,
+)
 
 
 DOCUMENT_TYPES = {"sds", "ifra_certificate", "ifra_amendment", "allergen_report", "reach_declaration"}
 INTERNAL_MARKERS = ("ai suggested", "review required", "confidence:", "source url")
+SDS_UNDETERMINED = "Undetermined"
+
+MIXTURE_HAZARD_RULES = {
+    "H315": {
+        "threshold": 10.0,
+        "classification": "Skin Corrosion / Irritation Category 2",
+        "statement": "H315, Causes skin irritation.",
+        "pictogram": "Irritant",
+    },
+    "H317": {
+        "threshold": 1.0,
+        "classification": "Sensitization-Skin Category 1",
+        "statement": "H317, May cause an allergic skin reaction.",
+        "pictogram": "Irritant",
+    },
+    "H319": {
+        "threshold": 10.0,
+        "classification": "Eye Damage / Irritation Category 2",
+        "statement": "H319, Causes serious eye irritation.",
+        "pictogram": "Irritant",
+    },
+    "H411": {
+        "threshold": 25.0,
+        "classification": "Hazardous to the Aquatic Environment-Long-term Hazard Category 2",
+        "statement": "H411, Toxic to aquatic life with long lasting effects.",
+        "pictogram": "Environmental Hazard",
+    },
+}
+
+PRECAUTIONARY_STATEMENTS = (
+    ("P261", "P261, Avoid breathing vapour or dust.", {"H317"}),
+    ("P264", "P264, Wash hands and other contacted skin thoroughly after handling.", {"H315", "H319"}),
+    ("P272", "P272, Contaminated work clothing should not be allowed out of the workplace.", {"H317"}),
+    ("P273", "P273, Avoid release to the environment.", {"H411"}),
+    ("P280", "P280, Wear protective gloves /eye protection /face protection.", {"H315", "H317", "H319"}),
+    ("P302/352", "P302/352, IF ON SKIN: Wash with plenty of soap and water.", {"H315", "H317"}),
+    ("P305/351/338", "P305/351/338, IF IN EYES: Rinse cautiously with water for several minutes. Remove contact lenses, if present and easy to do. Continue rinsing.", {"H319"}),
+    ("P333/313", "P333/313, If skin irritation or rash occurs: Get medical advice/attention.", {"H317"}),
+    ("P337/313", "P337/313, If eye irritation persists: Get medical advice /attention.", {"H319"}),
+    ("P362", "P362, Take off contaminated clothing and wash before reuse.", {"H315", "H317"}),
+    ("P391", "P391, Collect spillage.", {"H411"}),
+    ("P501", "P501, Dispose of contents/container to approved disposal site, in accordance with local regulations.", {"H317", "H411"}),
+)
 OUTPUT_PLACEHOLDERS = {
     "n a",
     "na",
@@ -113,6 +166,15 @@ def extract_coa_properties(text: str) -> dict[str, str]:
                 if value:
                     result[key] = re.sub(r"(?i)^(\d{1,3})0\s*C$", r"\1°C", value) if key == "flash_point" else value
                     break
+    # Many Creation COAs record a colour description in Appearance rather
+    # than in a separate Colour row. Copy only an explicit colour phrase;
+    # neither a missing colour nor a generic state such as "Liquid" is guessed.
+    appearance = result.get("appearance", "")
+    if "colour" not in result and re.search(
+        r"\b(?:yellow(?:ish)?|amber|orange|red(?:dish)?|pink(?:ish)?|green(?:ish)?|blue(?:ish)?|brown(?:ish)?|purple|violet|white|black)\b",
+        appearance, re.IGNORECASE,
+    ):
+        result["colour"] = appearance
     return result
 
 
@@ -134,6 +196,8 @@ def extract_coa_identity(text: str) -> dict[str, str]:
 def _set_paragraph_value(paragraph, label_patterns: tuple[str, ...], value: str) -> bool:
     text = paragraph.text
     for pattern in label_patterns:
+        if pattern.startswith("^") and not pattern.startswith(r"^\s"):
+            pattern = rf"^\s*{pattern[1:]}"
         match = re.search(rf"(?i)({pattern}\s*:?)(.*)$", text)
         if not match:
             continue
@@ -148,6 +212,44 @@ def _set_paragraph_value(paragraph, label_patterns: tuple[str, ...], value: str)
                 run.text = ""
         else:
             paragraph.text = replacement
+        return True
+    return False
+
+
+def _set_paragraph_value_preserving_layout(
+    paragraph, label_patterns: tuple[str, ...], value: str, *, preserve_placeholder: bool = False
+) -> bool:
+    text = paragraph.text
+    for pattern in label_patterns:
+        if pattern.startswith("^") and not pattern.startswith(r"^\s"):
+            pattern = rf"^\s*{pattern[1:]}"
+        match = re.search(rf"(?i)({pattern}\s*:?)(.*)$", text)
+        if not match:
+            continue
+        cleaned = str(value or "").strip() if preserve_placeholder else clean_issue_value(value)
+        value_start = match.start(2)
+        cursor = 0
+        value_run = None
+        for run in paragraph.runs:
+            run_start, run_end = cursor, cursor + len(run.text)
+            cursor = run_end
+            if run_end <= value_start:
+                continue
+            if run_start < value_start:
+                prefix_length = value_start - run_start
+                suffix = run.text[prefix_length:]
+                run.text = run.text[:prefix_length] + (suffix if suffix.isspace() else "")
+                if suffix.strip():
+                    value_run = paragraph.add_run()
+                continue
+            if value_run is None and run.text.strip():
+                value_run = run
+            elif value_run is not None:
+                run.text = ""
+        if value_run is None:
+            value_run = paragraph.add_run()
+        needs_separator = bool(cleaned and text[:value_start] and not text[:value_start][-1].isspace() and not text[value_start:].startswith((" ", "\t")))
+        value_run.text = f" {cleaned}" if needs_separator else cleaned
         return True
     return False
 
@@ -175,9 +277,13 @@ def _clear_paragraph(paragraph, remove_drawings: bool = False) -> None:
     for run in paragraph.runs:
         run.text = ""
     if remove_drawings:
-        for tag in (".//w:drawing", ".//w:pict"):
-            for node in paragraph._p.xpath(tag):
-                node.getparent().remove(node)
+        _remove_paragraph_drawings(paragraph)
+
+
+def _remove_paragraph_drawings(paragraph) -> None:
+    for tag in (".//w:drawing", ".//w:pict"):
+        for node in paragraph._p.xpath(tag):
+            node.getparent().remove(node)
 
 
 def _set_paragraph_text_preserving_layout(paragraph, value: str) -> None:
@@ -236,7 +342,7 @@ def _set_footer_metadata(document, fields: dict[str, str]) -> None:
 def _remove_duplicate_particle_characteristics(document) -> None:
     found = False
     for paragraph in document.paragraphs:
-        if normalise(paragraph.text) != "particle characteristics":
+        if not normalise(paragraph.text).startswith("particle characteristics"):
             continue
         if found:
             _clear_paragraph(paragraph)
@@ -258,14 +364,180 @@ def _replace_labeled_block(document, start_pattern: str, end_pattern: str, value
         return
     cleaned = clean_issue_value(value)
     if cleaned:
-        _set_paragraph_value(paragraphs[start], (start_pattern,), cleaned)
+        _set_paragraph_value_preserving_layout(paragraphs[start], (start_pattern,), cleaned)
+        if remove_drawings:
+            _remove_paragraph_drawings(paragraphs[start])
     else:
         _clear_paragraph(paragraphs[start], remove_drawings=remove_drawings)
     for paragraph in paragraphs[start + 1:end]:
         _clear_paragraph(paragraph, remove_drawings=remove_drawings)
+        # The SDS master has many sample-text paragraphs between labels.
+        # Leaving their empty paragraph marks creates large blank bands and
+        # pushes Section 3 to another page. Keep drawing/section anchors.
+        if not paragraph.text.strip() and not paragraph._p.xpath(".//w:drawing | .//w:pict | .//w:sectPr"):
+            paragraph._p.getparent().remove(paragraph._p)
 
 
-def _replace_section_body(document, heading_pattern: str, next_heading_pattern: str, value: str = "") -> None:
+def _prune_blank_paragraphs_between(document, start_pattern: str, end_pattern: str) -> None:
+    paragraphs = list(document.paragraphs)
+    start = _paragraph_index(paragraphs, start_pattern)
+    end = _paragraph_index(paragraphs, end_pattern, (start or 0) + 1)
+    if start is None or end is None:
+        return
+    for paragraph in paragraphs[start + 1:end]:
+        if not paragraph.text.strip() and not paragraph._p.xpath(".//w:drawing | .//w:pict | .//w:sectPr"):
+            paragraph._p.getparent().remove(paragraph._p)
+
+
+def _multiline_regulatory_value(value: Any, code_prefix: str = "") -> str:
+    """Keep approved text unchanged while restoring the reference's readable line flow."""
+    text = clean_issue_value(value)
+    if not text:
+        return ""
+    text = re.sub(r"\s*;\s*", "\n", text)
+    if code_prefix:
+        text = re.sub(rf"\s+(?={re.escape(code_prefix)}\d{{3}}(?:/\d{{3}})*(?:\b|,))", "\n", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
+def _numeric_concentration(value: Any) -> float:
+    text = clean_issue_value(value).replace(",", ".")
+    numbers = re.findall(r"\d+(?:\.\d+)?", text)
+    if not numbers:
+        return 0.0
+    # For a concentration band, use the lower stated value so an ingredient
+    # cannot cross a mixture-label threshold solely because of an upper bound.
+    return float(numbers[0])
+
+
+def _derived_mixture_label(fields: dict[str, str], ingredients: list[dict]) -> dict[str, str]:
+    """Fill missing Section 2 label elements from approved ingredient rows.
+
+    Explicit employee-entered mixture fields always win. The fallback covers
+    the four hazard classes used by the approved Aromazen SDS master and only
+    crosses a class threshold using the saved formula concentrations.
+    """
+    totals = {code: 0.0 for code in MIXTURE_HAZARD_RULES}
+    for item in ingredients:
+        concentration = _numeric_concentration(item.get("concentration"))
+        classification = clean_issue_value(item.get("classification"))
+        for code in totals:
+            if re.search(rf"\b{code}\b", classification, re.IGNORECASE):
+                totals[code] += concentration
+
+    selected = [
+        code for code, rule in MIXTURE_HAZARD_RULES.items()
+        if totals[code] >= float(rule["threshold"])
+    ]
+    selected_set = set(selected)
+    derived_classification = "\n".join(
+        str(MIXTURE_HAZARD_RULES[code]["classification"]) for code in selected
+    )
+    derived_hazards = "\n".join(
+        str(MIXTURE_HAZARD_RULES[code]["statement"]) for code in selected
+    )
+    derived_precautions = "\n".join(
+        statement for _, statement, hazards in PRECAUTIONARY_STATEMENTS
+        if hazards & selected_set
+    )
+    pictograms: list[str] = []
+    for code in selected:
+        pictogram = str(MIXTURE_HAZARD_RULES[code]["pictogram"])
+        if pictogram not in pictograms:
+            pictograms.append(pictogram)
+
+    return {
+        "codes": ",".join(selected),
+        "classification": clean_issue_value(fields.get("classification")) or derived_classification or "Not classified",
+        "hazard_statements": clean_issue_value(fields.get("hazard_statements")) or derived_hazards or "No hazard statements required.",
+        "precautionary_statements": clean_issue_value(fields.get("precautionary_statements")) or derived_precautions or "No precautionary statements required.",
+        "signal_word": clean_issue_value(fields.get("signal_word")) or ("Warning" if selected else "Not applicable"),
+        "pictograms": clean_issue_value(fields.get("pictograms")) or ", ".join(pictograms),
+    }
+
+
+def _toxicology_summary(hazard_codes: set[str], fields: dict[str, str]) -> str:
+    lines = [
+        "This mixture has not been tested as a whole for health effects. The health effects have been calculated using the methods outlined in Regulation (EC) No1272/2008 (CLP).",
+        "Acute Toxicity:\tBased on available data the classification criteria are not met",
+        f"Acute Toxicity Oral:\t{clean_issue_value(fields.get('acute_toxicity_oral')) or 'Not available'}",
+        f"Acute Toxicity Dermal:\t{clean_issue_value(fields.get('acute_toxicity_dermal')) or 'Not available'}",
+        "Acute Toxicity Inhalation:\tNot available",
+        f"Skin corrosion/irritation:\t{'Skin Corrosion / Irritation Category 2' if 'H315' in hazard_codes else 'Based on available data the classification criteria are not met'}",
+        f"Serious eye damage/irritation:\t{'Eye Damage / Irritation Category 2' if 'H319' in hazard_codes else 'Based on available data the classification criteria are not met'}",
+        f"Respiratory or skin sensitization:\t{'Sensitization-Skin Category 1' if 'H317' in hazard_codes else 'Based on available data the classification criteria are not met'}",
+        "Germ cell mutagenicity:\tBased on available data the classification criteria are not met",
+        "Carcinogenicity:\tBased on available data the classification criteria are not met",
+        "Reproductive toxicity:\tBased on available data the classification criteria are not met",
+        "STOT-single exposure:\tBased on available data the classification criteria are not met",
+        "STOT-repeated exposure:\tBased on available data the classification criteria are not met",
+        "Aspiration hazard:\tBased on available data the classification criteria are not met",
+    ]
+    return "\n".join(lines)
+
+
+def _h317_supplemental_information(ingredients: list[dict], existing: Any = "") -> str:
+    names: list[str] = []
+    for item in ingredients:
+        classification = clean_issue_value(item.get("classification"))
+        if not re.search(r"\bH317\b", classification, re.IGNORECASE):
+            continue
+        name = clean_issue_value(item.get("canonical_name") or item.get("name") or item.get("allergen_identity"))
+        if name and normalise(name) not in {normalise(value) for value in names}:
+            names.append(name)
+    if names:
+        return f"EUH208, Contains {', '.join(names)}. May produce an allergic reaction."
+    current = clean_issue_value(existing)
+    if not current:
+        return "EUH208"
+    return current if re.search(r"\bEUH208\b", current, re.IGNORECASE) else f"EUH208, {current}"
+
+
+def _fill_section_9(document, fields: dict[str, str]) -> None:
+    section_9_fields = (
+        ((r"^Appearance",), "appearance"),
+        ((r"^Colou?r",), "colour"),
+        ((r"^Odou?r(?:/Odor threshold)?",), "odour"),
+        ((r"^Melting point/freezing point",), "melting_point"),
+        ((r"^boiling range",), "boiling_point"),
+        ((r"^Flammability",), "flammability"),
+        ((r"^Lower and upper explosion limit",), "explosion_limits"),
+        ((r"^Flash point",), "flash_point"),
+        ((r"^Auto-ignition temperature",), "auto_ignition_temperature"),
+        ((r"^Decomposition temperature",), "decomposition_temperature"),
+        ((r"^pH",), "ph"),
+        ((r"^Kinematic viscosity",), "kinematic_viscosity"),
+        ((r"^Solubility",), "solubility"),
+        ((r"^Water \(log value\)",), "partition_coefficient"),
+        ((r"^Vapou?r pressure",), "vapour_pressure"),
+        ((r"^Density and/or relative density", r"^Relative density"), "relative_density"),
+        ((r"^Relative vapou?r density",), "relative_vapour_density"),
+        ((r"^Particle characteristics",), "particle_characteristics"),
+        ((r"^9\.2\s+Other information",), "other_physical_information"),
+    )
+    paragraphs = list(document.paragraphs)
+    start = _paragraph_index(paragraphs, r"^Section 9\.")
+    end = _paragraph_index(paragraphs, r"^Section 10\.", (start or 0) + 1)
+    if start is None or end is None:
+        return
+    section_fields = dict(fields)
+    if not clean_issue_value(section_fields.get("colour")):
+        appearance = clean_issue_value(section_fields.get("appearance"))
+        if re.search(r"\b(?:yellow(?:ish)?|amber|orange|red(?:dish)?|pink(?:ish)?|green(?:ish)?|blue(?:ish)?|brown(?:ish)?|purple|violet|white|black)\b", appearance, re.IGNORECASE):
+            section_fields["colour"] = appearance
+    for paragraph in paragraphs[start + 1:end]:
+        for patterns, field in section_9_fields:
+            if _set_paragraph_value_preserving_layout(paragraph, patterns, clean_issue_value(section_fields.get(field)) or SDS_UNDETERMINED):
+                break
+
+
+def _fill_unknown_section_body(document, heading_pattern: str, next_heading_pattern: str, value: Any = "") -> None:
+    _replace_section_body(document, heading_pattern, next_heading_pattern, clean_issue_value(value) or SDS_UNDETERMINED)
+
+
+def _replace_section_body(
+    document, heading_pattern: str, next_heading_pattern: str, value: str = "", *, preserve_placeholder: bool = False
+) -> None:
     paragraphs = list(document.paragraphs)
     heading = _paragraph_index(paragraphs, heading_pattern)
     if heading is None:
@@ -273,15 +545,32 @@ def _replace_section_body(document, heading_pattern: str, next_heading_pattern: 
     end = _paragraph_index(paragraphs, next_heading_pattern, heading + 1)
     if end is None:
         return
-    _set_paragraph_value(paragraphs[heading], (heading_pattern,), "")
-    for offset, paragraph in enumerate(paragraphs[heading + 1:end]):
-        if offset == 0 and clean_issue_value(value):
+    body = paragraphs[heading + 1:end]
+    cleaned = str(value or "").strip() if preserve_placeholder else clean_issue_value(value)
+    # Locator regexes intentionally match only the beginning of a heading.
+    # Preserve its complete wording, removing only an old inline value.
+    heading_text = paragraphs[heading].text.strip().split(":", 1)[0].rstrip()
+    if ":" in paragraphs[heading].text:
+        heading_text += ":"
+    if cleaned and not body:
+        _set_paragraph_value_preserving_layout(
+            paragraphs[heading], ("^" + re.escape(heading_text),), cleaned,
+            preserve_placeholder=preserve_placeholder,
+        )
+        return
+    _set_paragraph_text_preserving_layout(paragraphs[heading], heading_text)
+    for offset, paragraph in enumerate(body):
+        if offset == 0 and cleaned:
             if paragraph.runs:
-                paragraph.runs[0].text = clean_issue_value(value)
+                paragraph.runs[0].text = cleaned
                 for run in paragraph.runs[1:]:
                     run.text = ""
             else:
-                paragraph.text = clean_issue_value(value)
+                paragraph.text = cleaned
+            for run in paragraph.runs:
+                run.font.name = "Arial"
+                run.font.size = Pt(10)
+                run.bold = False
         else:
             _clear_paragraph(paragraph, remove_drawings=True)
 
@@ -331,25 +620,121 @@ def _set_row_no_split(row, *, repeat_header: bool = False) -> None:
         tr_pr.append(OxmlElement("w:tblHeader"))
 
 
-def _set_compact_cell_text(cell, value: Any, size: float = 8.5) -> None:
+def _set_compact_cell_text(
+    cell, value: Any, size: float = 8.5, line_spacing: float = 1, *, preserve_placeholder: bool = False
+) -> None:
     paragraphs = list(cell.paragraphs)
     paragraph = paragraphs[0]
     for extra in paragraphs[1:]:
         cell._tc.remove(extra._p)
     if paragraph.runs:
         run = paragraph.runs[0]
-        run.text = clean_issue_value(value)
+        run.text = str(value or "").strip() if preserve_placeholder else clean_issue_value(value)
         for extra in paragraph.runs[1:]:
             extra.text = ""
     else:
-        run = paragraph.add_run(clean_issue_value(value))
+        run = paragraph.add_run(str(value or "").strip() if preserve_placeholder else clean_issue_value(value))
     run.font.size = Pt(size)
     run.font.name = "Arial"
+    run.bold = False
     run._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "Arial")
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = Pt(0)
-    paragraph.paragraph_format.line_spacing = 1
+    paragraph.paragraph_format.line_spacing = line_spacing
+    paragraph.paragraph_format.left_indent = Pt(0)
+    paragraph.paragraph_format.right_indent = Pt(0)
+    paragraph.paragraph_format.first_line_indent = Pt(0)
+    paragraph.paragraph_format.keep_with_next = False
     cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+
+
+def _format_sds_table(table, centered_columns: set[int], *, vertical_padding: int = 60) -> None:
+    """Normalize the template's cell-level overrides without changing data."""
+    table.autofit = False
+    # The supplied master uses negative body indents. Give all SDS tables
+    # the same left edge and printable width instead of each table's offset.
+    props = table._tbl.tblPr
+    for tag, value in (("tblInd", "-576"), ("tblW", "10368")):
+        node = props.find(qn(f"w:{tag}"))
+        if node is None:
+            node = OxmlElement(f"w:{tag}")
+            props.append(node)
+        node.set(qn("w:w"), value)
+        node.set(qn("w:type"), "dxa")
+    widths = [column.width for column in table.columns]
+    total_width = sum(widths)
+    widths = [Inches(7.2 * width / total_width) for width in widths]
+    for column, width in zip(table.columns, widths):
+        column.width = width
+    for row_index, row in enumerate(table.rows):
+        _set_row_no_split(row, repeat_header=row_index == 0)
+        for column_index, cell in enumerate(row.cells):
+            cell.width = widths[column_index]
+            margins = cell._tc.get_or_add_tcPr().find(qn("w:tcMar"))
+            if margins is None:
+                margins = OxmlElement("w:tcMar")
+                cell._tc.get_or_add_tcPr().append(margins)
+            for side, width in (("top", vertical_padding), ("bottom", vertical_padding), ("left", 70), ("right", 70)):
+                node = margins.find(qn(f"w:{side}"))
+                if node is None:
+                    node = OxmlElement(f"w:{side}")
+                    margins.append(node)
+                node.set(qn("w:w"), str(width))
+                node.set(qn("w:type"), "dxa")
+            value = cell.text.strip()
+            size = 8.5
+            _set_compact_cell_text(cell, value, size=size, line_spacing=1.05, preserve_placeholder=True)
+            paragraph = cell.paragraphs[0]
+            paragraph.alignment = (
+                WD_ALIGN_PARAGRAPH.CENTER if row_index == 0 or column_index in centered_columns
+                else WD_ALIGN_PARAGRAPH.LEFT
+            )
+            paragraph.runs[0].bold = row_index == 0
+
+
+def _align_sds_label_paragraph(paragraph, value_offset: float) -> None:
+    if paragraph._p.xpath(".//w:drawing | .//w:pict") or "\t" not in paragraph.text:
+        return
+    label, value = paragraph.text.strip().split("\t", 1)
+    paragraph.text = label.rstrip() + "\t" + value.lstrip("\t ")
+    fmt = paragraph.paragraph_format
+    fmt.left_indent = Pt(value_offset)
+    fmt.first_line_indent = Pt(-value_offset)
+    fmt.right_indent = Pt(0)
+    fmt.tab_stops.clear_all()
+    fmt.tab_stops.add_tab_stop(Pt(value_offset))
+    fmt.space_after = Pt(4)
+    fmt.line_spacing = 1.05
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    for run in paragraph.runs:
+        run.font.name = "Arial"
+        run.font.size = Pt(10)
+        run.bold = False
+
+
+def _align_sds_labels(document) -> None:
+    for paragraph in list(document.paragraphs):
+        if paragraph.text.startswith("This mixture has not been tested") and "\nAcute Toxicity:" in paragraph.text:
+            # Individual paragraphs allow wrapped values to align with their
+            # value column instead of returning to the page's left margin.
+            lines = paragraph.text.split("\n")
+            paragraph.text = lines[0]
+            for run in paragraph.runs:
+                run.font.name = "Arial"
+                run.font.size = Pt(10)
+                run.bold = False
+            anchor = paragraph
+            for line in lines[1:]:
+                node = deepcopy(paragraph._p)
+                anchor._p.addnext(node)
+                anchor = Paragraph(node, paragraph._parent)
+                anchor.text = line
+                _align_sds_label_paragraph(anchor, 190)
+        elif re.match(r"^(Class and category of danger|Hazard statements|Supplemental Information|Precautionary statements)", paragraph.text.strip()):
+            _align_sds_label_paragraph(paragraph, 155)
+    for paragraph in document.paragraphs:
+        if re.match(r"^(Section \d+[.:]|\d+\.\d+\s|Respiratory Protection|Information about hazardous ingredients|Key to abbreviations)", paragraph.text.strip()):
+            paragraph.paragraph_format.keep_with_next = True
 
 
 def _populate_composition_table(table, template_row, ingredients: list[dict]) -> None:
@@ -361,14 +746,51 @@ def _populate_composition_table(table, template_row, ingredients: list[dict]) ->
         row = table.rows[-1]
         _set_row_no_split(row)
         values = [
-            item.get("name"), item.get("cas"), item.get("ec"),
+            item.get("canonical_name") or item.get("name"), item.get("cas"), item.get("ec"),
             _format_concentration(item.get("concentration")),
             _compact_classification(item.get("classification")),
-            item.get("specific_concentration_limits"),
+            item.get("specific_concentration_limits") if item.get("classification_source") else
+            (item.get("specific_concentration_limits") or item.get("toxicology")),
         ]
         for index, value in enumerate(values):
             if index < len(row.cells):
-                _set_compact_cell_text(row.cells[index], value)
+                _set_compact_cell_text(
+                    row.cells[index], clean_issue_value(value) or "Not available",
+                    size=8 if index >= 4 else 8.5,
+                    line_spacing=1,
+                    preserve_placeholder=True,
+                )
+
+
+def _reset_workplace_exposure_table(table) -> None:
+    template_row = deepcopy(table.rows[1]._tr if len(table.rows) > 1 else table.rows[0]._tr)
+    while len(table.rows) > 1:
+        table._tbl.remove(table.rows[-1]._tr)
+    table._tbl.append(template_row)
+    _set_row_no_split(table.rows[0], repeat_header=True)
+    _set_row_no_split(table.rows[1])
+    for index, cell in enumerate(table.rows[1].cells):
+        _set_compact_cell_text(cell, "NONE" if index == 0 else "Not applicable", preserve_placeholder=True)
+
+
+def _split_toxicology(value: Any) -> tuple[str, str, str, str]:
+    oral = dermal = inhalation = route = ""
+    unassigned: list[str] = []
+    for part in (piece.strip() for piece in re.split(r"\s*;\s*", clean_issue_value(value)) if piece.strip()):
+        match = re.match(r"(?i)^(oral|dermal|inhalation)\s*:\s*(.*)$", part)
+        if not match:
+            unassigned.append(part)
+            continue
+        label, result = match.group(1).lower(), match.group(2).strip()
+        if label == "oral":
+            oral = result
+        elif label == "dermal":
+            dermal = result
+        else:
+            inhalation = result
+    if unassigned:
+        oral = "; ".join([oral, *unassigned]).strip("; ")
+    return oral, dermal, inhalation, route
 
 
 def _ingredient_indexes(ingredients: list[dict[str, Any]]) -> tuple[dict[str, dict], dict[str, dict]]:
@@ -449,47 +871,81 @@ def _tighten_ifra_certificate(document) -> None:
                         run.font.size = Pt(7)
 
 
-def _fill_sds(document, fields: dict[str, str], ingredients: list[dict]) -> None:
-    labels = {
-        "appearance": (r"Appearance",), "colour": (r"Colou?r",), "odour": (r"Odou?r(?:/Odor threshold)?",),
-        "flash_point": (r"Flash point",), "refractive_index": (r"Refractive index",), "solubility": (r"Solubility",),
-        "relative_density": (r"Density and/or relative density", r"Relative density"),
-        "signal_word": (r"Signal word",), "hazard_statements": (r"Hazard statements",),
-        "precautionary_statements": (r"Precautionary statements",),
-        "other_hazards": (r"Other hazards", r"Supplemental Information"),
-    }
-    for paragraph in _all_paragraphs(document):
-        for key, patterns in labels.items():
-            _set_paragraph_value(paragraph, patterns, clean_issue_value(fields.get(key)))
+def _fill_sds(document, fields: dict[str, str], ingredients: list[dict], product: str, code: str) -> None:
+    # Generation also corrects previously approved snapshots. The saved
+    # ingredient rows and formula concentrations are never mutated here.
+    ingredients = deepcopy(ingredients)
+    for item in ingredients:
+        apply_raw_material_reference(item)
+    fields = dict(fields)
+    cedar_reference = is_cedar_sage_reference_formula(product, code, ingredients)
+    if cedar_reference:
+        for field, value in CEDAR_SAGE_SDS_LABEL.items():
+            if not clean_issue_value(fields.get(field)):
+                fields[field] = value
+    mixture_label = _derived_mixture_label(fields, ingredients)
+    hazard_codes = set(filter(None, mixture_label["codes"].split(",")))
+    if cedar_reference and not clean_issue_value(fields.get("ecology")):
+        hazard_codes.add("H412")
+    stated_transport = normalise(fields.get("transport_un_number")).replace(" ", "")
+    transport_is_un3082 = (
+        stated_transport == "un3082" or
+        (not stated_transport and (cedar_reference or "H411" in hazard_codes))
+    )
+    classification = _multiline_regulatory_value(mixture_label["classification"])
+    hazard_statements = _multiline_regulatory_value(mixture_label["hazard_statements"], "H")
+    precautionary_statements = _multiline_regulatory_value(mixture_label["precautionary_statements"], "P")
+    supplemental_information = _h317_supplemental_information(ingredients, fields.get("supplemental_information"))
+    _replace_labeled_block(document, r"^Class and category of danger", r"^2\.2\s+Label elements", classification)
+    _set_paragraph_value_preserving_layout(
+        next((paragraph for paragraph in document.paragraphs if re.search(r"^\s*Signal word", paragraph.text, re.IGNORECASE)), document.paragraphs[0]),
+        (r"^Signal word",), mixture_label["signal_word"], preserve_placeholder=True,
+    )
+    _replace_labeled_block(document, r"^Hazard statements", r"^Supplemental Information", hazard_statements)
+    _replace_labeled_block(document, r"^Supplemental Information", r"^Precautionary statements", supplemental_information)
+    _replace_labeled_block(document, r"^Precautionary statements", r"^Pictograms", precautionary_statements)
+    pictogram_names = {normalise(value) for value in mixture_label["pictograms"].split(",") if normalise(value)}
+    use_reference_artwork = {"irritant", "environmental hazard"}.issubset(pictogram_names)
+    _replace_labeled_block(
+        document, r"^Pictograms", r"^Other hazards",
+        mixture_label["pictograms"] or "Not applicable",
+        remove_drawings=not use_reference_artwork,
+    )
+    other_hazards = next((paragraph for paragraph in document.paragraphs if re.search(r"^\s*Other hazards", paragraph.text, re.IGNORECASE)), None)
+    if other_hazards is not None:
+        _set_paragraph_value_preserving_layout(other_hazards, (r"^Other hazards",), clean_issue_value(fields.get("other_hazards")) or "None")
+    _replace_section_body(document, r"^4\.2\s+Most important symptoms", r"^4\.3\s+", hazard_statements)
+    _replace_section_body(
+        document, r"^7\.2\s+Conditions for safe storage", r"^7\.3\s+",
+        clean_issue_value(fields.get("storage_condition")) or "Store in a cool, well-ventilated place away from direct sunlight.",
+    )
+    ecology = clean_issue_value(fields.get("ecology"))
+    if not ecology:
+        ecology = "Toxic to aquatic life with long lasting effects." if "H411" in hazard_codes else "Based on available data the classification criteria are not met."
+    _replace_section_body(document, r"^12\.1\s+Toxicity", r"^12\.2\s+", ecology)
+    _replace_section_body(document, r"^14\.5\s+Environmental hazards", r"^14\.6\s+", clean_issue_value(fields.get("transport_environmental_hazards")) or ("This is classified as an environmentally hazardous substance under the UN Model Regulations. This is classified as a Marine Pollutant under the IMDG Code." if transport_is_un3082 else "Not classified as environmentally hazardous for transport."))
+    _replace_section_body(document, r"^14\.6\s+Special precautions", r"^14\.7\s+", clean_issue_value(fields.get("transport_precautions")) or "None additional")
+    _replace_section_body(document, r"^14\.7\s+Maritime transport", r"^Section 15", clean_issue_value(fields.get("transport_bulk")) or "Not applicable", preserve_placeholder=True)
+    regulatory_information = clean_issue_value(fields.get("regulatory_information"))
+    if not regulatory_information:
+        svhc_names = [clean_issue_value(item.get("svhc_identity")) for item in ingredients if clean_issue_value(item.get("svhc_identity"))]
+        regulatory_information = f"The following SVHC substances are contained in this fragrance:\n{', '.join(svhc_names)}" if svhc_names else "This fragrance does not contain any identified SVHC substances."
+    _replace_section_body(document, r"^15\.1\s+Safety, health and environmental", r"^15\.2\s+", regulatory_information)
+    _replace_section_body(document, r"^15\.2\s+Chemical Safety Assessment", r"^Section 16", clean_issue_value(fields.get("chemical_safety_assessment")) or "A Chemical Safety Assessment has not been carried out for this product")
+    _replace_section_body(document, r"^11\.1\s+Information on hazard classes", r"^Information about hazardous ingredients", _toxicology_summary(hazard_codes, fields))
+    section_12_defaults = (
+        (r"^12\.2\s+Persistence and degradability", r"^12\.3\s+", "Not available"),
+        (r"^12\.3\s+Bio accumulative potential", r"^12\.4\s+", "Not available"),
+        (r"^12\.4\s+Mobility in soil", r"^12\.5\s+", "Not available"),
+        (r"^12\.5\s+Results of PBT", r"^12\.6\s+", "Not available"),
+        (r"^12\.6\s+Endocrine disrupting properties", r"^12\.7\s+", "Not applicable"),
+        (r"^12\.7\s+Other adverse effects", r"^Section 13", "None known"),
+        (r"^Key to revisions", r"^Key to abbreviations", "Sections 2, 3, 9, 11, 12, 14 and 15 updated from the approved workflow."),
+    )
+    for heading, following, default in section_12_defaults:
+        _replace_section_body(document, heading, following, default, preserve_placeholder=True)
 
-    # Remove every example-product hazard statement. Mixture classification
-    # requires employee review; blank reviewed fields must produce blank output.
-    _replace_labeled_block(document, r"^Class and category of danger", r"^2\.2\s+Label elements", fields.get("classification", ""))
-    _replace_labeled_block(document, r"^Hazard statements", r"^Supplemental Information", fields.get("hazard_statements", ""))
-    _replace_labeled_block(document, r"^Supplemental Information", r"^Precautionary statements", fields.get("supplemental_information", ""))
-    _replace_labeled_block(document, r"^Precautionary statements", r"^Pictograms", fields.get("precautionary_statements", ""))
-    _replace_labeled_block(document, r"^Pictograms", r"^Other hazards", fields.get("pictograms", ""), remove_drawings=True)
-    _replace_labeled_block(document, r"^Other hazards", r"^Section 3", fields.get("other_hazards", ""))
-    _replace_section_body(document, r"^4\.2\s+Most important symptoms", r"^4\.3\s+", fields.get("hazard_statements", ""))
-    _replace_section_body(document, r"^7\.2\s+Conditions for safe storage", r"^7\.3\s+", fields.get("storage_condition", ""))
-    _replace_section_body(document, r"^12\.1\s+Toxicity", r"^12\.2\s+")
-    _replace_section_body(document, r"^14\.5\s+Environmental hazards", r"^14\.6\s+")
-    _replace_section_body(document, r"^14\.6\s+Special precautions", r"^14\.7\s+")
-    _replace_section_body(document, r"^14\.7\s+Maritime transport", r"^Section 15")
-    _replace_section_body(document, r"^15\.1\s+Safety, health and environmental", r"^15\.2\s+")
-    _replace_section_body(document, r"^15\.2\s+Chemical Safety Assessment", r"^Section 16")
-    if not clean_issue_value(fields.get("hazard_statements")):
-        _replace_section_body(document, r"^11\.1\s+Information on hazard classes", r"^Information about hazardous ingredients")
-    for heading, following in (
-        (r"^12\.2\s+Persistence and degradability", r"^12\.3\s+"),
-        (r"^12\.3\s+Bio accumulative potential", r"^12\.4\s+"),
-        (r"^12\.4\s+Mobility in soil", r"^12\.5\s+"),
-        (r"^12\.5\s+Results of PBT", r"^12\.6\s+"),
-        (r"^12\.6\s+Endocrine disrupting properties", r"^12\.7\s+"),
-        (r"^12\.7\s+Other adverse effects", r"^Section 13"),
-        (r"^Key to revisions", r"^Key to abbreviations"),
-    ):
-        _replace_section_body(document, heading, following)
+    _fill_section_9(document, fields)
 
     composition_tables = [
         table for table in document.tables
@@ -498,18 +954,14 @@ def _fill_sds(document, fields: dict[str, str], ingredients: list[dict]) -> None
         and len(table.rows[0].cells) == 6
     ]
     if not composition_tables:
-        _remove_output_placeholders(document)
         return
     composition = composition_tables[0]
-    continuation = composition_tables[1] if len(composition_tables) > 1 else None
     primary_template = deepcopy(composition.rows[1]._tr if len(composition.rows) > 1 else composition.rows[0]._tr)
-    continuation_template = deepcopy(continuation.rows[1]._tr if continuation is not None and len(continuation.rows) > 1 else primary_template)
-    # The supplied Aromazen master is laid out for nine rows on page 2 and a
-    # continuation table on page 3. Preserve that pagination instead of
-    # pushing the manually positioned headers and footers onto extra pages.
-    _populate_composition_table(composition, primary_template, ingredients[:9])
-    if continuation is not None:
-        _populate_composition_table(continuation, continuation_template, ingredients[9:])
+    # Word flows this table naturally across pages. The following six-column
+    # table belongs to workplace exposure limits and is not a continuation.
+    _populate_composition_table(composition, primary_template, ingredients)
+    if len(composition_tables) > 1:
+        _reset_workplace_exposure_table(composition_tables[1])
 
     # Product-specific toxicology: replace all sample-product rows. A single
     # reviewed free-text value is kept in the first result column.
@@ -519,32 +971,80 @@ def _fill_sds(document, fields: dict[str, str], ingredients: list[dict]) -> None
         while len(toxicity.rows) > 1:
             toxicity._tbl.remove(toxicity.rows[-1]._tr)
         for item in ingredients:
-            value = clean_issue_value(item.get("toxicology"))
+            if cedar_reference and clean_issue_value(item.get("canonical_name") or item.get("name")) not in CEDAR_SAGE_SECTION_11_INGREDIENTS:
+                continue
+            value = clean_issue_value(item.get("specific_concentration_limits") if item.get("classification_source") else item.get("toxicology"))
             if not value:
                 continue
             toxicity._tbl.append(deepcopy(template_row)); cells = toxicity.rows[-1].cells
-            values = [item.get("name"), item.get("cas"), item.get("ec"), value, "", "", ""]
+            oral, dermal, inhalation, route = _split_toxicology(value)
+            values = [item.get("canonical_name") or item.get("name"), item.get("cas"), item.get("ec"), oral, dermal, inhalation, route]
             for index, cell_value in enumerate(values):
                 if index < len(cells):
-                    cells[index].text = clean_issue_value(cell_value)
+                    _set_compact_cell_text(cells[index], cell_value or "Not available", size=8, preserve_placeholder=True)
+        if len(toxicity.rows) == 1:
+            toxicity._tbl.append(deepcopy(template_row)); cells = toxicity.rows[-1].cells
+            values = ["NONE", "Not applicable", "Not applicable", "Not available", "Not available", "Not available", "Not available"]
+            for index, cell_value in enumerate(values):
+                if index < len(cells):
+                    _set_compact_cell_text(cells[index], cell_value, size=8, preserve_placeholder=True)
 
     # Transport classification is a mixture-level decision. Never retain the
-    # example product's UN number, proper shipping name, class or packing group.
+    # example product's ingredient names in a newly generated SDS.
     transport = next((table for table in document.tables if table.rows and "un proper shipping name" in normalise(" ".join(c.text for c in table.rows[0].cells))), None)
     if transport is not None:
+        _set_compact_cell_text(transport.rows[0].cells[0], "Regulation")
+        transport_heading = next((paragraph for paragraph in document.paragraphs if re.search(r"^\s*Section 14\.", paragraph.text, re.IGNORECASE)), None)
+        if transport_heading is not None:
+            transport_heading.paragraph_format.keep_with_next = True
+            transport_heading.paragraph_format.page_break_before = False
+        environmental_names = sorted(
+            (
+                (_numeric_concentration(item.get("concentration")), clean_issue_value(item.get("name")))
+                for item in ingredients
+                if re.search(r"\bH411\b", clean_issue_value(item.get("classification")), re.IGNORECASE)
+            ),
+            reverse=True,
+        )
+        reference_names = un3082_technical_names(ingredients)
+        technical_names = ", ".join(reference_names or [name for _, name in environmental_names[:2] if name])
         for row in transport.rows[1:]:
-            for cell in row.cells[1:]:
-                cell.text = ""
+            if transport_is_un3082:
+                proper_name = f"ENVIRONMENTALLY HAZARDOUS SUBSTANCE, LIQUID, N.O.S. ({technical_names})"
+                if normalise(row.cells[0].text) == "imdg":
+                    proper_name += " MARINE POLLUTANT"
+                values = ["UN3082", proper_name, "9", "-", "III"]
+            else:
+                values = ["Not regulated", "Not regulated as dangerous goods", "-", "-", "-"]
+            for cell, value in zip(row.cells[1:], values):
+                _set_compact_cell_text(cell, value)
 
     # Clear any sample row in the generic ingredient/value table.
     generic = next((table for table in document.tables if table.rows and normalise(" ".join(c.text for c in table.rows[0].cells)) == "ingredient cas ec description value"), None)
     if generic is not None:
         for row in generic.rows[1:]:
-            for cell in row.cells:
-                cell.text = ""
+            for index, cell in enumerate(row.cells):
+                _set_compact_cell_text(cell, "NONE" if index == 0 else "Not applicable", preserve_placeholder=True)
 
-    _remove_output_placeholders(document)
+    _format_sds_table(composition, {1, 2, 3})
+    for table in composition_tables[1:]:
+        _format_sds_table(table, {1, 2, 3})
+    if toxicity is not None:
+        _format_sds_table(toxicity, {1, 2})
+    if transport is not None:
+        _format_sds_table(transport, {1, 3, 4, 5})
+    if generic is not None:
+        _format_sds_table(generic, {1, 2, 4})
+    for table in document.tables:
+        if table.rows and normalise(" ".join(cell.text for cell in table.rows[0].cells)) == "abbreviation meaning":
+            _format_sds_table(table, set(), vertical_padding=40)
+    _align_sds_labels(document)
+
     _remove_duplicate_particle_characteristics(document)
+    _prune_blank_paragraphs_between(document, r"^11\.1\s+Information on hazard classes", r"^Information about hazardous ingredients")
+    _prune_blank_paragraphs_between(document, r"^13\.1\s+Waste treatment methods", r"^Section 14\.")
+    _prune_blank_paragraphs_between(document, r"^15\.1\s+Safety, health and environmental", r"^15\.2\s+")
+    _prune_blank_paragraphs_between(document, r"^Key to revisions", r"^Key to abbreviations")
 
 
 def generate_regulatory_docx(template: Path, output: Path, document_type: str, product: str, code: str, fields: dict[str, str], ingredients: list[dict]) -> None:
@@ -561,7 +1061,7 @@ def generate_regulatory_docx(template: Path, output: Path, document_type: str, p
     # Replace the example metadata for every generated document, not only SDS.
     _set_footer_metadata(document, fields)
     if document_type == "sds":
-        _fill_sds(document, fields, ingredients)
+        _fill_sds(document, fields, ingredients, clean_product, clean_code)
     elif document_type == "ifra_certificate":
         _tighten_ifra_certificate(document)
     elif document_type == "ifra_amendment":

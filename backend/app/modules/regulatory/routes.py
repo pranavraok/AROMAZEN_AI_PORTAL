@@ -30,6 +30,7 @@ from app.modules.knowledge.department_uploads import DepartmentUpload, replace_d
 from app.modules.knowledge.extraction import ExtractionError, extract_text
 from app.modules.knowledge.storage import organized_storage_name
 from app.modules.regulatory.engine import COA_LABELS, DOCUMENT_TYPES, clean_issue_value, extract_coa_identity, extract_coa_properties, generate_regulatory_docx, normalise, parse_regulatory_excel
+from app.modules.regulatory.reference_catalog import apply_raw_material_reference
 from app.modules.regulatory.research import (
     EC_PATTERN,
     EU_COSMETICS_REGULATION,
@@ -305,6 +306,7 @@ async def create_workflow(regulatory_excel: UploadFile = File(...), creation_coa
         if saved:
             saved_data, provenance = _public_master_data(saved)
             item.update(saved_data); item["sources"] = saved.sources_json or []; item["provenance"] = provenance
+        apply_raw_material_reference(item)
     # Creation COA intake is deterministic and free. Missing values stay editable
     # instead of silently triggering a paid model request.
     sds_fields = extract_coa_properties(coa_text)
@@ -467,9 +469,10 @@ async def enrich_workflow(
         )
         if changed:
             populated += 1
+        apply_raw_material_reference(current)
         if researched.get("errors"):
             failed += 1
-        _cache_research_result(session, masters, user, current, "official_database")
+        _cache_research_result(session, masters, user, current, "reference_catalog" if current.get("classification_source") else "official_database")
     workflow.ingredients_json = ingredients
     flag_modified(workflow, "ingredients_json")
     await session.commit()
@@ -567,9 +570,10 @@ async def ai_identity_fallback(
         verified_suggestion.update(values); urls.extend(value_urls); checks.update(value_checks); versions.update(value_versions)
 
     changed = _merge_research_result(item, verified_suggestion, list(dict.fromkeys(urls)), checks, versions, "official_database")
+    apply_raw_material_reference(item)
     masters = {master.normalized_name: master for master in list(await session.scalars(select(RegulatoryIngredientMaster).where(RegulatoryIngredientMaster.organization_id == user.organization_id)))}
     if changed:
-        _cache_research_result(session, masters, user, item, "official_database")
+        _cache_research_result(session, masters, user, item, "reference_catalog" if item.get("classification_source") else "official_database")
     workflow.ingredients_json = ingredients
     flag_modified(workflow, "ingredients_json")
     session.add(AIUsageEvent(organization_id=user.organization_id, user_id=user.id, department_id=user.department_id, operation="regulatory_ai_identity_fallback", provider=provider, model=model, input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=estimate_cost(provider, model, input_tokens, output_tokens), latency_ms=int((time.perf_counter() - started) * 1000), status="completed"))
@@ -615,7 +619,7 @@ async def apply_voice_notes(workflow_id: str, payload: VoiceNotesUpdate, user: U
         if key in allowed_sds and cleaned:
             sds_fields[key] = cleaned[:1000]
     workflow.sds_fields_json = sds_fields
-    allowed_ingredient = {"name", "concentration", "cas", "ec", "classification", "hazard_statements", "precautionary_statements", "signal_word", "pictograms", "toxicology", "ecology", "transport", "allergen_identity", "svhc_identity", "ifra_limits", "aliases"}
+    allowed_ingredient = {"name", "concentration", "cas", "ec", "classification", "specific_concentration_limits", "hazard_statements", "precautionary_statements", "signal_word", "pictograms", "toxicology", "ecology", "transport", "allergen_identity", "svhc_identity", "ifra_limits", "aliases"}
     ingredients = list(workflow.ingredients_json or [])
     indexed = {normalise(item.get("name")): item for item in ingredients}
     for change in changes.get("ingredients") or []:
