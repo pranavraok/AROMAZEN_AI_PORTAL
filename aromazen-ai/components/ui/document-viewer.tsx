@@ -5,6 +5,7 @@ import { Download, ExternalLink, FileText, LoaderCircle, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SpreadsheetPreview, type SpreadsheetWorkbook } from '@/components/document-viewer/spreadsheet-preview'
 import { isDocx, isExcel, extractSpreadsheetWorkbook, renderDocxToHtml } from '@/components/document-viewer/preview-helpers'
+import { BodyPortal } from '@/components/ui/modal'
 
 type ViewerFile = { blob: Blob; filename: string; title: string }
 
@@ -65,6 +66,7 @@ export function DocumentViewerModal({ file, onClose }: { file: ViewerFile | null
   if (!file || !url) return null
 
   return (
+    <BodyPortal>
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-2 backdrop-blur-sm md:p-6" role="dialog" aria-modal="true" aria-label={file.title} onClick={onClose}>
       <div className="flex h-full max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
@@ -119,5 +121,6 @@ export function DocumentViewerModal({ file, onClose }: { file: ViewerFile | null
         </div>
       </div>
     </div>
+    </BodyPortal>
   )
 }
