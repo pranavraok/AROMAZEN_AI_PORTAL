@@ -88,6 +88,7 @@ async def bootstrap_owner(session: AsyncSession) -> None:
         ("Graphics", "graphics"),
         ("Quality Assurance", "quality-assurance"),
         ("Regulatory", "regulatory"),
+        ("Merchandising", "merchandising"),
     ]:
         session.add(Department(organization_id=organization.id, name=name, slug=slug))
     await session.flush()

@@ -33,6 +33,7 @@ def is_master_template_upload(upload: DepartmentUpload) -> bool:
         or category == "hr_custom_letter_template"
         or category.startswith("hr_letter_template:")
         or category.startswith("regulatory_template:")
+        or category.startswith("merchandising_template:")
     )
 
 

@@ -44,6 +44,11 @@ import type {
   RegulatoryIngredient,
   RegulatoryTemplate,
   RegulatoryWorkflow,
+  MerchandisingDocumentType,
+  MerchandisingExtraction,
+  MerchandisingGeneration,
+  MerchandisingSchema,
+  MerchandisingTemplate,
 } from './types'
 
 export const api = {
@@ -217,6 +222,25 @@ export const api = {
     download: (accessToken: string, generationId: string) => apiFileRequest(`/regulatory/generations/${generationId}/download`, accessToken),
     preview: (accessToken: string, generationId: string) => apiFileRequest(`/regulatory/generations/${generationId}/preview`, accessToken),
     pdf: (accessToken: string, generationId: string) => apiFileRequest(`/regulatory/generations/${generationId}/pdf`, accessToken),
+  },
+  merchandising: {
+    schema: (accessToken: string) => apiRequest<MerchandisingSchema>('/merchandising/schema', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    templates: (accessToken: string) => apiRequest<MerchandisingTemplate[]>('/merchandising/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    replaceTemplate: (accessToken: string, documentType: MerchandisingDocumentType, file: File) => {
+      const form = new FormData(); form.append('template_file', file)
+      return apiRequest<MerchandisingTemplate>(`/merchandising/templates/${documentType}`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    templateContent: (accessToken: string, documentType: MerchandisingDocumentType) => apiFileRequest(`/merchandising/templates/${documentType}/content`, accessToken),
+    extract: (accessToken: string, file: File) => {
+      const form = new FormData(); form.append('source_file', file)
+      return apiRequest<MerchandisingExtraction>('/merchandising/extract', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    generate: (accessToken: string, documentType: MerchandisingDocumentType, fields: Record<string, string>) => apiRequest<MerchandisingGeneration>(`/merchandising/generate/${documentType}`, { method: 'POST', body: { fields }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    generationContent: (accessToken: string, generationId: string) => apiFileRequest(`/merchandising/generations/${generationId}/content`, accessToken),
+    pack: (accessToken: string, fields: Record<string, string>) => {
+      const form = new FormData(); form.append('fields_json', JSON.stringify(fields))
+      return apiFileRequest('/merchandising/pack', accessToken, { method: 'POST', body: form })
+    },
   },
   hrTemplates: {
     list: (accessToken: string) => apiRequest<HRTemplate[]>('/hr-letters/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),

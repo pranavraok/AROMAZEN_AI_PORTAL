@@ -633,3 +633,35 @@ export interface RegulatoryWorkflow {
   research_summary?: { mode: 'official' | 'ai'; attempted: number; populated: number; unresolved: number; failed: number; cached: number; ai_requests: number }
 }
 export interface RegulatoryTemplate { id: string; document_type: RegulatoryDocumentType; name: string; version: number }
+
+export type MerchandisingDocumentType = 'packing_list' | 'hazardous_request' | 'imo_declaration' | 'multimodal_form'
+export interface MerchandisingTemplate {
+  id: string
+  document_type: MerchandisingDocumentType
+  title: string
+  name: string
+  version: number
+}
+export interface MerchandisingField {
+  key: string
+  label: string
+  group: string
+  required?: boolean
+  multiline?: boolean
+}
+export interface MerchandisingSchema {
+  fields: MerchandisingField[]
+  document_types: { key: MerchandisingDocumentType; title: string }[]
+}
+export interface MerchandisingExtraction {
+  source_name: string
+  detected_type: MerchandisingDocumentType
+  fields: Record<string, string>
+  missing_required: string[]
+  warnings: string[]
+}
+export interface MerchandisingGeneration {
+  id: string
+  document_type: MerchandisingDocumentType
+  filename: string
+}

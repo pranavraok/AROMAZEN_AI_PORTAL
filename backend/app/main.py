@@ -13,6 +13,7 @@ from app.modules.hr_letters.seed import seed_hr_letter_templates
 from app.modules.document_generator.seed import seed_qa_coa_template
 from app.modules.assets.service import seed_asset_register
 from app.modules.regulatory.seed import seed_regulatory_templates
+from app.modules.merchandising.seed import seed_merchandising_templates
 from app.modules.knowledge.department_uploads import purge_transient_workflow_kb_documents
 
 settings = get_settings()
@@ -45,6 +46,11 @@ async def lifespan(app: FastAPI):
         except Exception as error:
             await session.rollback()
             logger.exception("regulatory_template_seed_failed", error=str(error))
+        try:
+            await seed_merchandising_templates(session)
+        except Exception as error:
+            await session.rollback()
+            logger.exception("merchandising_template_seed_failed", error=str(error))
     yield
     await redis.aclose()
 
