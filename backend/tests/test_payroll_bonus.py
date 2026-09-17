@@ -24,7 +24,7 @@ def test_bonus_master_exposes_all_canva_placeholders() -> None:
     fields = {field.lower() for field in bonus_template_fields(ASSET_ROOT / "AROMAZEN_BonusSlip_Master.pdf")}
 
     assert fields == {
-        "accounting_year", "unit", "unit_address", "employee_name", "employee_code",
+        "accounting_year", "unit_address", "employee_name", "employee_code",
         "date_of_joining", "designation", "uan", "esi_number", "account_number",
         "transaction_id", "payment_date", "bonus_amount", "bonus_amount_words",
     }

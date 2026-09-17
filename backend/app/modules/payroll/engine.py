@@ -113,7 +113,7 @@ SALARY_FIELD_WIDTHS = {
     "net_wages": 400, "net_wages_words": 390,
 }
 BONUS_TEMPLATE_REQUIRED_FIELDS = {
-    "accounting_year", "unit", "unit_address", "employee_name", "employee_code",
+    "accounting_year", "unit_address", "employee_name", "employee_code",
     "date_of_joining", "designation", "uan", "esi_number", "account_number",
     "transaction_id", "payment_date", "bonus_amount", "bonus_amount_words",
 }
@@ -463,7 +463,7 @@ def _bonus_placeholder_pdf(template_path: Path, details: dict, accounting_year: 
     for word, _ in placeholders:
         top, bottom = float(word["top"]), float(word["bottom"])
         overlay.setFillColor(colors.white)
-        overlay.rect(float(word["x0"]) - 2, page_height - bottom - 2, float(word["x1"]) - float(word["x0"]) + 4, bottom - top + 4, stroke=0, fill=1)
+        overlay.rect(float(word["x0"]), page_height - bottom, float(word["x1"]) - float(word["x0"]), bottom - top, stroke=0, fill=1)
 
     overlay.setFillColor(colors.black)
     for word, match in placeholders:
