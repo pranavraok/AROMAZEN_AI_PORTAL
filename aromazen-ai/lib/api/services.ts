@@ -52,6 +52,10 @@ import type {
   MerchandisingGeneration,
   MerchandisingSchema,
   MerchandisingTemplate,
+  CreateMarketingLeadPayload,
+  MarketingLead,
+  MarketingLeadList,
+  MarketingMonthlyReport,
 } from './types'
 
 export const api = {
@@ -258,6 +262,19 @@ export const api = {
       const form = new FormData(); form.append('fields_json', JSON.stringify(fields))
       return apiFileRequest('/merchandising/pack', accessToken, { method: 'POST', body: form })
     },
+  },
+  marketingLeads: {
+    list: (accessToken: string, filters?: { status?: string; search?: string }) => {
+      const params = new URLSearchParams()
+      if (filters?.status) params.set('status', filters.status)
+      if (filters?.search) params.set('search', filters.search)
+      const query = params.size ? `?${params.toString()}` : ''
+      return apiRequest<MarketingLeadList>(`/marketing-leads${query}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    create: (accessToken: string, payload: CreateMarketingLeadPayload) => apiRequest<MarketingLead>('/marketing-leads', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    decide: (accessToken: string, leadId: string, action: 'accept' | 'reject' | 'question', message?: string) => apiRequest<MarketingLead>(`/marketing-leads/${leadId}/decision`, { method: 'POST', body: { action, message: message || null }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    reply: (accessToken: string, leadId: string, message: string) => apiRequest<MarketingLead>(`/marketing-leads/${leadId}/reply`, { method: 'POST', body: { message }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    monthlyReport: (accessToken: string, month: string) => apiRequest<MarketingMonthlyReport>(`/marketing-leads/report/monthly?month=${encodeURIComponent(month)}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
   },
   hrTemplates: {
     list: (accessToken: string) => apiRequest<HRTemplate[]>('/hr-letters/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),

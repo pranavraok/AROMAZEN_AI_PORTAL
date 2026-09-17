@@ -12,6 +12,7 @@ import {
   GitCompareArrows,
   ShieldCheck,
   Ship,
+  Send,
   UserCog,
   WalletCards,
   WandSparkles,
@@ -36,12 +37,13 @@ function departmentKind(department: Pick<Department, 'name' | 'slug'>) {
   if (/\bqa\b|quality assurance/.test(value)) return 'qa_qc'
   if (/regulatory/.test(value)) return 'regulatory'
   if (/merchandis/.test(value)) return 'merchandising'
+  if (/marketing/.test(value)) return 'marketing'
   if (/accounts?/.test(value)) return 'accounts'
   if (/inventory/.test(value)) return 'inventory'
   return 'general'
 }
 
-const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'regulatory' | 'merchandising' | 'accounts' | 'inventory', DepartmentAction[]> = {
+const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'regulatory' | 'merchandising' | 'marketing' | 'accounts' | 'inventory', DepartmentAction[]> = {
   hr: [
     { key: 'attendance', title: 'Attendance', description: 'Upload attendance, review exceptions and export results.', href: '/department-tools/hr-attendance', icon: CalendarCheck2, employeeAccess: true },
     { key: 'leave', title: 'Leave Calculator', description: 'Calculate leave, LOP, paid days and overtime.', href: '/hr/leave-calculator', icon: ClipboardCheck },
@@ -57,7 +59,11 @@ const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'regulatory' | 'merchandising
     { key: 'documents', title: 'Regulatory Documents', description: 'Upload Regulatory Excel and Creation COA, approve the SDS, then generate IFRA, allergen and EU REACH documents.', href: '/department-tools/regulatory-documents', icon: ShieldCheck, employeeAccess: true },
   ],
   merchandising: [
+    { key: 'marketing-leads', title: 'Marketing Lead Requests', description: 'Accept, reject or ask Marketing a question. No ongoing lead updates are required.', href: '/department-tools/marketing-leads', icon: Send, employeeAccess: true },
     { key: 'export-documents', title: 'Export Document Centre', description: 'Upload one completed document, review the extracted details and generate the complete export pack.', href: '/department-tools/merchandising-documents', icon: Ship, employeeAccess: true },
+  ],
+  marketing: [
+    { key: 'lead-handover', title: 'Send Leads to Merchandising', description: 'Submit a new lead, answer clarification questions and review the handover status.', href: '/department-tools/marketing-leads', icon: Send, employeeAccess: true },
   ],
   accounts: [
     { key: 'cash-flow', title: 'Cash Flow Report', description: 'Upload monthly files and generate the protected report.', href: '/accounts/cash-flow', icon: WalletCards },

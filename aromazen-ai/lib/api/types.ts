@@ -318,7 +318,7 @@ export interface UsageNotification {
   message: string
   severity: 'info' | 'warning' | 'critical'
   created_at: string
-  kind?: 'usage' | 'document_reminder' | 'asset_maintenance' | 'knowledge_document_added'
+  kind?: 'usage' | 'document_reminder' | 'asset_maintenance' | 'knowledge_document_added' | 'marketing_lead_submitted' | 'marketing_lead_questioned' | 'marketing_lead_resubmitted' | 'marketing_lead_accepted' | 'marketing_lead_rejected'
   href?: string
   is_read: boolean
   read_at: string | null
@@ -690,4 +690,82 @@ export interface MerchandisingGeneration {
   id: string
   document_type: MerchandisingDocumentType
   filename: string
+}
+
+export type MarketingLeadStatus = 'submitted' | 'clarification_required' | 'resubmitted' | 'accepted' | 'rejected'
+export type MarketingLeadPriority = 'hot' | 'warm' | 'cold'
+export interface MarketingLeadActivity {
+  id: string
+  action: string
+  message: string | null
+  actor_name: string
+  actor_department: string | null
+  created_at: string
+}
+export interface MarketingLead {
+  id: string
+  company_name: string
+  contact_person: string
+  phone_number: string | null
+  email: string | null
+  country: string
+  region: string
+  product_interest: string
+  expected_quantity: string | null
+  lead_source: string
+  priority: MarketingLeadPriority
+  requirement: string
+  notes: string | null
+  status: MarketingLeadStatus
+  created_by_user_id: string | null
+  created_by_name: string
+  decision_reason: string | null
+  decided_by_name: string | null
+  first_merchandising_response_at: string | null
+  decided_at: string | null
+  submitted_at: string
+  updated_at: string
+  activities: MarketingLeadActivity[]
+}
+export interface CreateMarketingLeadPayload {
+  company_name: string
+  contact_person: string
+  phone_number: string | null
+  email: string | null
+  country: string
+  region: string
+  product_interest: string
+  expected_quantity: string | null
+  lead_source: string
+  priority: MarketingLeadPriority
+  requirement: string
+  notes: string | null
+}
+export interface MarketingLeadList {
+  items: MarketingLead[]
+  counts: Record<MarketingLeadStatus, number>
+}
+export interface MarketingReportRow {
+  label: string
+  total: number
+  accepted: number
+  rejected: number
+  clarification_required: number
+  pending: number
+  acceptance_rate: number
+}
+export interface MarketingMonthlyReport {
+  month: string
+  total: number
+  accepted: number
+  rejected: number
+  clarification_required: number
+  pending: number
+  acceptance_rate: number
+  average_response_hours: number | null
+  employees: MarketingReportRow[]
+  regions: MarketingReportRow[]
+  lead_sources: { label: string; count: number }[]
+  product_interests: { label: string; count: number }[]
+  rejection_reasons: { label: string; count: number }[]
 }

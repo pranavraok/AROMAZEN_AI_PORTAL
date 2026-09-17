@@ -15,6 +15,7 @@ from app.modules.cash_flow.routes import router as cash_flow_router
 from app.modules.gst_reconciliation.routes import router as gst_reconciliation_router
 from app.modules.regulatory.routes import router as regulatory_router
 from app.modules.merchandising.routes import router as merchandising_router
+from app.modules.marketing_leads.routes import router as marketing_leads_router
 from app.modules.document_generator.voice_pairing import desktop_router as voice_pairing_desktop_router, mobile_router as voice_pairing_mobile_router
 
 api_router = APIRouter()
@@ -33,5 +34,6 @@ api_router.include_router(cash_flow_router, prefix="/cash-flow", tags=["Accounts
 api_router.include_router(gst_reconciliation_router, prefix="/gst-reconciliation", tags=["Accounts GST reconciliation"])
 api_router.include_router(regulatory_router, prefix="/regulatory", tags=["Regulatory Affairs"])
 api_router.include_router(merchandising_router, prefix="/merchandising", tags=["Merchandising"])
+api_router.include_router(marketing_leads_router, prefix="/marketing-leads", tags=["Marketing lead handover"])
 api_router.include_router(voice_pairing_desktop_router, prefix="/voice-pairing", tags=["QA voice pairing"])
 api_router.include_router(voice_pairing_mobile_router, prefix="/voice-pairing", tags=["QA voice pairing"])
