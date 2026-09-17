@@ -17,6 +17,7 @@ import {
   Trash2,
   Sparkles,
   Boxes,
+  ChartNoAxesCombined,
 } from 'lucide-react'
 import { BrandMark } from '@/components/brand-mark'
 import { useAuth } from '@/components/auth/auth-provider'
@@ -28,6 +29,7 @@ import { useToast } from '@/components/ui/toast-provider'
 const navItems = [
   { name: 'AI Workspace', href: '/workspace', icon: MessageSquare },
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Marketing Analysis', href: '/marketing/analysis', icon: ChartNoAxesCombined },
   { name: 'Knowledge', href: '/knowledge', icon: BookOpen },
   { name: 'Asset Inventory', href: '/hr/assets', icon: Boxes },
   { name: 'Analytics', href: '/admin/usage', icon: TrendingUp },
@@ -52,6 +54,7 @@ export function Sidebar({ open, onToggle }: SidebarProps) {
   const [dragProgress, setDragProgress] = useState(0)
   const visibleNavItems = navItems.filter((item) => {
     if (item.href === '/workspace') return hasPermission('ai.workspace.use')
+    if (item.href === '/marketing/analysis') return user?.role_names.includes('Super Admin')
     if (item.href === '/knowledge') return hasPermission('knowledge.read')
     if (item.href === '/hr/assets') return user?.role_names.includes('Department Admin') && ['HR', 'Human Resources', 'Accounts'].includes(user.department_name ?? '')
     if (item.href === '/admin/usage') return hasPermission('usage.read')

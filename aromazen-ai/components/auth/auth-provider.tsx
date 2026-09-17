@@ -74,6 +74,7 @@ const routePermissions: Array<[route: string, permission: string]> = [
   ['/admin/usage', 'usage.read'],
   ['/admin/users', 'users.manage'],
   ['/admin/access', 'roles.manage'],
+  ['/marketing/analysis', 'usage.read'],
   ['/hr/salary-slips', 'users.manage'],
   ['/hr/leave-calculator', 'users.manage'],
   ['/hr/assets', 'users.manage'],
@@ -112,6 +113,8 @@ export function RequireAuthenticatedApp({ children }: { children: React.ReactNod
   const isMerchandisingDocumentTool = matchesRoute(pathname, '/department-tools/merchandising-documents')
   const isAccountsCashFlow = matchesRoute(pathname, '/accounts/cash-flow')
   const isAccountsGst = matchesRoute(pathname, '/accounts/gst-reconciliation')
+  const isMarketingAnalysis = matchesRoute(pathname, '/marketing/analysis')
+  if (isMarketingAnalysis && !user.role_names.includes('Super Admin')) return <main className="min-h-dvh bg-background grid place-items-center p-6"><div className="max-w-md text-center space-y-3"><h1 className="text-2xl font-semibold text-foreground">Access restricted</h1><p className="text-muted-foreground">Marketing Analysis is available only to the Super Admin.</p></div></main>
   if (isHrOnlyRoute && !isPlatformAdmin && !['HR', 'Human Resources'].includes(user.department_name ?? '')) return <main className="min-h-dvh bg-background grid place-items-center p-6"><div className="max-w-md text-center space-y-3"><h1 className="text-2xl font-semibold text-foreground">Access restricted</h1><p className="text-muted-foreground">This tool is available only to the Human Resources department.</p></div></main>
   const canUseDocumentGenerator = ['R&D', 'QA', 'QA & QC', 'Quality Assurance'].includes(user.department_name ?? '')
   if (isDocumentGeneratorRoute && !isPlatformAdmin && !canUseDocumentGenerator) return <main className="min-h-dvh bg-background grid place-items-center p-6"><div className="max-w-md text-center space-y-3"><h1 className="text-2xl font-semibold text-foreground">Access restricted</h1><p className="text-muted-foreground">This tool is available only to the R&amp;D and QA &amp; QC departments.</p></div></main>

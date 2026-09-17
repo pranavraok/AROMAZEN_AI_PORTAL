@@ -53,9 +53,14 @@ import type {
   MerchandisingSchema,
   MerchandisingTemplate,
   CreateMarketingLeadPayload,
+  CreateMarketingSamplePayload,
   MarketingLead,
   MarketingLeadList,
+  MarketingLiveAnalysis,
   MarketingMonthlyReport,
+  MarketingSample,
+  MarketingSampleList,
+  MarketingSampleStatus,
 } from './types'
 
 export const api = {
@@ -275,6 +280,18 @@ export const api = {
     decide: (accessToken: string, leadId: string, action: 'accept' | 'reject' | 'question', message?: string) => apiRequest<MarketingLead>(`/marketing-leads/${leadId}/decision`, { method: 'POST', body: { action, message: message || null }, headers: { Authorization: `Bearer ${accessToken}` } }),
     reply: (accessToken: string, leadId: string, message: string) => apiRequest<MarketingLead>(`/marketing-leads/${leadId}/reply`, { method: 'POST', body: { message }, headers: { Authorization: `Bearer ${accessToken}` } }),
     monthlyReport: (accessToken: string, month: string) => apiRequest<MarketingMonthlyReport>(`/marketing-leads/report/monthly?month=${encodeURIComponent(month)}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    liveAnalysis: (accessToken: string, days: number) => apiRequest<MarketingLiveAnalysis>(`/marketing-leads/analysis/live?days=${days}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    employeeAnalysisPdf: (accessToken: string, employeeId: string, days: number) => apiFileRequest(`/marketing-leads/analysis/employees/${employeeId}/pdf?days=${days}`, accessToken),
+    samples: (accessToken: string, filters?: { status?: MarketingSampleStatus; search?: string }) => {
+      const params = new URLSearchParams()
+      if (filters?.status) params.set('status', filters.status)
+      if (filters?.search) params.set('search', filters.search)
+      const query = params.size ? `?${params.toString()}` : ''
+      return apiRequest<MarketingSampleList>(`/marketing-leads/samples${query}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    createSample: (accessToken: string, payload: CreateMarketingSamplePayload) => apiRequest<MarketingSample>('/marketing-leads/samples', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    updateSample: (accessToken: string, sampleId: string, status: MarketingSampleStatus, remark?: string | null) => apiRequest<MarketingSample>(`/marketing-leads/samples/${sampleId}`, { method: 'PATCH', body: { status, remark }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    exportMerchandisingSampleRequests: (accessToken: string) => apiFileRequest('/marketing-leads/samples/export', accessToken),
   },
   hrTemplates: {
     list: (accessToken: string) => apiRequest<HRTemplate[]>('/hr-letters/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),

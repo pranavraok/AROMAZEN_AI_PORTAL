@@ -694,6 +694,47 @@ export interface MerchandisingGeneration {
 
 export type MarketingLeadStatus = 'submitted' | 'clarification_required' | 'resubmitted' | 'accepted' | 'rejected'
 export type MarketingLeadPriority = 'hot' | 'warm' | 'cold'
+export type MarketingSampleStatus = 'recorded' | 'dispatched' | 'awaiting_feedback' | 'satisfied' | 'not_satisfied' | 'order_received' | 'closed'
+export interface MarketingSampleItemInput {
+  fragrance_name: string
+  fragrance_code: string | null
+  application: string | null
+  quantity: string | null
+  cost: string | null
+}
+export interface LeadSamplePayload {
+  serial_number: string | null
+  sample_date: string
+  remark: string | null
+  items: MarketingSampleItemInput[]
+}
+export interface CreateMarketingSamplePayload extends LeadSamplePayload {
+  linked_lead_id: string | null
+  company_name: string
+  status: MarketingSampleStatus
+}
+export interface MarketingSampleItem extends MarketingSampleItemInput {
+  id: string
+  position: number
+}
+export interface MarketingSample {
+  id: string
+  linked_lead_id: string | null
+  serial_number: string | null
+  sample_date: string
+  company_name: string
+  remark: string | null
+  status: MarketingSampleStatus
+  created_by_user_id: string | null
+  created_by_name: string
+  created_at: string
+  updated_at: string
+  items: MarketingSampleItem[]
+}
+export interface MarketingSampleList {
+  items: MarketingSample[]
+  counts: Record<MarketingSampleStatus, number>
+}
 export interface MarketingLeadActivity {
   id: string
   action: string
@@ -726,6 +767,7 @@ export interface MarketingLead {
   submitted_at: string
   updated_at: string
   activities: MarketingLeadActivity[]
+  samples: MarketingSample[]
 }
 export interface CreateMarketingLeadPayload {
   company_name: string
@@ -740,6 +782,7 @@ export interface CreateMarketingLeadPayload {
   priority: MarketingLeadPriority
   requirement: string
   notes: string | null
+  sample: LeadSamplePayload | null
 }
 export interface MarketingLeadList {
   items: MarketingLead[]
@@ -768,4 +811,67 @@ export interface MarketingMonthlyReport {
   lead_sources: { label: string; count: number }[]
   product_interests: { label: string; count: number }[]
   rejection_reasons: { label: string; count: number }[]
+}
+
+export interface MarketingAnalysisSummary {
+  total_leads: number
+  pending_review: number
+  clarification_required: number
+  accepted: number
+  rejected: number
+  decision_rate: number
+  acceptance_rate: number
+  average_response_hours: number | null
+  total_samples: number
+  sample_items: number
+  awaiting_feedback: number
+  satisfied: number
+  orders_received: number
+  sample_to_order_rate: number
+  leads_today: number
+  samples_today: number
+}
+
+export interface MarketingAnalysisEmployee {
+  employee_id: string
+  employee_name: string
+  total_leads: number
+  accepted: number
+  rejected: number
+  clarification_required: number
+  pending: number
+  decision_rate: number
+  acceptance_rate: number
+  average_response_hours: number | null
+  sample_batches: number
+  sample_items: number
+  awaiting_feedback: number
+  satisfied: number
+  orders_received: number
+  sample_to_order_rate: number
+  last_activity_at: string | null
+}
+
+export interface MarketingAnalysisFeedItem {
+  id: string
+  kind: 'lead' | 'lead_activity' | 'sample'
+  title: string
+  detail: string
+  status: string
+  actor_name: string
+  employee_name: string
+  occurred_at: string
+}
+
+export interface MarketingLiveAnalysis {
+  generated_at: string
+  range_days: number
+  period_label: string
+  summary: MarketingAnalysisSummary
+  employees: MarketingAnalysisEmployee[]
+  regions: MarketingReportRow[]
+  lead_sources: { label: string; count: number }[]
+  product_interests: { label: string; count: number }[]
+  sample_applications: { label: string; count: number }[]
+  recent_activity: MarketingAnalysisFeedItem[]
 }

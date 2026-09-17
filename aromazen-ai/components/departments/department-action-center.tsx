@@ -9,6 +9,7 @@ import {
   CalendarCheck2,
   ClipboardCheck,
   FileText,
+  FlaskConical,
   GitCompareArrows,
   ShieldCheck,
   Ship,
@@ -64,6 +65,7 @@ const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'regulatory' | 'merchandising
   ],
   marketing: [
     { key: 'lead-handover', title: 'Send Leads to Merchandising', description: 'Submit a new lead, answer clarification questions and review the handover status.', href: '/department-tools/marketing-leads', icon: Send, employeeAccess: true },
+    { key: 'customer-samples', title: 'Customer Samples', description: 'Record fragrance samples, feedback and order outcomes using the existing Marketing register fields.', href: '/department-tools/marketing-samples', icon: FlaskConical, employeeAccess: true },
   ],
   accounts: [
     { key: 'cash-flow', title: 'Cash Flow Report', description: 'Upload monthly files and generate the protected report.', href: '/accounts/cash-flow', icon: WalletCards },
@@ -77,7 +79,13 @@ const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'regulatory' | 'merchandising
 export function departmentActions(department: Department, audience: DepartmentAudience) {
   const kind = departmentKind(department)
   const specialized = kind === 'general' ? [] : SPECIALIZED_ACTIONS[kind]
-  return audience === 'employee' ? specialized.filter((action) => action.employeeAccess) : specialized
+  const visible = audience === 'employee' ? specialized.filter((action) => action.employeeAccess) : specialized
+  return visible.map((action) => {
+    if (kind === 'marketing' && action.key === 'lead-handover') return { ...action, description: audience === 'employee' ? 'Submit and track your own leads and answer your clarification requests.' : 'Review every Marketing employee handover and answer any team clarification.' }
+    if (kind === 'marketing' && action.key === 'customer-samples') return { ...action, description: audience === 'employee' ? 'Record and track your own customer fragrance samples and outcomes.' : 'Review customer samples and outcomes recorded across the Marketing team.' }
+    if (kind === 'merchandising' && action.key === 'marketing-leads') return { ...action, description: audience === 'employee' ? 'Work the active queue and revisit leads you personally handled.' : 'Review the full incoming queue, clarification threads and completed decision history.' }
+    return action
+  })
 }
 
 export function DepartmentDirectory({ departments }: { departments: Department[] }) {

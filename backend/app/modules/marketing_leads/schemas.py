@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
@@ -8,10 +9,29 @@ LeadStatus = Literal[
     "submitted", "clarification_required", "resubmitted", "accepted", "rejected"
 ]
 LeadPriority = Literal["hot", "warm", "cold"]
+SampleStatus = Literal[
+    "recorded", "dispatched", "awaiting_feedback", "satisfied",
+    "not_satisfied", "order_received", "closed",
+]
 
 
 class RequestModel(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class MarketingSampleItemRequest(RequestModel):
+    fragrance_name: str = Field(min_length=2, max_length=300)
+    fragrance_code: str | None = Field(default=None, max_length=120)
+    application: str | None = Field(default=None, max_length=200)
+    quantity: str | None = Field(default=None, max_length=160)
+    cost: str | None = Field(default=None, max_length=120)
+
+
+class LeadSampleRequest(RequestModel):
+    serial_number: str | None = Field(default=None, max_length=80)
+    sample_date: date
+    remark: str | None = Field(default=None, max_length=5000)
+    items: list[MarketingSampleItemRequest] = Field(min_length=1, max_length=50)
 
 
 class CreateMarketingLeadRequest(RequestModel):
@@ -27,6 +47,7 @@ class CreateMarketingLeadRequest(RequestModel):
     priority: LeadPriority = "warm"
     requirement: str = Field(min_length=5, max_length=5000)
     notes: str | None = Field(default=None, max_length=5000)
+    sample: LeadSampleRequest | None = None
 
     @model_validator(mode="after")
     def require_contact_method(self):
@@ -59,6 +80,31 @@ class MarketingLeadActivityResponse(BaseModel):
     created_at: datetime
 
 
+class MarketingSampleItemResponse(BaseModel):
+    id: str
+    fragrance_name: str
+    fragrance_code: str | None
+    application: str | None
+    quantity: str | None
+    cost: str | None
+    position: int
+
+
+class MarketingSampleResponse(BaseModel):
+    id: str
+    linked_lead_id: str | None
+    serial_number: str | None
+    sample_date: date
+    company_name: str
+    remark: str | None
+    status: SampleStatus
+    created_by_user_id: str | None
+    created_by_name: str
+    created_at: datetime
+    updated_at: datetime
+    items: list[MarketingSampleItemResponse]
+
+
 class MarketingLeadResponse(BaseModel):
     id: str
     company_name: str
@@ -83,10 +129,31 @@ class MarketingLeadResponse(BaseModel):
     submitted_at: datetime
     updated_at: datetime
     activities: list[MarketingLeadActivityResponse]
+    samples: list[MarketingSampleResponse]
 
 
 class MarketingLeadListResponse(BaseModel):
     items: list[MarketingLeadResponse]
+    counts: dict[str, int]
+
+
+class CreateMarketingSampleRequest(RequestModel):
+    linked_lead_id: UUID | None = None
+    serial_number: str | None = Field(default=None, max_length=80)
+    sample_date: date
+    company_name: str = Field(min_length=2, max_length=240)
+    remark: str | None = Field(default=None, max_length=5000)
+    status: SampleStatus = "awaiting_feedback"
+    items: list[MarketingSampleItemRequest] = Field(min_length=1, max_length=50)
+
+
+class UpdateMarketingSampleRequest(RequestModel):
+    status: SampleStatus
+    remark: str | None = Field(default=None, max_length=5000)
+
+
+class MarketingSampleListResponse(BaseModel):
+    items: list[MarketingSampleResponse]
     counts: dict[str, int]
 
 
@@ -119,3 +186,66 @@ class MarketingMonthlyReport(BaseModel):
     lead_sources: list[MarketingBreakdownRow]
     product_interests: list[MarketingBreakdownRow]
     rejection_reasons: list[MarketingBreakdownRow]
+
+
+class MarketingAnalysisSummary(BaseModel):
+    total_leads: int
+    pending_review: int
+    clarification_required: int
+    accepted: int
+    rejected: int
+    decision_rate: float
+    acceptance_rate: float
+    average_response_hours: float | None
+    total_samples: int
+    sample_items: int
+    awaiting_feedback: int
+    satisfied: int
+    orders_received: int
+    sample_to_order_rate: float
+    leads_today: int
+    samples_today: int
+
+
+class MarketingAnalysisEmployee(BaseModel):
+    employee_id: str
+    employee_name: str
+    total_leads: int
+    accepted: int
+    rejected: int
+    clarification_required: int
+    pending: int
+    decision_rate: float
+    acceptance_rate: float
+    average_response_hours: float | None
+    sample_batches: int
+    sample_items: int
+    awaiting_feedback: int
+    satisfied: int
+    orders_received: int
+    sample_to_order_rate: float
+    last_activity_at: datetime | None
+
+
+class MarketingAnalysisFeedItem(BaseModel):
+    id: str
+    kind: Literal["lead", "lead_activity", "sample"]
+    title: str
+    detail: str
+    status: str
+    actor_name: str
+    employee_name: str
+    occurred_at: datetime
+
+
+class MarketingLiveAnalysis(BaseModel):
+    generated_at: datetime
+    range_days: int
+    period_label: str
+    summary: MarketingAnalysisSummary
+    employees: list[MarketingAnalysisEmployee]
+    regions: list[MarketingReportRow]
+    lead_sources: list[MarketingBreakdownRow]
+    product_interests: list[MarketingBreakdownRow]
+    sample_applications: list[MarketingBreakdownRow]
+    recent_activity: list[MarketingAnalysisFeedItem]
