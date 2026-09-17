@@ -13,7 +13,6 @@ from openpyxl import Workbook
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-import httpx
 from docx import Document as WordDocument
 
 from app.core.config import get_settings
@@ -28,6 +27,7 @@ from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.storage import organized_storage_name
 from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_master_templates
 from app.modules.hr_letters.routes import _convert_docx_to_pdf
+from app.modules.document_generator.transcription import transcribe_document_audio
 
 router = APIRouter(dependencies=[Depends(require_department("r-d"))])
 
@@ -422,35 +422,15 @@ async def transcribe_draft_audio(
     """Recheck the complete recording on Done; the audio is never stored."""
     await _require_document_department(session, user)
     settings = get_settings()
-    if not settings.openai_api_key:
-        raise HTTPException(status_code=503, detail="Professional voice transcription is not configured. The visible browser transcript can still be used.")
     content = await audio_file.read(15 * 1024 * 1024 + 1)
     if not content or len(content) > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="The voice recording is empty or exceeds the 15 MB limit.")
     started = time.perf_counter()
-    try:
-        timeout = httpx.Timeout(settings.ai_request_timeout_seconds, connect=settings.ai_connect_timeout_seconds)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/audio/transcriptions",
-                headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-                files={"file": (audio_file.filename or "rnd-draft.webm", content, audio_file.content_type or "audio/webm")},
-                data={
-                    "model": settings.openai_transcription_model,
-                    "response_format": "json",
-                    "prompt": "AROMAZEN professional COA and SDS dictation. Vocabulary: Name of Product, Product Code, Batch Number, Customer Name, Date of Manufacturing, Expiry Date, Quantity, Storage Condition, Appearance, pale yellowish liquid, Odour, Specific Gravity, Flash Point, Fire Point, Refractive Index, Tested By, Checked By. Preserve individually spoken letters exactly, especially F P versus S P. Preserve complete four-digit years such as 2028. Preserve verbal numeric ranges such as 0.85 to 1.15. Preserve corrections such as sorry, no, correct that to, and change that to.",
-                },
-            )
-        if response.status_code >= 400:
-            raise HTTPException(status_code=503, detail="The full voice recording could not be transcribed. Please review the visible transcript and try Done again.")
-        payload = response.json()
-        text = str(payload.get("text") or "").strip()
-        if not text:
-            raise HTTPException(status_code=422, detail="No clear speech was found in the recording.")
-    except HTTPException:
-        raise
-    except (httpx.HTTPError, ValueError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=503, detail="The full voice recording could not be transcribed. Please review the visible transcript and try Done again.") from exc
+    text = await transcribe_document_audio(
+        content,
+        audio_file.filename or "rnd-draft.webm",
+        audio_file.content_type or "audio/webm",
+    )
     session.add(AIUsageEvent(
         organization_id=user.organization_id, user_id=user.id, department_id=user.department_id,
         operation="document_transcription", provider="openai", model=settings.openai_transcription_model,

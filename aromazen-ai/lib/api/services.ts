@@ -21,6 +21,7 @@ import type {
   DocumentTemplateSchema,
   GeneratedDocument,
   DocumentDraftUpdate,
+  VoicePairingSession,
   OrganizationSettings,
   ChatAttachment,
   ChatConversation,
@@ -163,6 +164,20 @@ export const api = {
     },
     download: (accessToken: string, generationId: string) => apiFileRequest(`/document-generator/generations/${generationId}/download`, accessToken),
     preview: (accessToken: string, generationId: string) => apiFileRequest(`/document-generator/generations/${generationId}/preview`, accessToken),
+  },
+  voicePairing: {
+    create: (accessToken: string) => apiRequest<VoicePairingSession>('/voice-pairing/sessions', { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
+    status: (accessToken: string, pairingId: string) => apiRequest<VoicePairingSession>(`/voice-pairing/sessions/${encodeURIComponent(pairingId)}`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    close: (accessToken: string, pairingId: string) => apiRequest<void>(`/voice-pairing/sessions/${encodeURIComponent(pairingId)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }),
+    mobileStatus: (pairingId: string, token: string) => apiRequest<VoicePairingSession>(`/voice-pairing/mobile/${encodeURIComponent(pairingId)}`, { headers: { 'X-Voice-Pairing-Token': token } }),
+    updateTranscript: (pairingId: string, token: string, transcript: string, listening: boolean) => apiRequest<{ status: string; revision: number }>(`/voice-pairing/mobile/${encodeURIComponent(pairingId)}/transcript`, { method: 'POST', body: { transcript, listening }, headers: { 'X-Voice-Pairing-Token': token } }),
+    complete: (pairingId: string, token: string, transcript: string, audio?: File | null) => {
+      const form = new FormData()
+      form.append('browser_transcript', transcript)
+      if (audio) form.append('audio_file', audio)
+      return apiRequest<{ status: string; revision: number }>(`/voice-pairing/mobile/${encodeURIComponent(pairingId)}/complete`, { method: 'POST', body: form, headers: { 'X-Voice-Pairing-Token': token } })
+    },
+    cancelMobile: (pairingId: string, token: string) => apiRequest<void>(`/voice-pairing/mobile/${encodeURIComponent(pairingId)}`, { method: 'DELETE', headers: { 'X-Voice-Pairing-Token': token } }),
   },
   payroll: {
     template: (accessToken: string) => apiFileRequest('/payroll/template', accessToken),

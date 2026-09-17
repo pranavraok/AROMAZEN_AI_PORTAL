@@ -35,6 +35,7 @@ COLUMNS = [
 BONUS_COLUMNS = [
     ("employee_name", "Employee Name"), ("personal_email", "Personal Email"),
     ("date_of_birth", "Date of Birth"), ("employee_code", "Employee Code"),
+    ("unit", "Unit"),
     ("date_of_joining", "Date of Joining"), ("designation", "Designation"),
     ("uan", "UAN"), ("esi_number", "ESI Number"),
     ("account_number", "Account Number"), ("transaction_id", "Transaction ID"),
@@ -111,6 +112,23 @@ SALARY_FIELD_WIDTHS = {
     "ot_hours": 130, "net_salary": 400, "net_salary_words": 390,
     "net_wages": 400, "net_wages_words": 390,
 }
+BONUS_TEMPLATE_REQUIRED_FIELDS = {
+    "accounting_year", "unit", "unit_address", "employee_name", "employee_code",
+    "date_of_joining", "designation", "uan", "esi_number", "account_number",
+    "transaction_id", "payment_date", "bonus_amount", "bonus_amount_words",
+}
+BONUS_CENTERED_FIELDS = {
+    "employee_name", "employee_code", "date_of_joining", "designation", "uan",
+    "esi_number", "account_number", "transaction_id", "payment_date",
+    "bonus_amount", "bonus_amount_words",
+}
+BONUS_FIELD_WIDTHS = {
+    "accounting_year": 150, "unit": 60, "unit_address": 500,
+    "employee_name": 145, "employee_code": 145, "date_of_joining": 145,
+    "designation": 145, "uan": 145, "esi_number": 145,
+    "account_number": 145, "transaction_id": 145, "payment_date": 145,
+    "bonus_amount": 380, "bonus_amount_words": 380,
+}
 
 
 def create_excel_template() -> bytes:
@@ -166,17 +184,18 @@ def create_bonus_excel_template() -> bytes:
         sheet.column_dimensions[sheet.cell(1, index).column_letter].width = max(15, min(28, len(label) + 3))
     sheet.append([
         "Sample Employee", "employee@example.com", date(1992, 5, 18), "EMP001",
-        date(2022, 1, 10), "Executive", "100000000000", "1234567890",
+        1, date(2022, 1, 10), "Executive", "100000000000", "1234567890",
         "123456789012", "TXN-2026-001", date.today(), 25000,
     ])
-    for coordinate in ("C2", "E2", "K2"):
+    for coordinate in ("C2", "F2", "L2"):
         sheet[coordinate].number_format = "DD-MM-YYYY"
-    sheet["L2"].number_format = "#,##0.00"
+    sheet["M2"].number_format = "#,##0.00"
     note = workbook.create_sheet("Instructions")
     instructions = [
         "AROMAZEN Bonus Slip Upload",
         "Use one row per employee. Do not rename or remove any column.",
         "Personal Email is used for delivery. Date of Birth is used only to create the PDF password.",
+        "Unit must be 1, 2 or 3. The approved unit address is inserted automatically.",
         "PDF password: first 4 letters of employee name in uppercase + four-digit birth year.",
         "Bonus Amount in words is generated automatically from the uploaded numeric amount.",
         "Choose the accounting year in the portal before preparing the batch.",
@@ -309,6 +328,10 @@ def salary_template_fields(template: Path | bytes) -> list[str]:
     ]))
 
 
+def bonus_template_fields(template: Path | bytes) -> list[str]:
+    return salary_template_fields(template)
+
+
 def _salary_form_values(field_names: list[str], details: dict, payroll_month: str) -> dict[str, str]:
     aliases = {_normalise_header(key): key for key, _ in COLUMNS}
     aliases.update({_normalise_header(label): key for key, label in COLUMNS})
@@ -379,6 +402,82 @@ def _salary_placeholder_pdf(template_path: Path, details: dict, payroll_month: s
         if normalized_key in SALARY_RIGHT_ALIGNED_FIELDS:
             overlay.drawRightString(x1, baseline, value)
         elif normalized_key in SALARY_CENTERED_FIELDS:
+            overlay.drawCentredString((x0 + x1) / 2, baseline, value)
+        else:
+            overlay.drawString(x0, baseline, value)
+    overlay.save()
+    packet.seek(0)
+    page.merge_page(PdfReader(packet).pages[0])
+    writer = PdfWriter()
+    writer.add_page(page)
+    output = io.BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+def _bonus_form_values(field_names: list[str], details: dict, accounting_year: str) -> dict[str, str]:
+    aliases = {_normalise_header(key): key for key, _ in BONUS_COLUMNS}
+    aliases.update({_normalise_header(label): key for key, label in BONUS_COLUMNS})
+    aliases.update({
+        "accountingyear": "accounting_year", "unitaddress": "unit_address",
+        "esino": "esi_number", "esi": "esi_number", "accountno": "account_number",
+        "bankaccountnumber": "account_number", "transactionid": "transaction_id",
+        "utr": "transaction_id", "utrnumber": "transaction_id", "date": "payment_date",
+        "bonus": "bonus_amount", "netbonus": "bonus_amount",
+        "bonusamountwords": "bonus_amount_words", "netbonusinwords": "bonus_amount_words",
+        "bonusamountinwords": "bonus_amount_words",
+    })
+    values: dict[str, str] = {}
+    for field_name in field_names:
+        normalised = _normalise_header(field_name)
+        key = aliases.get(normalised)
+        if key == "accounting_year":
+            values[field_name] = accounting_year
+        elif key == "bonus_amount":
+            values[field_name] = f"INR {_amount(details, 'bonus_amount')}"
+        elif key:
+            values[field_name] = str(details.get(key, ""))
+    return values
+
+
+def _bonus_placeholder_pdf(template_path: Path, details: dict, accounting_year: str) -> bytes | None:
+    source = PdfReader(str(template_path))
+    page = source.pages[0]
+    page_width, page_height = float(page.mediabox.width), float(page.mediabox.height)
+    placeholders: list[tuple[dict, re.Match[str]]] = []
+    try:
+        with pdfplumber.open(template_path) as document:
+            for word in document.pages[0].extract_words():
+                match = SALARY_PLACEHOLDER_PATTERN.search(str(word.get("text", "")))
+                if match:
+                    placeholders.append((word, match))
+    except Exception:
+        return None
+    if not placeholders:
+        return None
+
+    field_names = [match.group(1).strip() for _, match in placeholders]
+    values = _bonus_form_values(field_names, details, accounting_year)
+    packet = io.BytesIO()
+    overlay = canvas.Canvas(packet, pagesize=(page_width, page_height))
+    for word, _ in placeholders:
+        top, bottom = float(word["top"]), float(word["bottom"])
+        overlay.setFillColor(colors.white)
+        overlay.rect(float(word["x0"]) - 2, page_height - bottom - 2, float(word["x1"]) - float(word["x0"]) + 4, bottom - top + 4, stroke=0, fill=1)
+
+    overlay.setFillColor(colors.black)
+    for word, match in placeholders:
+        field_name = match.group(1).strip()
+        normalized_key = _normalise_header(field_name)
+        value = values.get(field_name, "")
+        x0, x1 = float(word["x0"]), float(word["x1"])
+        baseline = page_height - float(word["bottom"])
+        maximum_width = BONUS_FIELD_WIDTHS.get(normalized_key, 145)
+        font_size = 6.6 if normalized_key == "unit_address" else 7.2
+        while font_size > 5.2 and overlay.stringWidth(value, "Helvetica", font_size) > maximum_width:
+            font_size -= 0.2
+        overlay.setFont("Helvetica", font_size)
+        if normalized_key in BONUS_CENTERED_FIELDS:
             overlay.drawCentredString((x0 + x1) / 2, baseline, value)
         else:
             overlay.drawString(x0, baseline, value)
@@ -484,6 +583,7 @@ def read_bonus_excel(content: bytes) -> list[dict]:
     expected.update({
         "name": "employee_name", "employeename": "employee_name", "email": "personal_email",
         "emailid": "personal_email", "dob": "date_of_birth", "empcode": "employee_code",
+        "unitnumber": "unit", "unitno": "unit",
         "doj": "date_of_joining", "esino": "esi_number", "esi": "esi_number",
         "accountno": "account_number", "bankaccountnumber": "account_number",
         "transactionid": "transaction_id", "utr": "transaction_id", "utrnumber": "transaction_id",
@@ -514,12 +614,15 @@ def read_bonus_excel(content: bytes) -> list[dict]:
             except EmailNotValidError as error:
                 raise ValueError("Personal Email is invalid.") from error
             birth_year = _birth_year(values.get("date_of_birth"))
+            unit = _unit_number(values.get("unit"))
             bonus_amount = _money(values.get("bonus_amount"))
             if bonus_amount <= 0:
                 raise ValueError("Bonus Amount must be greater than zero.")
             details.update(
                 personal_email=email,
                 date_of_birth=str(birth_year),
+                unit=unit,
+                unit_address=UNIT_ADDRESSES[unit],
                 date_of_joining=_date(values.get("date_of_joining"), "Date of Joining").strftime("%d-%m-%Y"),
                 payment_date=_date(values.get("payment_date"), "Payment Date").strftime("%d-%m-%Y"),
                 bonus_amount=f"{bonus_amount:.2f}",
@@ -829,6 +932,18 @@ def generate_salary_pdf(details: dict, payroll_month: str, output_path: Path, pa
 
 
 def generate_bonus_pdf(details: dict, accounting_year: str, output_path: Path, password: str, template_path: Path) -> None:
+    placeholder_pdf = _bonus_placeholder_pdf(template_path, details, accounting_year)
+    if placeholder_pdf is not None:
+        reader = PdfReader(io.BytesIO(placeholder_pdf))
+        writer = PdfWriter()
+        for rendered_page in reader.pages:
+            writer.add_page(rendered_page)
+        writer.encrypt(password, algorithm="AES-256")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("wb") as file:
+            writer.write(file)
+        return
+
     template_reader = PdfReader(str(template_path))
     template_page = template_reader.pages[0]
     page_width, page_height = float(template_page.mediabox.width), float(template_page.mediabox.height)

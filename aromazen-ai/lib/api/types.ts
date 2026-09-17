@@ -422,6 +422,17 @@ export interface DocumentField { key: string; label: string; required: boolean }
 export interface DocumentTemplateSchema { document_type: 'coa' | 'sds'; fields: DocumentField[]; row_fields: string[]; default_rows: Record<string, string>[]; can_edit_filename: boolean }
 export interface GeneratedDocument { id: string; filename: string; status: 'draft'; warnings: string[] }
 export interface DocumentDraftUpdate { field_updates: Record<string, string>; row_updates: Record<string, string>[]; unassigned_notes: string; provider: string; model: string }
+export type VoicePairingStatus = 'waiting' | 'connected' | 'listening' | 'processing' | 'ready' | 'error' | 'cancelled'
+export interface VoicePairingSession {
+  id: string
+  status: VoicePairingStatus
+  pairing_code: string
+  expires_at: string
+  transcript?: string
+  revision?: number
+  error?: string
+  token?: string
+}
 
 export interface OpenRouterUsage {
   date: string

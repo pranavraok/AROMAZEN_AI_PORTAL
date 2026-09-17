@@ -33,7 +33,9 @@ from app.modules.knowledge.storage import organized_storage_name
 from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_master_templates
 from app.modules.payroll.attendance_rules import DEFAULT_LATE_GRACE_MINUTES, apply_monthly_late_policy
 from app.modules.payroll.engine import (
+    BONUS_TEMPLATE_REQUIRED_FIELDS,
     COLUMNS,
+    bonus_template_fields,
     create_bonus_excel_template,
     create_excel_template,
     generate_bonus_pdf,
@@ -213,6 +215,7 @@ def _built_in_template_response() -> dict:
 
 def _bonus_template_response(document: KnowledgeDocument | None = None) -> dict:
     path = Path(get_settings().upload_storage_path) / document.stored_filename if document else DEFAULT_BONUS_TEMPLATE
+    fields = bonus_template_fields(path) if path.is_file() else []
     return {
         "id": str(document.id) if document else "bonus-built-in",
         "name": "Bonus slip master",
@@ -221,8 +224,8 @@ def _bonus_template_response(document: KnowledgeDocument | None = None) -> dict:
         "created_at": (document.created_at if document else datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)).isoformat(),
         "unit_number": None,
         "source": "Human Resources knowledge" if document else "Built-in Canva master",
-        "detected_fields": ["employee_name", "employee_code", "date_of_joining", "designation", "uan", "esi_number", "account_number", "transaction_id", "payment_date", "bonus_amount", "bonus_amount_words"],
-        "supports_dynamic_fields": True,
+        "detected_fields": fields,
+        "supports_dynamic_fields": bool(fields),
     }
 
 
@@ -351,6 +354,12 @@ async def upload_bonus_template(
         validate_template_pdf(content)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error).replace("salary-slip", "bonus-slip")) from error
+    detected_fields = bonus_template_fields(content)
+    normalized_fields = {re.sub(r"[^a-z0-9]", "", field.lower()) for field in detected_fields}
+    missing_fields = sorted(field for field in BONUS_TEMPLATE_REQUIRED_FIELDS if re.sub(r"[^a-z0-9]", "", field) not in normalized_fields)
+    if missing_fields:
+        placeholders = ", ".join(f"{{{{{field.upper()}}}}}" for field in missing_fields)
+        raise HTTPException(status_code=422, detail=f"The bonus-slip Canva PDF is missing required placeholders: {placeholders}.")
     templates = await replace_department_master_templates(session, user, "hr", [DepartmentUpload(
         BONUS_TEMPLATE_SOURCE_KEY,
         content,

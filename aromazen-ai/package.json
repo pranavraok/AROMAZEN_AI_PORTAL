@@ -16,6 +16,7 @@
     "mammoth": "^1.12.1",
     "next": "16.2.6",
     "pdfjs-dist": "^6.3.289",
+    "qrcode.react": "^4.2.0",
     "react": "^19",
     "react-dom": "^19",
     "react-markdown": "10.1.0",
