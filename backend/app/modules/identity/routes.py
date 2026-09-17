@@ -14,6 +14,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.config import get_settings
 from app.core.email_access import configured_mailboxes
+from app.core.hr_email_signature import apply_hr_email_signature
 from app.core.security import create_access_token, decode_access_token, hash_password, hash_refresh_token, new_refresh_token, verify_password
 from app.db.session import get_db_session
 from app.modules.identity.models import Department, Organization, PasswordResetOTP, RefreshSession, User
@@ -146,38 +147,28 @@ def _send_otp_email(to_email: str, otp_code: str) -> None:
     message["From"] = formataddr((mailbox.from_name, mailbox.email))
     message["To"] = to_email
     message["Subject"] = "AROMAZEN AI PORTAL – Password Reset OTP"
-    message.set_content(
+    body = (
         f"Hello,\n\n"
         f"We received a request to reset the password for your Aromazen AI Portal account.\n\n"
         f"Please use the following One-Time Password (OTP) to verify your identity:\n\n"
         f"    {otp_code}\n\n"
         f"This OTP is valid for {OTP_TTL_MINUTES} minutes. "
-        f"If you did not request a password reset, please ignore this email — your account remains secure.\n\n"
-        f"Best regards,\n"
-        f"AROMAZEN AI PORTAL"
+        f"If you did not request a password reset, please ignore this email — your account remains secure."
     )
-    message.add_alternative(
-        f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; color: #333; max-width: 500px; margin: 0 auto; padding: 20px;">
-            <div style="text-align: center; margin-bottom: 30px;">
-                <h2 style="color: #2d6a4f;">AROMAZEN AI PORTAL</h2>
-            </div>
-            <p>Hello,</p>
-            <p>We received a request to reset the password for your <strong>Aromazen AI Portal</strong> account.</p>
-            <p>Please use the following One-Time Password (OTP) to verify your identity:</p>
-            <div style="text-align: center; margin: 30px 0;">
-                <span style="display: inline-block; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #2d6a4f; background: #f0f7f4; padding: 16px 32px; border-radius: 8px; border: 1px solid #d0e8dd;">{otp_code}</span>
-            </div>
-            <p style="color: #666; font-size: 14px;">This OTP is valid for <strong>{OTP_TTL_MINUTES} minutes</strong>.</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;">
-            <p style="font-size: 13px; color: #999;">If you did not request a password reset, please ignore this email — your account remains secure.</p>
-            <p style="font-size: 13px; color: #999;">Best regards,<br><strong>AROMAZEN AI PORTAL</strong></p>
-        </body>
-        </html>
-        """,
-        subtype="html",
-    )
+    body_html = f"""
+      <div style="max-width:500px">
+        <h2 style="color:#2d6a4f">AROMAZEN AI PORTAL</h2>
+        <p>Hello,</p>
+        <p>We received a request to reset the password for your <strong>Aromazen AI Portal</strong> account.</p>
+        <p>Please use the following One-Time Password (OTP) to verify your identity:</p>
+        <div style="text-align:center;margin:30px 0">
+          <span style="display:inline-block;font-size:32px;font-weight:bold;letter-spacing:8px;color:#2d6a4f;background:#f0f7f4;padding:16px 32px;border-radius:8px;border:1px solid #d0e8dd">{otp_code}</span>
+        </div>
+        <p style="color:#666;font-size:14px">This OTP is valid for <strong>{OTP_TTL_MINUTES} minutes</strong>.</p>
+        <p style="font-size:13px;color:#777">If you did not request a password reset, please ignore this email — your account remains secure.</p>
+      </div>
+    """
+    apply_hr_email_signature(message, body, body_html)
     smtp_cls = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
     with smtp_cls(mailbox.host, mailbox.port, timeout=30) as smtp:
         smtp.ehlo()

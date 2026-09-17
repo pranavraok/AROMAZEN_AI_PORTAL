@@ -23,6 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import get_settings
 from app.core.currency import usd_to_inr, usd_to_inr_rate
 from app.core.email_access import EMAIL_NOT_SET_DETAIL, EmailMailbox, resolve_mailbox_for_user
+from app.core.hr_email_signature import apply_hr_email_signature
 from app.db.session import SessionLocal, get_db_session
 from app.modules.ai.providers import AIProviderRouter, OpenAIImageGenerator, ProviderError, estimate_cost
 from app.modules.ai.rag import apply_structured_employee_filter, retrieve_complete_documents, structured_employee_answer
@@ -874,7 +875,10 @@ def _send_zoho_message(payload: EmailSendRequest, attachments: list[AIChatAttach
     if payload.cc:
         message["Cc"] = ", ".join(str(item) for item in payload.cc)
     message["Subject"] = payload.subject.strip()
-    message.set_content(payload.body.strip())
+    if mailbox.department_slug == "human-resources":
+        apply_hr_email_signature(message, payload.body.strip())
+    else:
+        message.set_content(payload.body.strip())
     storage_root = Path(get_settings().upload_storage_path).resolve()
     for attachment in attachments:
         candidate = (storage_root / attachment.stored_filename).resolve()

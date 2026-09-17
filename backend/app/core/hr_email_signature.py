@@ -26,22 +26,25 @@ GSTIN: 29AAWCA9353R1ZB"""
 _LEGACY_SIGNOFFS = (
     "\n\nRegards,\nHuman Resources",
     "\n\nRegards,\nHR Department\nAROMAZEN PVT LTD",
+    "\n\nBest regards,\nAROMAZEN AI PORTAL",
 )
 
 
 def _without_legacy_signoff(body: str) -> str:
     cleaned = body.strip()
+    if cleaned.endswith(HR_SIGNATURE_TEXT):
+        return cleaned[: -len(HR_SIGNATURE_TEXT)].rstrip()
     for signoff in _LEGACY_SIGNOFFS:
         if cleaned.endswith(signoff):
             return cleaned[: -len(signoff)].rstrip()
     return cleaned
 
 
-def apply_hr_email_signature(message: EmailMessage, body: str) -> None:
+def apply_hr_email_signature(message: EmailMessage, body: str, body_html: str | None = None) -> None:
     content = _without_legacy_signoff(body)
     message.set_content(f"{content}\n\n{HR_SIGNATURE_TEXT}")
 
-    body_html = "<br>".join(escape(content).splitlines())
+    rendered_body_html = body_html or "<br>".join(escape(content).splitlines())
     signature_html = f"""
       <div style="margin-top:24px;font-family:Arial,sans-serif;font-size:13px;line-height:1.45;color:#111111">
         <div>With Regards</div>
@@ -51,7 +54,7 @@ def apply_hr_email_signature(message: EmailMessage, body: str) -> None:
       </div>
     """
     message.add_alternative(
-        f'<html><body><div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.55;color:#111111">{body_html}</div>{signature_html}</body></html>',
+        f'<html><body><div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.55;color:#111111">{rendered_body_html}</div>{signature_html}</body></html>',
         subtype="html",
     )
 
