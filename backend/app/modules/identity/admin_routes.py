@@ -28,6 +28,7 @@ from app.modules.identity.service import permission_keys_for_user, role_keys_for
 router = APIRouter()
 ROLE_RANK = {"employee": 1, "department_admin": 2, "super_admin": 3, "owner": 4}
 INVITATION_LINK_TOKEN = "{{invitation_link}}"
+INVITATION_VALIDITY_DAYS = 7
 
 
 def _hr_mailbox() -> EmailMailbox | None:
@@ -366,7 +367,7 @@ async def invite_user(payload: InviteUserRequest, actor: User = Depends(require_
     await session.flush()
     await session.execute(user_roles.insert(), [{"user_id": new_user.id, "role_id": role.id} for role in roles])
     raw_token = new_refresh_token()
-    invitation = Invitation(organization_id=actor.organization_id, user_id=new_user.id, token_hash=hash_refresh_token(raw_token), expires_at=datetime.now(timezone.utc) + timedelta(days=7))
+    invitation = Invitation(organization_id=actor.organization_id, user_id=new_user.id, token_hash=hash_refresh_token(raw_token), expires_at=datetime.now(timezone.utc) + timedelta(days=INVITATION_VALIDITY_DAYS))
     session.add(invitation)
     session.add(AuditEvent(organization_id=actor.organization_id, actor_user_id=actor.id, action="identity.user_invited", target_type="user", target_id=str(new_user.id), metadata_json={"email": new_user.email, "role_ids": payload.role_ids}))
     await session.commit()
