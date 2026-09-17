@@ -19,7 +19,8 @@ COLUMNS = [
     ("employee_name", "Employee Name"), ("personal_email", "Personal Email"),
     ("date_of_birth", "Date of Birth"), ("employee_code", "Employee Code"),
     ("unit", "Unit"), ("unit_address", "Unit Address"), ("designation", "Designation"),
-    ("date_of_joining", "Date of Joining"), ("uan", "UAN"), ("esi_number", "ESI Number"),
+    ("date_of_joining", "Date of Joining"), ("account_number", "Account Number"),
+    ("uan", "UAN"), ("esi_number", "ESI Number"),
     ("basic_gross", "Basic Gross"), ("basic_earnings", "Basic Earnings"),
     ("hra_gross", "HRA Gross"), ("hra_earnings", "HRA Earnings"),
     ("special_allowance_gross", "Special Allowance Gross"), ("special_allowance_earnings", "Special Allowance Earnings"),
@@ -61,6 +62,7 @@ HEADER_ALIASES = {
     "employeecode": "employee_code", "empcode": "employee_code", "code": "employee_code",
     "unit": "unit", "unitnumber": "unit", "unitno": "unit", "unitaddress": "unit_address",
     "designation": "designation", "doj": "date_of_joining", "dateofjoining": "date_of_joining",
+    "accountno": "account_number", "accountnumber": "account_number", "bankaccountnumber": "account_number",
     "uan": "uan", "uannumber": "uan", "esinumber": "esi_number",
     "days": "days", "totaldays": "days", "presentdays": "present_days", "paiddays": "present_days",
     "lop": "lop", "lossofpay": "lop", "othours": "ot_hours", "overtimehours": "ot_hours",
@@ -77,6 +79,7 @@ HEADER_ALIASES = {
 }
 
 SALARY_TEMPLATE_ALIASES = {
+    "accnumber": "account_number",
     "basicg": "basic_gross", "basice": "basic_earnings",
     "hrag": "hra_gross", "hrae": "hra_earnings",
     "specialg": "special_allowance_gross", "speciale": "special_allowance_earnings",
@@ -101,14 +104,14 @@ SALARY_RIGHT_ALIGNED_FIELDS = {
 SALARY_CENTERED_FIELDS = {
     "unit_address", "month", "salary_month", "payroll_month", "salary_period",
     "employee_name", "employee_code", "unit", "uan", "designation", "esi_number",
-    "date_of_joining", "days", "present_days", "lop", "ot_hours", "net_salary",
+    "date_of_joining", "account_number", "days", "present_days", "lop", "ot_hours", "net_salary",
     "net_salary_words", "net_wages", "net_wages_words",
 }
 SALARY_FIELD_WIDTHS = {
     "unit_address": 500, "month": 390, "salary_month": 390, "payroll_month": 390,
     "salary_period": 390, "employee_name": 130, "employee_code": 130,
     "unit": 115, "uan": 100, "designation": 120, "esi_number": 100,
-    "date_of_joining": 130, "days": 130, "present_days": 130, "lop": 130,
+    "date_of_joining": 130, "account_number": 130, "days": 130, "present_days": 130, "lop": 130,
     "ot_hours": 130, "net_salary": 400, "net_salary_words": 390,
     "net_wages": 400, "net_wages_words": 390,
 }
@@ -153,7 +156,7 @@ def create_excel_template() -> bytes:
     note = workbook.create_sheet("Instructions")
     instructions = [
         "AROMAZEN Salary Slip Upload",
-        "Use one row per employee. Employee name, personal email, date of birth, employee code, Unit 1, 2 or 3, days and present days are mandatory. Unit Address can be left blank.",
+        "Use one row per employee. Employee name, personal email, date of birth, employee code, Unit 1, 2 or 3, Account Number, days and present days are mandatory. Unit Address can be left blank.",
         "The approved address is matched automatically from the Unit value and one salary-slip master is used for every employee.",
         "PDF password: first 4 letters of employee name in uppercase + four-digit birth year.",
         "Only Days, Present Days, LOP and OT Hours are filled by the Employee Leave Calculator.",
@@ -514,7 +517,7 @@ def read_salary_excel(content: bytes) -> list[dict]:
             key = expected.get(normalised)
         if key and key not in indexes:
             indexes[key] = index
-    required = ("employee_name", "personal_email", "date_of_birth", "employee_code", "unit", "days", "present_days")
+    required = ("employee_name", "personal_email", "date_of_birth", "employee_code", "unit", "account_number", "days", "present_days")
     labels = dict(COLUMNS)
     missing = [labels[key] for key in required if key not in indexes]
     if missing:
@@ -727,7 +730,7 @@ def _draw_default_template(pdf: canvas.Canvas) -> None:
         pdf.line(x, 644 + row * 17, x + width, 644 + row * 17)
     for value in column_x:
         pdf.line(value, 644, value, 695)
-    labels = (("Emp Name", 36, 678), ("Unit", 236, 678), ("UAN", 411, 678), ("Emp Code", 36, 661), ("Designation", 236, 661), ("ESI", 411, 661), ("Date of Joining", 36, 644), ("OT Hours", 236, 644))
+    labels = (("Emp Name", 36, 678), ("Unit", 236, 678), ("UAN", 411, 678), ("Emp Code", 36, 661), ("Designation", 236, 661), ("ESI", 411, 661), ("Date of Joining", 36, 644), ("Account Number", 236, 644))
     for label, lx, ly in labels:
         _fit_text(pdf, label, lx, ly + 5, 80 if lx == 36 else 70 if lx == 236 else 55, bold=True)
     attendance = ("DAYS", "PRESENT DAYS", "LOP", "OT HOURS")
@@ -817,7 +820,7 @@ def _draw_values(pdf: canvas.Canvas, details: dict, payroll_month: str, erase: b
         identity = (("employee_name", 117, 661, 122), ("unit", 307, 661, 111), ("uan", 473, 661, 81), ("date_of_joining", 117, 644, 122), ("designation", 307, 644, 111), ("esi_number", 473, 644, 81))
     else:
         _fit_text(pdf, month_label, 150, 712, width - 114, "center", 7.5)
-        identity = (("employee_name", 116, 683, 120), ("unit", 306, 683, 105), ("uan", 466, 683, 93), ("employee_code", 116, 666, 120), ("designation", 306, 666, 105), ("esi_number", 466, 666, 93), ("date_of_joining", 116, 649, 120), ("ot_hours", 306, 649, 105))
+        identity = (("employee_name", 116, 683, 120), ("unit", 306, 683, 105), ("uan", 466, 683, 93), ("employee_code", 116, 666, 120), ("designation", 306, 666, 105), ("esi_number", 466, 666, 93), ("date_of_joining", 116, 649, 120), ("account_number", 306, 649, 105))
     for key, px, py, cell in identity:
         _fit_text(pdf, details.get(key, ""), px, py, cell, "center")
     attendance_x, attendance_width, attendance_y = (40, 514, 588) if erase else (x, width, 591)

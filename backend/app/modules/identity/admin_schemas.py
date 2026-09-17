@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class DepartmentResponse(BaseModel):
@@ -47,6 +47,29 @@ class InvitationResponse(BaseModel):
     user: AdminUserResponse
     invitation_token: str
     expires_at: datetime
+
+
+class SendInvitationEmailRequest(BaseModel):
+    invitation_token: str = Field(min_length=16, max_length=2_048)
+    cc_emails: list[EmailStr] = Field(default_factory=list, max_length=20)
+    subject: str = Field(min_length=1, max_length=320)
+    message: str = Field(min_length=1, max_length=10_000)
+
+    @field_validator("subject")
+    @classmethod
+    def validate_subject(cls, value: str) -> str:
+        subject = value.strip()
+        if not subject or "\r" in subject or "\n" in subject:
+            raise ValueError("Subject must be a single line.")
+        return subject
+
+
+class InvitationEmailResponse(BaseModel):
+    status: str
+    sent_at: datetime
+    sender: EmailStr
+    recipient: EmailStr
+    cc_emails: list[EmailStr]
 
 
 class UpdateUserRequest(BaseModel):

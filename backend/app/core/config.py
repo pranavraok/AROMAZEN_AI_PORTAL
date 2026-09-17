@@ -8,6 +8,7 @@ from sqlalchemy import URL
 class Settings(BaseSettings):
     app_name: str = "AROMAZEN AI API"
     app_env: str = "development"
+    portal_public_url: str = "http://localhost:3000"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
     database_url: str | None = None
@@ -71,6 +72,8 @@ class Settings(BaseSettings):
         errors: list[str] = []
         if self.debug:
             errors.append("DEBUG must be false")
+        if not self.portal_public_url.startswith("https://"):
+            errors.append("PORTAL_PUBLIC_URL must use HTTPS")
         if not self.cookie_secure:
             errors.append("COOKIE_SECURE must be true")
         if len(self.jwt_secret_key) < 48:

@@ -84,7 +84,7 @@ openssl rand -hex 32
 
 Run the OpenSSL command separately for the PostgreSQL, Redis, JWT and backup passwords. Hex output is intentional because it is safe inside the Redis connection URL. Edit `.env.production` and replace every `CHANGE_ME` value. Use different values for every secret.
 
-Add the approved first owner email and temporary 12+ character password. Add Zoho and AI credentials only when they are available.
+Confirm `SITE_ADDRESS` and `PORTAL_PUBLIC_URL` use the production portal domain. The public URL is used to build secure account-activation links in invitation emails. Add the approved first owner email and temporary 12+ character password. Add Zoho and AI credentials only when they are available.
 
 The legacy `ZOHO_SMTP_*` values are automatically treated as the mailbox for the department named by the address (for example, `hr@...` maps to Human Resources). To add more department mailboxes later, set `ZOHO_DEPARTMENT_ACCOUNTS_JSON` to a one-line JSON object keyed by department slug. Each entry accepts `email`, `username` (optional when it matches email), `password`, `from_email`, `from_name`, `host`, `port`, and `security`. For example:
 

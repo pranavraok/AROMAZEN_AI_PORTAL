@@ -1,14 +1,22 @@
+import smtplib
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
+from email.utils import formataddr
+from html import escape
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.email_access import EmailMailbox, configured_mailboxes
+from app.core.hr_email_signature import apply_hr_email_signature
 from app.core.security import hash_password, hash_refresh_token, new_refresh_token
 from app.db.session import get_db_session
 from app.modules.identity.admin_schemas import (
     AcceptInvitationRequest, AdminUserResponse, AuditEventResponse, CreateDepartmentRequest,
-    DepartmentResponse, InvitationResponse, InviteUserRequest, RoleResponse, UpdateUserRequest,
+    DepartmentResponse, InvitationEmailResponse, InvitationResponse, InviteUserRequest, RoleResponse,
+    SendInvitationEmailRequest, UpdateUserRequest,
     ManageKnowledgeCollectionRequest, KnowledgeCollectionAdminResponse, AdminKnowledgeDocumentResponse,
 )
 from app.modules.identity.authorization import require_permissions
@@ -19,6 +27,66 @@ from app.modules.identity.service import permission_keys_for_user, role_keys_for
 
 router = APIRouter()
 ROLE_RANK = {"employee": 1, "department_admin": 2, "super_admin": 3, "owner": 4}
+INVITATION_LINK_TOKEN = "{{invitation_link}}"
+
+
+def _hr_mailbox() -> EmailMailbox | None:
+    return next(
+        (mailbox for mailbox in configured_mailboxes() if mailbox.department_slug == "human-resources"),
+        None,
+    )
+
+
+def _normalized_cc(primary_email: str, cc_emails: list) -> list[str]:
+    seen = {primary_email.strip().casefold()}
+    recipients: list[str] = []
+    for value in cc_emails:
+        email = str(value).strip()
+        key = email.casefold()
+        if email and key not in seen:
+            recipients.append(email)
+            seen.add(key)
+    return recipients
+
+
+def _invitation_message_body(message: str, activation_url: str) -> tuple[str, str]:
+    content = message.strip()
+    if INVITATION_LINK_TOKEN in content:
+        content = content.replace(INVITATION_LINK_TOKEN, activation_url)
+    elif activation_url not in content:
+        content = f"{content}\n\nActivate your account: {activation_url}"
+    escaped_url = escape(activation_url, quote=True)
+    html = "<br>".join(escape(content).splitlines())
+    html = html.replace(
+        escaped_url,
+        f'<a href="{escaped_url}" style="color:#1155cc">Activate your account</a>',
+    )
+    return content, html
+
+
+def _send_invitation_email(
+    mailbox: EmailMailbox,
+    recipient: str,
+    cc_recipients: list[str],
+    subject: str,
+    body: str,
+    body_html: str,
+) -> None:
+    message = EmailMessage()
+    message["From"] = formataddr((mailbox.from_name, mailbox.email))
+    message["To"] = recipient
+    if cc_recipients:
+        message["Cc"] = ", ".join(cc_recipients)
+    message["Subject"] = subject
+    apply_hr_email_signature(message, body, body_html)
+    client = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
+    with client(mailbox.host, mailbox.port, timeout=45) as smtp:
+        smtp.ehlo()
+        if mailbox.security == "starttls":
+            smtp.starttls()
+            smtp.ehlo()
+        smtp.login(mailbox.username, mailbox.password)
+        smtp.send_message(message, from_addr=mailbox.email, to_addrs=[recipient, *cc_recipients])
 
 
 async def serialize_role(session: AsyncSession, role: Role) -> RoleResponse:
@@ -303,6 +371,76 @@ async def invite_user(payload: InviteUserRequest, actor: User = Depends(require_
     session.add(AuditEvent(organization_id=actor.organization_id, actor_user_id=actor.id, action="identity.user_invited", target_type="user", target_id=str(new_user.id), metadata_json={"email": new_user.email, "role_ids": payload.role_ids}))
     await session.commit()
     return InvitationResponse(user=await serialize_user(session, new_user), invitation_token=raw_token, expires_at=invitation.expires_at)
+
+
+@router.post("/users/invitations/email", response_model=InvitationEmailResponse)
+async def send_invitation_email(
+    payload: SendInvitationEmailRequest,
+    actor: User = Depends(require_permissions("users.manage")),
+    session: AsyncSession = Depends(get_db_session),
+) -> InvitationEmailResponse:
+    token = payload.invitation_token
+    invitation = await session.scalar(
+        select(Invitation).where(
+            Invitation.token_hash == hash_refresh_token(token),
+            Invitation.organization_id == actor.organization_id,
+            Invitation.accepted_at.is_(None),
+        )
+    )
+    if not invitation or invitation.expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=404, detail="Invitation is invalid or expired.")
+    invitee = await session.get(User, invitation.user_id)
+    if not invitee or invitee.organization_id != actor.organization_id or invitee.status != "invited":
+        raise HTTPException(status_code=409, detail="Invitation cannot be emailed.")
+    if await is_department_limited(session, actor) and invitee.department_id != actor.department_id:
+        raise HTTPException(status_code=403, detail="You can email invitations only for your own department.")
+
+    mailbox = _hr_mailbox()
+    if not mailbox:
+        raise HTTPException(status_code=503, detail="The HR email account is not configured on the server.")
+    recipient = invitee.email.strip()
+    cc_recipients = _normalized_cc(recipient, payload.cc_emails)
+    activation_url = f"{get_settings().portal_public_url.rstrip('/')}/accept-invitation/{token}"
+    body, body_html = _invitation_message_body(payload.message, activation_url)
+    try:
+        await run_in_threadpool(
+            _send_invitation_email,
+            mailbox,
+            recipient,
+            cc_recipients,
+            payload.subject,
+            body,
+            body_html,
+        )
+    except (smtplib.SMTPException, OSError, ValueError) as error:
+        raise HTTPException(
+            status_code=502,
+            detail="The invitation could not be emailed. Please verify the HR mailbox and try again.",
+        ) from error
+
+    sent_at = datetime.now(timezone.utc)
+    session.add(AuditEvent(
+        organization_id=actor.organization_id,
+        actor_user_id=actor.id,
+        action="identity.invitation_emailed",
+        target_type="user",
+        target_id=str(invitee.id),
+        metadata_json={
+            "invitation_id": str(invitation.id),
+            "sender": mailbox.email,
+            "recipient": recipient,
+            "cc": cc_recipients,
+            "subject": payload.subject,
+        },
+    ))
+    await session.commit()
+    return InvitationEmailResponse(
+        status="sent",
+        sent_at=sent_at,
+        sender=mailbox.email,
+        recipient=recipient,
+        cc_emails=cc_recipients,
+    )
 
 
 @router.patch("/users/{user_id}", response_model=AdminUserResponse)

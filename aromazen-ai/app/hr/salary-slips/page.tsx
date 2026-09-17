@@ -95,6 +95,12 @@ export default function SalarySlipsPage() {
     catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to download the final salary template.') }
   }
 
+  async function downloadBonusTemplate() {
+    if (!accessToken) return
+    try { const file = await api.payroll.bonusTemplate(accessToken); const url = URL.createObjectURL(file.blob); const link = document.createElement('a'); link.href = url; link.download = file.filename; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
+    catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to download the bonus template.') }
+  }
+
   async function prepare() {
     if (!accessToken || !excel || !payrollMonth) return
     setBusy('upload')
@@ -146,7 +152,7 @@ export default function SalarySlipsPage() {
   if (!canUse) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="text-center"><ShieldCheck className="mx-auto h-10 w-10 text-muted-foreground" /><h1 className="mt-3 text-xl font-semibold">Access restricted</h1></div></main></AppLayout>
 
   return <AppLayout><main className="space-y-4 p-4 md:p-6">
-    <PageHeader title="Automated Slip Generator" actions={slipKind === 'salary' ? <div className="flex flex-wrap items-center gap-2"><InfoTip label="Salary slip workflow" align="right">Upload the reviewed salary Excel, prepare the PDFs, review them and send through HR email. Use Leave Calculator first when Present Days or LOP must be calculated.</InfoTip><Button size="sm" variant="outline" onClick={() => void downloadSalaryTemplate()}><Download className="mr-1.5 h-4 w-4" />Salary Excel template</Button><Link href="/hr/leave-calculator" className={buttonVariants({ size: 'sm', variant: 'outline' })}><FileSpreadsheet className="mr-1.5 h-4 w-4" />Leave calculator</Link></div> : undefined} />
+    <PageHeader title="Automated Slip Generator" actions={slipKind === 'salary' ? <div className="flex flex-wrap items-center gap-2"><InfoTip label="Salary slip workflow" align="right">Upload the reviewed salary Excel, prepare the PDFs, review them and send through HR email. Use Leave Calculator first when Present Days or LOP must be calculated.</InfoTip><Button size="sm" variant="outline" onClick={() => void downloadSalaryTemplate()}><Download className="mr-1.5 h-4 w-4" />Salary Excel template</Button><Link href="/hr/leave-calculator" className={buttonVariants({ size: 'sm', variant: 'outline' })}><FileSpreadsheet className="mr-1.5 h-4 w-4" />Leave calculator</Link></div> : <div className="flex flex-wrap items-center gap-2"><InfoTip label="Bonus slip workflow" align="right">Download the HR Excel, enter one employee per row, upload it, review every generated PDF, then send all slips to personal emails in one click.</InfoTip><Button size="sm" variant="outline" onClick={() => void downloadBonusTemplate()}><Download className="mr-1.5 h-4 w-4" />Bonus Excel template</Button></div>} />
 
     <section aria-label="Slip templates" className="grid gap-3 md:grid-cols-2">
       <button type="button" aria-pressed={slipKind === 'salary'} onClick={() => setSlipKind('salary')} className={`flex items-center gap-4 rounded-2xl border p-4 text-left transition ${slipKind === 'salary' ? 'border-primary bg-primary/[0.07] ring-1 ring-primary/20' : 'border-border bg-card hover:border-primary/40'}`}><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><WalletCards className="h-5 w-5" /></span><span><span className="block font-semibold">Salary Slip</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">Monthly payroll slips with leave, earnings and deductions.</span></span></button>

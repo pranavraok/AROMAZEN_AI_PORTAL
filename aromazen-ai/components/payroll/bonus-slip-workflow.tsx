@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, FileSpreadsheet, FileText, LoaderCircle, RefreshCw, Send, Upload, X, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ExternalLink, Eye, FileSpreadsheet, FileText, LoaderCircle, RefreshCw, Send, Upload, X, XCircle } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { InfoTip } from '@/components/ui/info-tip'
 import { useAuth } from '@/components/auth/auth-provider'
@@ -68,11 +68,6 @@ export function BonusSlipWorkflow() {
     return () => window.clearInterval(timer)
   }, [batch, refreshBatch])
 
-  async function downloadTemplate() {
-    if (!accessToken) return
-    try { const file = await api.payroll.bonusTemplate(accessToken); const url = URL.createObjectURL(file.blob); const link = document.createElement('a'); link.href = url; link.download = file.filename; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
-    catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to download the bonus template.') }
-  }
   async function viewTemplate(item: PayrollTemplate) {
     if (!accessToken) return
     try { const result = await api.payroll.bonusTemplateContent(accessToken, item.id); setViewing({ blob: result.blob, filename: result.filename, title: 'Bonus-slip template' }) }
@@ -122,7 +117,6 @@ export function BonusSlipWorkflow() {
   }
 
   return <div className="space-y-4">
-    <div className="flex flex-wrap justify-end gap-2"><InfoTip label="Bonus slip workflow">Download the HR Excel, enter one employee per row, upload it, review every generated PDF, then send all slips to personal emails in one click.</InfoTip><Button size="sm" variant="outline" onClick={() => void downloadTemplate()}><Download className="mr-1.5 h-4 w-4" />Bonus Excel template</Button></div>
     <section className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-2"><FileText className="size-4 shrink-0 text-primary" /><p className="truncate text-sm font-medium">{template?.original_filename ?? 'Bonus slip master required'}</p>{template ? <Check className="size-4 shrink-0 text-emerald-400" /> : <X className="size-4 shrink-0 text-red-400" />}<InfoTip label="Bonus slip master details">The approved Form C Canva master uses visible {'{{FIELD_NAME}}'} placeholders. Unit 1, 2 or 3 from Excel automatically supplies the approved unit address.</InfoTip></div><div className="flex shrink-0 flex-wrap gap-2">{template && <Button size="sm" variant="outline" onClick={() => void viewTemplate(template)}><Eye className="mr-1.5 h-4 w-4" />View</Button>}{hasPermission('knowledge.write') && <><Button size="sm" variant="outline" onClick={() => window.open(canvaEditUrlForBonusSlip(), '_blank', 'noopener,noreferrer')}><ExternalLink className="mr-1.5 h-4 w-4" />Canva</Button><label className={buttonVariants({ size: 'sm', variant: 'outline' })}><input hidden type="file" accept=".pdf,application/pdf" disabled={replacingTemplate} onChange={(event) => { void replaceTemplate(event.target.files?.[0] ?? null); event.target.value = '' }} />{replacingTemplate ? <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}{replacingTemplate ? 'Mapping' : 'Replace'}</label></>}</div></section>
     <section className="rounded-2xl border border-border bg-card p-4 md:p-5"><div className="grid gap-3 md:grid-cols-[12rem_1fr_auto]"><label className="space-y-1.5"><span className="text-xs text-muted-foreground">Accounting year</span><input value={year} onChange={(event) => setYear(event.target.value)} placeholder="2026-2027" pattern="\d{4}-\d{4}" className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" /></label><label className="space-y-1.5"><span className="text-xs text-muted-foreground">Bonus Excel</span><button type="button" onClick={() => inputRef.current?.click()} className="flex h-11 w-full items-center rounded-xl border border-dashed border-border bg-background px-3 text-left text-sm hover:border-primary/50"><FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-400" /><span className="truncate">{excel?.name ?? 'Choose .xlsx file'}</span></button><input ref={inputRef} hidden type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setExcel(event.target.files?.[0] ?? null)} /></label><Button className="self-end" disabled={!excel || !/^\d{4}-\d{4}$/.test(year) || !template || busy !== null} onClick={() => void prepare()}>{busy === 'upload' ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}{busy === 'upload' ? 'Preparing' : 'Prepare & review'}</Button></div></section>
     {batch && <>

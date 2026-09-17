@@ -8,6 +8,7 @@ x-logging: &default-logging
 
 x-api-environment: &api-environment
   APP_ENV: production
+  PORTAL_PUBLIC_URL: ${PORTAL_PUBLIC_URL:-https://ai.aromazenind.com}
   DEBUG: "false"
   LOG_LEVEL: INFO
   DATABASE_HOST: postgres

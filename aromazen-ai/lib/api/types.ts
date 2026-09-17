@@ -540,6 +540,21 @@ export interface InvitationResponse {
   expires_at: string
 }
 
+export interface SendInvitationEmailRequest {
+  invitation_token: string
+  cc_emails: string[]
+  subject: string
+  message: string
+}
+
+export interface InvitationEmailResponse {
+  status: 'sent'
+  sent_at: string
+  sender: string
+  recipient: string
+  cc_emails: string[]
+}
+
 export interface OrganizationSettings {
   organization_name: string
   platform_name: string
