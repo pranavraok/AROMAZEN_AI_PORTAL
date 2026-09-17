@@ -20,6 +20,7 @@ import structlog
 import httpx
 
 from app.core.config import get_settings
+from app.core.responses import TEMPLATE_CONTENT_HEADERS
 from app.db.session import get_db_session
 from app.modules.ai.providers import AIProviderRouter, AnthropicProvider, OpenAIProvider, ProviderError, estimate_cost
 from app.modules.hr_letters.routes import _convert_docx_to_pdf
@@ -271,7 +272,7 @@ async def template_content(document_type: str, user: User = Depends(require_perm
     document = (await _templates(session, user)).get(document_type)
     if not document:
         raise HTTPException(status_code=404, detail="Template not found.")
-    return FileResponse(Path(get_settings().upload_storage_path) / document.stored_filename, filename=document.original_filename)
+    return FileResponse(Path(get_settings().upload_storage_path) / document.stored_filename, filename=document.original_filename, headers=TEMPLATE_CONTENT_HEADERS)
 
 
 @router.post("/workflows")

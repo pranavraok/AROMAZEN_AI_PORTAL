@@ -24,6 +24,7 @@ from openpyxl.utils import get_column_letter
 from app.core.config import get_settings
 from app.core.email_access import EMAIL_NOT_SET_DETAIL, EmailMailbox, resolve_mailbox_for_user
 from app.core.hr_email_signature import apply_hr_email_signature
+from app.core.responses import TEMPLATE_CONTENT_HEADERS
 from app.db.session import SessionLocal, get_db_session
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.modules.identity.models import AuditEvent, Department, KnowledgeCollection, KnowledgeDocument, PayrollBatch, PayrollRecipient, PayrollTemplate, User, collection_departments
@@ -294,7 +295,7 @@ async def template_content(
 ) -> FileResponse:
     await _ensure_hr_access(user, session)
     if template_id == "built-in":
-        return FileResponse(DEFAULT_SALARY_TEMPLATE, media_type="application/pdf", filename=DEFAULT_SALARY_TEMPLATE.name, content_disposition_type="inline")
+        return FileResponse(DEFAULT_SALARY_TEMPLATE, media_type="application/pdf", filename=DEFAULT_SALARY_TEMPLATE.name, content_disposition_type="inline", headers=TEMPLATE_CONTENT_HEADERS)
     try:
         identifier = uuid.UUID(template_id)
     except ValueError as error:
@@ -310,7 +311,7 @@ async def template_content(
     path = (Path(get_settings().upload_storage_path) / stored_filename).resolve()
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Salary-slip template file is unavailable.")
-    return FileResponse(path, media_type="application/pdf", filename=original_filename, content_disposition_type="inline")
+    return FileResponse(path, media_type="application/pdf", filename=original_filename, content_disposition_type="inline", headers=TEMPLATE_CONTENT_HEADERS)
 
 
 @router.get("/template")
@@ -368,7 +369,7 @@ async def bonus_template_content(
 ) -> FileResponse:
     await _ensure_hr_access(user, session)
     if template_id == "bonus-built-in":
-        return FileResponse(DEFAULT_BONUS_TEMPLATE, media_type="application/pdf", filename=DEFAULT_BONUS_TEMPLATE.name, content_disposition_type="inline")
+        return FileResponse(DEFAULT_BONUS_TEMPLATE, media_type="application/pdf", filename=DEFAULT_BONUS_TEMPLATE.name, content_disposition_type="inline", headers=TEMPLATE_CONTENT_HEADERS)
     try:
         identifier = uuid.UUID(template_id)
     except ValueError as error:
@@ -379,7 +380,7 @@ async def bonus_template_content(
     path = (Path(get_settings().upload_storage_path) / document.stored_filename).resolve()
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Bonus-slip template file is unavailable.")
-    return FileResponse(path, media_type="application/pdf", filename=document.original_filename, content_disposition_type="inline")
+    return FileResponse(path, media_type="application/pdf", filename=document.original_filename, content_disposition_type="inline", headers=TEMPLATE_CONTENT_HEADERS)
 
 
 @router.get("/bonus/template")

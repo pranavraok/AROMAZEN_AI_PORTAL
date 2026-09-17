@@ -42,10 +42,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const isFormData = body instanceof FormData
   const response = await fetchWithRetry(`${API_BASE_URL}${path}`, {
     ...init,
+    cache: init.cache ?? 'no-store',
     body: toRequestBody(body),
     credentials: 'include',
     headers: {
       Accept: 'application/json',
+      'Cache-Control': 'no-cache',
       ...(body !== undefined && !isFormData ? { 'Content-Type': 'application/json' } : {}),
       ...headers,
     },
@@ -90,7 +92,7 @@ export async function apiStreamRequest(path: string, options: RequestOptions = {
 
 export async function apiFileRequest(path: string, accessToken: string, options: RequestOptions = {}): Promise<{ blob: Blob; filename: string }> {
   const { body, headers, ...init } = options
-  const response = await fetchWithRetry(`${API_BASE_URL}${path}`, { ...init, body: toRequestBody(body), credentials: 'include', headers: { Authorization: `Bearer ${accessToken}`, ...headers } })
+  const response = await fetchWithRetry(`${API_BASE_URL}${path}`, { ...init, cache: init.cache ?? 'no-store', body: toRequestBody(body), credentials: 'include', headers: { Authorization: `Bearer ${accessToken}`, 'Cache-Control': 'no-cache', ...headers } })
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => undefined)
     const message = typeof payload === 'object' && payload !== null && 'detail' in payload ? String(payload.detail) : 'The file could not be downloaded.'

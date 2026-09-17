@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db_session
 from app.modules.identity.authorization import require_permissions
 from app.core.config import get_settings
+from app.core.responses import TEMPLATE_CONTENT_HEADERS
 from app.modules.identity.models import Department, KnowledgeCollection, KnowledgeDocument, User, collection_departments
 from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.extraction import ExtractionError, extract_text
@@ -168,7 +169,7 @@ async def view_document(collection_id: str, document_id: str, user: User = Depen
     path = Path(get_settings().upload_storage_path) / document.stored_filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="The stored file is unavailable.")
-    return FileResponse(path, media_type=document.mime_type or "application/octet-stream", filename=document.original_filename, content_disposition_type="inline")
+    return FileResponse(path, media_type=document.mime_type or "application/octet-stream", filename=document.original_filename, content_disposition_type="inline", headers=TEMPLATE_CONTENT_HEADERS)
 
 
 @router.post("/collections/{collection_id}/documents/{document_id}/process")

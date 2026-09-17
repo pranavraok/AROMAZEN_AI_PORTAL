@@ -46,6 +46,7 @@ import structlog
 from app.core.config import get_settings
 from app.core.email_access import EMAIL_NOT_SET_DETAIL, EmailMailbox, resolve_mailbox_for_user
 from app.core.hr_email_signature import apply_hr_email_signature
+from app.core.responses import TEMPLATE_CONTENT_HEADERS
 from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_cost
 from app.modules.identity.authorization import department_matches, require_department, require_permissions
 from app.db.session import get_db_session
@@ -1260,7 +1261,7 @@ async def letter_template_content(
     path, document = await _template_source(session, user.organization_id, template_key)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="HR template file is unavailable.")
-    return FileResponse(path, filename=document.original_filename if document else path.name, content_disposition_type="inline")
+    return FileResponse(path, filename=document.original_filename if document else path.name, content_disposition_type="inline", headers=TEMPLATE_CONTENT_HEADERS)
 
 
 @router.post("/templates/{template_key}")
@@ -1412,6 +1413,7 @@ async def custom_letter_template_content(
         _custom_template_path(document),
         filename=document.original_filename,
         content_disposition_type="inline",
+        headers=TEMPLATE_CONTENT_HEADERS,
     )
 
 

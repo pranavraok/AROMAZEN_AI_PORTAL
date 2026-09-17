@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.responses import TEMPLATE_CONTENT_HEADERS
 from app.db.session import get_db_session
 from app.modules.identity.authorization import require_department, require_permissions
 from app.modules.identity.models import AuditEvent, DocumentGeneration, KnowledgeDocument, User
@@ -169,7 +170,7 @@ async def template_content(
     document = (await _templates(session, user)).get(document_type)
     if not document:
         raise HTTPException(status_code=404, detail="Merchandising master not found.")
-    return FileResponse(Path(get_settings().upload_storage_path) / document.stored_filename, filename=document.original_filename, media_type=document.mime_type)
+    return FileResponse(Path(get_settings().upload_storage_path) / document.stored_filename, filename=document.original_filename, media_type=document.mime_type, headers=TEMPLATE_CONTENT_HEADERS)
 
 
 @router.post("/extract")

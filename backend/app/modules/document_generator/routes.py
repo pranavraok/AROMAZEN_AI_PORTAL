@@ -17,6 +17,7 @@ import httpx
 from docx import Document as WordDocument
 
 from app.core.config import get_settings
+from app.core.responses import TEMPLATE_CONTENT_HEADERS
 from app.db.session import get_db_session
 from app.modules.ai.providers import AIProviderRouter, ProviderError, estimate_cost
 from app.modules.document_generator.engine import coa_parameter_rows, field_schema, generate_docx, normalise, read_excel
@@ -372,7 +373,7 @@ async def template_content(template_id: str, user: User = Depends(require_permis
     path = Path(get_settings().upload_storage_path) / document.stored_filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="The stored Word template is unavailable.")
-    return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=document.original_filename)
+    return FileResponse(path, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", filename=document.original_filename, headers=TEMPLATE_CONTENT_HEADERS)
 
 
 @router.get("/templates/{template_id}/schema")
