@@ -178,6 +178,18 @@ export const api = {
     send: (accessToken: string, batchId: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}/send`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
     retryFailed: (accessToken: string, batchId: string) => apiRequest<PayrollBatch>(`/payroll/batches/${batchId}/retry-failed`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } }),
     pdf: (accessToken: string, batchId: string, recipientId: string) => apiFileRequest(`/payroll/batches/${batchId}/recipients/${recipientId}/pdf`, accessToken),
+    bonusTemplate: (accessToken: string) => apiFileRequest('/payroll/bonus/template', accessToken),
+    bonusTemplates: (accessToken: string) => apiRequest<PayrollTemplate[]>('/payroll/bonus/templates', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    uploadBonusTemplate: (accessToken: string, file: File) => {
+      const form = new FormData(); form.append('template_file', file)
+      return apiRequest<PayrollTemplate>('/payroll/bonus/templates', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
+    bonusTemplateContent: (accessToken: string, templateId: string) => apiFileRequest(`/payroll/bonus/templates/${templateId}/content`, accessToken),
+    bonusBatches: (accessToken: string) => apiRequest<PayrollBatch[]>('/payroll/bonus/batches', { headers: { Authorization: `Bearer ${accessToken}` } }),
+    uploadBonus: (accessToken: string, accountingYear: string, file: File) => {
+      const form = new FormData(); form.append('accounting_year', accountingYear); form.append('excel_file', file)
+      return apiRequest<PayrollBatch>('/payroll/bonus/batches', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
+    },
     analyzeAttendance: (accessToken: string, file: File, shifts: AttendanceShiftRule[], shiftRoster?: File | null) => {
       const form = new FormData(); form.append('excel_file', file); form.append('shift_rules', JSON.stringify(shifts)); if (shiftRoster) form.append('shift_roster_file', shiftRoster)
       return apiRequest<AttendanceAnalysis>('/payroll/attendance/analyze', { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })

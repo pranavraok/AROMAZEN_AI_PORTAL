@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, FileSpreadsheet, FileText, LoaderCircle, RefreshCw, Send, ShieldCheck, Upload, X, XCircle } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, FileSpreadsheet, FileText, Gift, LoaderCircle, RefreshCw, Send, ShieldCheck, Upload, WalletCards, X, XCircle } from 'lucide-react'
 import { AppLayout } from '@/components/layouts/app-layout'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import { ApiError } from '@/lib/api/client'
 import { canvaEditUrlForSalarySlip } from '@/lib/template-canva-links'
 import { parseEmailList } from '@/lib/email-recipients'
 import { DocumentViewerModal } from '@/components/ui/document-viewer'
+import { BonusSlipWorkflow } from '@/components/payroll/bonus-slip-workflow'
 
 function monthLabel(value: string) { const [year, month] = value.split('-').map(Number); return new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)) }
 function money(value: string | number) { const amount = Number(value); return Number.isFinite(amount) ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount) : String(value) }
@@ -25,6 +26,7 @@ export default function SalarySlipsPage() {
   const { accessToken, user, hasPermission } = useAuth()
   const { notify } = useToast()
   const inputRef = useRef<HTMLInputElement>(null)
+  const [slipKind, setSlipKind] = useState<'salary' | 'bonus'>('salary')
   const [payrollMonth, setPayrollMonth] = useState(() => { const today = new Date(); return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}` })
   const [excel, setExcel] = useState<File | null>(null)
   const [templates, setTemplates] = useState<PayrollTemplate[]>([])
@@ -144,7 +146,14 @@ export default function SalarySlipsPage() {
   if (!canUse) return <AppLayout><main className="grid min-h-[70vh] place-items-center p-6"><div className="text-center"><ShieldCheck className="mx-auto h-10 w-10 text-muted-foreground" /><h1 className="mt-3 text-xl font-semibold">Access restricted</h1></div></main></AppLayout>
 
   return <AppLayout><main className="space-y-4 p-4 md:p-6">
-    <PageHeader title="Salary slips" actions={<div className="flex flex-wrap items-center gap-2"><InfoTip label="Salary slip workflow" align="right">Upload the reviewed salary Excel, prepare the PDFs, review them and send through HR email. Use Leave Calculator first when Present Days or LOP must be calculated.</InfoTip><Button size="sm" variant="outline" onClick={() => void downloadSalaryTemplate()}><Download className="mr-1.5 h-4 w-4" />Salary template</Button><Link href="/hr/leave-calculator" className={buttonVariants({ size: 'sm', variant: 'outline' })}><FileSpreadsheet className="mr-1.5 h-4 w-4" />Leave calculator</Link></div>} />
+    <PageHeader title="Automated Slip Generator" actions={slipKind === 'salary' ? <div className="flex flex-wrap items-center gap-2"><InfoTip label="Salary slip workflow" align="right">Upload the reviewed salary Excel, prepare the PDFs, review them and send through HR email. Use Leave Calculator first when Present Days or LOP must be calculated.</InfoTip><Button size="sm" variant="outline" onClick={() => void downloadSalaryTemplate()}><Download className="mr-1.5 h-4 w-4" />Salary Excel template</Button><Link href="/hr/leave-calculator" className={buttonVariants({ size: 'sm', variant: 'outline' })}><FileSpreadsheet className="mr-1.5 h-4 w-4" />Leave calculator</Link></div> : undefined} />
+
+    <section aria-label="Slip templates" className="grid gap-3 md:grid-cols-2">
+      <button type="button" aria-pressed={slipKind === 'salary'} onClick={() => setSlipKind('salary')} className={`flex items-center gap-4 rounded-2xl border p-4 text-left transition ${slipKind === 'salary' ? 'border-primary bg-primary/[0.07] ring-1 ring-primary/20' : 'border-border bg-card hover:border-primary/40'}`}><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><WalletCards className="h-5 w-5" /></span><span><span className="block font-semibold">Salary Slip</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">Monthly payroll slips with leave, earnings and deductions.</span></span></button>
+      <button type="button" aria-pressed={slipKind === 'bonus'} onClick={() => setSlipKind('bonus')} className={`flex items-center gap-4 rounded-2xl border p-4 text-left transition ${slipKind === 'bonus' ? 'border-primary bg-primary/[0.07] ring-1 ring-primary/20' : 'border-border bg-card hover:border-primary/40'}`}><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-400"><Gift className="h-5 w-5" /></span><span><span className="block font-semibold">Bonus Slip</span><span className="mt-1 block text-xs leading-5 text-muted-foreground">Accounting-year bonus slips with bank transaction details.</span></span></button>
+    </section>
+
+    {slipKind === 'bonus' ? <BonusSlipWorkflow /> : <>
 
     <section className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-2"><FileText className="size-4 shrink-0 text-primary" /><p className="truncate text-sm font-medium">{template?.original_filename ?? 'Salary slip master required'}</p>{template ? <Check className="size-4 shrink-0 text-emerald-400" /> : <X className="size-4 shrink-0 text-red-400" />}<InfoTip label="Salary slip master details">{template ? `${template.detected_fields.length} mapped PDF fields · ${template.source}. ` : ''}One master applies to every employee. Unit and address are taken automatically from each Excel row.</InfoTip></div><div className="flex shrink-0 flex-wrap gap-2">{template && <Button size="sm" variant="outline" onClick={() => void viewTemplate(template)}><Eye className="mr-1.5 h-4 w-4" />View</Button>}{hasPermission('knowledge.write') && <><Button size="sm" variant="outline" onClick={() => window.open(canvaEditUrl, '_blank', 'noopener,noreferrer')}><ExternalLink className="mr-1.5 h-4 w-4" />Canva</Button><label className={buttonVariants({ size: 'sm', variant: template ? 'outline' : 'default' })}><input hidden type="file" accept=".pdf,application/pdf" disabled={replacingTemplate} onChange={(event) => { void replaceTemplate(event.target.files?.[0] ?? null); event.target.value = '' }} />{replacingTemplate ? <LoaderCircle className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}{replacingTemplate ? 'Mapping' : template ? 'Replace' : 'Upload'}</label></>}</div></section>
 
@@ -179,5 +188,6 @@ export default function SalarySlipsPage() {
 
     {confirming && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Confirm salary slip delivery"><div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"><div className="flex items-start gap-3"><span className="rounded-xl bg-amber-500/10 p-2 text-amber-400"><AlertTriangle className="h-5 w-5" /></span><div><h2 className="text-lg font-semibold">Send {batch?.pending_count} salary slips?</h2><p className="mt-1 text-sm text-muted-foreground">From AROMAZEN HR · {batch && monthLabel(batch.payroll_month)}</p></div></div>{ccEmails.length > 0 && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-300"><p className="font-medium">CC on every salary slip</p><p className="mt-1 break-words text-xs">{ccEmails.join(', ')}</p></div>}{Boolean(batch?.duplicate_email_count) && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-300">{batch?.duplicate_email_count} duplicate email {batch?.duplicate_email_count === 1 ? 'entry' : 'entries'} found. Each employee row will still be sent separately.</div>}<div className="mt-5 flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setConfirming(false)}>Cancel</Button><Button disabled={busy !== null} onClick={() => void sendAll()}><Send className="mr-2 h-4 w-4" />Confirm & send</Button></div></div></div>}
     <DocumentViewerModal file={viewing} onClose={() => setViewing(null)} />
+    </>}
   </main></AppLayout>
 }

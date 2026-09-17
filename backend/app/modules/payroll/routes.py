@@ -31,7 +31,18 @@ from app.modules.identity.service import role_keys_for_user
 from app.modules.knowledge.storage import organized_storage_name
 from app.modules.knowledge.department_uploads import DepartmentUpload, replace_department_master_templates
 from app.modules.payroll.attendance_rules import DEFAULT_LATE_GRACE_MINUTES, apply_monthly_late_policy
-from app.modules.payroll.engine import COLUMNS, create_excel_template, generate_salary_pdf, password_for, read_salary_excel, salary_template_fields, validate_template_pdf
+from app.modules.payroll.engine import (
+    COLUMNS,
+    create_bonus_excel_template,
+    create_excel_template,
+    generate_bonus_pdf,
+    generate_salary_pdf,
+    password_for,
+    read_bonus_excel,
+    read_salary_excel,
+    salary_template_fields,
+    validate_template_pdf,
+)
 
 router = APIRouter(dependencies=[Depends(require_department("hr"))])
 
@@ -41,8 +52,16 @@ DEFAULT_EMAIL_BODY = """Dear {employee_name},
 Please find attached your salary slip for {month}.
 
 The PDF password is the first four letters of your name in uppercase followed by your four-digit year of birth."""
+DEFAULT_BONUS_EMAIL_SUBJECT = "AROMAZEN Bonus Slip - {period}"
+DEFAULT_BONUS_EMAIL_BODY = """Dear {employee_name},
+
+Please find attached your bonus slip for accounting year {period}.
+
+The PDF password is the first four letters of your name in uppercase followed by your four-digit year of birth."""
 SALARY_TEMPLATE_SOURCE_KEY = "salary-slip-template:master"
+BONUS_TEMPLATE_SOURCE_KEY = "bonus-slip-template:master"
 DEFAULT_SALARY_TEMPLATE = Path(__file__).resolve().parents[2] / "assets" / "payroll" / "AROMAZEN_SalarySlip_Master.pdf"
+DEFAULT_BONUS_TEMPLATE = Path(__file__).resolve().parents[2] / "assets" / "payroll" / "AROMAZEN_BonusSlip_Master.pdf"
 
 
 class EmailDraftUpdate(BaseModel):
@@ -110,13 +129,31 @@ async def _knowledge_salary_template(session: AsyncSession, organization_id: uui
     )
 
 
+async def _knowledge_bonus_template(session: AsyncSession, organization_id: uuid.UUID) -> KnowledgeDocument | None:
+    return await session.scalar(
+        select(KnowledgeDocument)
+        .join(KnowledgeCollection, KnowledgeCollection.id == KnowledgeDocument.collection_id)
+        .join(collection_departments, collection_departments.c.collection_id == KnowledgeCollection.id)
+        .join(Department, Department.id == collection_departments.c.department_id)
+        .where(
+            KnowledgeDocument.organization_id == organization_id,
+            KnowledgeDocument.status == "ready",
+            KnowledgeDocument.document_category == "bonus_slip_template",
+            KnowledgeDocument.source_key == BONUS_TEMPLATE_SOURCE_KEY,
+            KnowledgeCollection.status == "active",
+            Department.slug.in_(["hr", "human-resources"]),
+        )
+        .order_by(KnowledgeDocument.version.desc(), KnowledgeDocument.created_at.desc())
+    )
+
+
 async def _ensure_hr_access(user: User, session: AsyncSession) -> None:
     roles = await role_keys_for_user(session, user.id)
     if roles.intersection({"owner", "super_admin"}):
         return
     department = await session.get(Department, user.department_id) if user.department_id else None
     if not department_matches(department, "hr"):
-        raise HTTPException(status_code=403, detail="Salary slips are restricted to HR administrators.")
+        raise HTTPException(status_code=403, detail="Automated slips are restricted to HR administrators.")
 
 
 def _recipient_response(item: PayrollRecipient) -> dict:
@@ -129,19 +166,23 @@ def _recipient_response(item: PayrollRecipient) -> dict:
         "sent_at": item.sent_at.isoformat() if item.sent_at else None,
         "gross": item.details_json.get("gross", "0.00"), "deductions": item.details_json.get("deduction_total", "0.00"),
         "net_wages": item.details_json.get("net_wages", "0.00"),
+        "bonus_amount": item.details_json.get("bonus_amount", "0.00"),
+        "account_number": item.details_json.get("account_number", ""),
+        "transaction_id": item.details_json.get("transaction_id", ""),
+        "payment_date": item.details_json.get("payment_date", ""),
         "template_name": item.details_json.get("template_name", ""),
     }
 
 
 async def _batch_response(session: AsyncSession, batch: PayrollBatch, include_recipients: bool = True) -> dict:
     result = {
-        "id": str(batch.id), "payroll_month": batch.payroll_month, "original_filename": batch.original_filename,
+        "id": str(batch.id), "slip_type": batch.slip_type, "payroll_month": batch.payroll_month, "original_filename": batch.original_filename,
         "status": batch.status, "total_count": batch.total_count, "sent_count": batch.sent_count,
         "failed_count": batch.failed_count, "pending_count": max(batch.total_count - batch.sent_count - batch.failed_count, 0),
         "created_at": batch.created_at.isoformat(), "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
-        "template_name": "One master; unit address selected from Excel",
-        "email_subject": batch.email_subject or DEFAULT_EMAIL_SUBJECT,
-        "email_body": batch.email_body or DEFAULT_EMAIL_BODY,
+        "template_name": "Bonus slip master" if batch.slip_type == "bonus" else "One master; unit address selected from Excel",
+        "email_subject": batch.email_subject or (DEFAULT_BONUS_EMAIL_SUBJECT if batch.slip_type == "bonus" else DEFAULT_EMAIL_SUBJECT),
+        "email_body": batch.email_body or (DEFAULT_BONUS_EMAIL_BODY if batch.slip_type == "bonus" else DEFAULT_EMAIL_BODY),
         "cc_emails": batch.cc_emails or [],
         "duplicate_email_count": batch.duplicate_email_count,
     }
@@ -167,6 +208,21 @@ def _knowledge_template_response(document: KnowledgeDocument) -> dict:
 def _built_in_template_response() -> dict:
     fields = salary_template_fields(DEFAULT_SALARY_TEMPLATE)
     return {"id": "built-in", "name": "Salary slip master", "original_filename": DEFAULT_SALARY_TEMPLATE.name, "is_active": True, "created_at": datetime.fromtimestamp(DEFAULT_SALARY_TEMPLATE.stat().st_mtime, timezone.utc).isoformat(), "unit_number": None, "source": "Built-in starter", "detected_fields": fields, "supports_dynamic_fields": bool(fields)}
+
+
+def _bonus_template_response(document: KnowledgeDocument | None = None) -> dict:
+    path = Path(get_settings().upload_storage_path) / document.stored_filename if document else DEFAULT_BONUS_TEMPLATE
+    return {
+        "id": str(document.id) if document else "bonus-built-in",
+        "name": "Bonus slip master",
+        "original_filename": document.original_filename if document else DEFAULT_BONUS_TEMPLATE.name,
+        "is_active": True,
+        "created_at": (document.created_at if document else datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)).isoformat(),
+        "unit_number": None,
+        "source": "Human Resources knowledge" if document else "Built-in Canva master",
+        "detected_fields": ["employee_name", "employee_code", "date_of_joining", "designation", "uan", "esi_number", "account_number", "transaction_id", "payment_date", "bonus_amount", "bonus_amount_words"],
+        "supports_dynamic_fields": True,
+    }
 
 
 @router.get("/templates")
@@ -266,6 +322,160 @@ async def salary_excel_template(
     return StreamingResponse(io.BytesIO(create_excel_template()), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=AROMAZEN_Salary_Upload_Template.xlsx"})
 
 
+@router.get("/bonus/templates")
+async def list_bonus_templates(
+    user: User = Depends(require_permissions("users.manage")),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[dict]:
+    await _ensure_hr_access(user, session)
+    template = await _knowledge_bonus_template(session, user.organization_id)
+    if template and (Path(get_settings().upload_storage_path) / template.stored_filename).is_file():
+        return [_bonus_template_response(template)]
+    return [_bonus_template_response()]
+
+
+@router.post("/bonus/templates")
+async def upload_bonus_template(
+    template_file: UploadFile = File(...),
+    user: User = Depends(require_permissions("users.manage")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _ensure_hr_access(user, session)
+    if Path(template_file.filename or "").suffix.lower() != ".pdf":
+        raise HTTPException(status_code=422, detail="Export the Canva bonus-slip template as an A4 portrait PDF before uploading.")
+    content = await template_file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="The bonus-slip template must be smaller than 10 MB.")
+    try:
+        validate_template_pdf(content)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error).replace("salary-slip", "bonus-slip")) from error
+    templates = await replace_department_master_templates(session, user, "hr", [DepartmentUpload(
+        BONUS_TEMPLATE_SOURCE_KEY,
+        content,
+        "AROMAZEN_BonusSlip_Master.pdf",
+        "application/pdf",
+        "bonus_slip_template",
+    )])
+    return _bonus_template_response(templates[0])
+
+
+@router.get("/bonus/templates/{template_id}/content")
+async def bonus_template_content(
+    template_id: str,
+    user: User = Depends(require_permissions("users.manage")),
+    session: AsyncSession = Depends(get_db_session),
+) -> FileResponse:
+    await _ensure_hr_access(user, session)
+    if template_id == "bonus-built-in":
+        return FileResponse(DEFAULT_BONUS_TEMPLATE, media_type="application/pdf", filename=DEFAULT_BONUS_TEMPLATE.name, content_disposition_type="inline")
+    try:
+        identifier = uuid.UUID(template_id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail="Bonus-slip template not found.") from error
+    document = await session.get(KnowledgeDocument, identifier)
+    if not document or document.organization_id != user.organization_id or document.source_key != BONUS_TEMPLATE_SOURCE_KEY:
+        raise HTTPException(status_code=404, detail="Bonus-slip template not found.")
+    path = (Path(get_settings().upload_storage_path) / document.stored_filename).resolve()
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Bonus-slip template file is unavailable.")
+    return FileResponse(path, media_type="application/pdf", filename=document.original_filename, content_disposition_type="inline")
+
+
+@router.get("/bonus/template")
+async def bonus_excel_template(
+    user: User = Depends(require_permissions("users.manage")),
+    session: AsyncSession = Depends(get_db_session),
+) -> StreamingResponse:
+    await _ensure_hr_access(user, session)
+    return StreamingResponse(io.BytesIO(create_bonus_excel_template()), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=AROMAZEN_Bonus_Upload_Template.xlsx"})
+
+
+@router.post("/bonus/batches")
+async def create_bonus_batch(
+    accounting_year: str = Form(...),
+    excel_file: UploadFile = File(...),
+    user: User = Depends(require_permissions("users.manage")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _ensure_hr_access(user, session)
+    match = re.fullmatch(r"((?:19|20)\d{2})-((?:19|20)\d{2})", accounting_year.strip())
+    if not match or int(match.group(2)) != int(match.group(1)) + 1:
+        raise HTTPException(status_code=422, detail="Accounting year must use YYYY-YYYY with consecutive years, for example 2026-2027.")
+    if Path(excel_file.filename or "").suffix.lower() != ".xlsx":
+        raise HTTPException(status_code=422, detail="Upload the completed .xlsx bonus template.")
+    content = await excel_file.read()
+    if len(content) > get_settings().max_upload_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="The bonus workbook is too large.")
+    try:
+        employee_rows = read_bonus_excel(content)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    bonus_template = await _knowledge_bonus_template(session, user.organization_id)
+    template_path = Path(get_settings().upload_storage_path) / bonus_template.stored_filename if bonus_template else DEFAULT_BONUS_TEMPLATE
+    template_name = bonus_template.original_filename if bonus_template and template_path.is_file() else DEFAULT_BONUS_TEMPLATE.name
+    if not template_path.is_file():
+        template_path = DEFAULT_BONUS_TEMPLATE
+    duplicate_email_count = sum(count - 1 for count in Counter(item["personal_email"] for item in employee_rows).values() if count > 1)
+    batch_id = uuid.uuid4()
+    period_key = f"{match.group(1)}-04"
+    workbook_name = organized_storage_name(
+        "payroll", user.organization_id, excel_file.filename or "bonus.xlsx",
+        category=f"bonus/{accounting_year}/batches/{batch_id}/source", identifier=batch_id,
+    )
+    workbook_path = Path(get_settings().upload_storage_path) / workbook_name
+    workbook_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook_path.write_bytes(content)
+    batch = PayrollBatch(
+        id=batch_id, organization_id=user.organization_id, created_by_user_id=user.id, template_id=None,
+        slip_type="bonus", payroll_month=period_key, original_filename=excel_file.filename or "bonus.xlsx",
+        stored_filename=workbook_name, email_subject=DEFAULT_BONUS_EMAIL_SUBJECT, email_body=DEFAULT_BONUS_EMAIL_BODY,
+        duplicate_email_count=duplicate_email_count, total_count=len(employee_rows), status="draft",
+    )
+    session.add(batch)
+    for item in employee_rows:
+        recipient_id = uuid.uuid4()
+        safe_code = re.sub(r"[^A-Za-z0-9_-]", "_", item["employee_code"])
+        original_name = f"Bonus_Slip_{accounting_year}_{safe_code}.pdf"
+        pdf_name = organized_storage_name(
+            "payroll", user.organization_id, original_name,
+            category=f"bonus/{accounting_year}/batches/{batch_id}/bonus-slips", identifier=recipient_id,
+        )
+        item["details"]["template_name"] = template_name
+        pdf_path = Path(get_settings().upload_storage_path) / pdf_name
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+        generate_bonus_pdf(item["details"], accounting_year, pdf_path, password_for(item["employee_name"], item["birth_year"]), template_path)
+        session.add(PayrollRecipient(
+            id=recipient_id, batch_id=batch_id, organization_id=user.organization_id, row_number=item["row_number"],
+            employee_name=item["employee_name"], employee_code=item["employee_code"], personal_email=item["personal_email"],
+            birth_year=item["birth_year"], details_json=item["details"], pdf_stored_filename=pdf_name,
+            pdf_original_filename=original_name, status="pending",
+        ))
+    session.add(AuditEvent(
+        organization_id=user.organization_id, actor_user_id=user.id, action="payroll.bonus_batch_created",
+        target_type="payroll_batch", target_id=str(batch_id),
+        metadata_json={"accounting_year": accounting_year, "employee_count": len(employee_rows), "duplicate_emails": duplicate_email_count},
+    ))
+    await session.commit()
+    await session.refresh(batch)
+    return await _batch_response(session, batch)
+
+
+@router.get("/bonus/batches")
+async def list_bonus_batches(
+    user: User = Depends(require_permissions("users.manage")),
+    session: AsyncSession = Depends(get_db_session),
+) -> list[dict]:
+    await _ensure_hr_access(user, session)
+    batches = await session.scalars(
+        select(PayrollBatch).where(
+            PayrollBatch.organization_id == user.organization_id,
+            PayrollBatch.slip_type == "bonus",
+        ).order_by(PayrollBatch.created_at.desc()).limit(24)
+    )
+    return [await _batch_response(session, batch, False) for batch in batches]
+
+
 @router.post("/batches")
 async def create_batch(
     payroll_month: str = Form(...),
@@ -303,7 +513,7 @@ async def create_batch(
     workbook_path = Path(get_settings().upload_storage_path) / workbook_name
     workbook_path.parent.mkdir(parents=True, exist_ok=True)
     workbook_path.write_bytes(content)
-    batch = PayrollBatch(id=batch_id, organization_id=user.organization_id, created_by_user_id=user.id, template_id=None, payroll_month=payroll_month, original_filename=excel_file.filename or "salary.xlsx", stored_filename=workbook_name, email_subject=DEFAULT_EMAIL_SUBJECT, email_body=DEFAULT_EMAIL_BODY, duplicate_email_count=duplicate_email_count, total_count=len(employee_rows), status="draft")
+    batch = PayrollBatch(id=batch_id, organization_id=user.organization_id, created_by_user_id=user.id, template_id=None, slip_type="salary", payroll_month=payroll_month, original_filename=excel_file.filename or "salary.xlsx", stored_filename=workbook_name, email_subject=DEFAULT_EMAIL_SUBJECT, email_body=DEFAULT_EMAIL_BODY, duplicate_email_count=duplicate_email_count, total_count=len(employee_rows), status="draft")
     session.add(batch)
     for item in employee_rows:
         recipient_id = uuid.uuid4()
@@ -332,7 +542,7 @@ async def list_batches(
     session: AsyncSession = Depends(get_db_session),
 ) -> list[dict]:
     await _ensure_hr_access(user, session)
-    batches = await session.scalars(select(PayrollBatch).where(PayrollBatch.organization_id == user.organization_id).order_by(PayrollBatch.created_at.desc()).limit(24))
+    batches = await session.scalars(select(PayrollBatch).where(PayrollBatch.organization_id == user.organization_id, PayrollBatch.slip_type == "salary").order_by(PayrollBatch.created_at.desc()).limit(24))
     return [await _batch_response(session, batch, False) for batch in batches]
 
 
@@ -388,27 +598,30 @@ async def download_salary_pdf(
     await _ensure_hr_access(user, session)
     item = await session.get(PayrollRecipient, recipient_id)
     if not item or item.batch_id != batch_id or item.organization_id != user.organization_id:
-        raise HTTPException(status_code=404, detail="Salary slip not found.")
+        raise HTTPException(status_code=404, detail="Slip not found.")
     path = (Path(get_settings().upload_storage_path) / item.pdf_stored_filename).resolve()
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="Generated salary slip is unavailable.")
+        raise HTTPException(status_code=404, detail="Generated slip is unavailable.")
     return FileResponse(path, media_type="application/pdf", filename=item.pdf_original_filename)
 
 
-def _render_email(value: str, item: PayrollRecipient, month_label: str) -> str:
-    return value.replace("{employee_name}", item.employee_name).replace("{month}", month_label)
+def _render_email(value: str, item: PayrollRecipient, period_label: str) -> str:
+    return value.replace("{employee_name}", item.employee_name).replace("{month}", period_label).replace("{period}", period_label)
 
 
 def _send_message(item: PayrollRecipient, batch: PayrollBatch, mailbox: EmailMailbox) -> None:
-    month_label = datetime.strptime(batch.payroll_month, "%Y-%m").strftime("%B %Y")
+    month_date = datetime.strptime(batch.payroll_month, "%Y-%m")
+    period_label = f"{month_date.year}-{month_date.year + 1}" if batch.slip_type == "bonus" else month_date.strftime("%B %Y")
     cc_recipients = _normalized_cc(batch.cc_emails or [], item.personal_email)
     message = EmailMessage()
     message["From"] = formataddr((mailbox.from_name, mailbox.email))
     message["To"] = item.personal_email
     if cc_recipients:
         message["Cc"] = ", ".join(cc_recipients)
-    message["Subject"] = _render_email(batch.email_subject or DEFAULT_EMAIL_SUBJECT, item, month_label)
-    apply_hr_email_signature(message, _render_email(batch.email_body or DEFAULT_EMAIL_BODY, item, month_label))
+    default_subject = DEFAULT_BONUS_EMAIL_SUBJECT if batch.slip_type == "bonus" else DEFAULT_EMAIL_SUBJECT
+    default_body = DEFAULT_BONUS_EMAIL_BODY if batch.slip_type == "bonus" else DEFAULT_EMAIL_BODY
+    message["Subject"] = _render_email(batch.email_subject or default_subject, item, period_label)
+    apply_hr_email_signature(message, _render_email(batch.email_body or default_body, item, period_label))
     path = Path(get_settings().upload_storage_path) / item.pdf_stored_filename
     message.add_attachment(path.read_bytes(), maintype="application", subtype="pdf", filename=item.pdf_original_filename)
     smtp_client = smtplib.SMTP_SSL if mailbox.security == "ssl" else smtplib.SMTP
@@ -465,7 +678,8 @@ async def _queue_delivery(batch_id: uuid.UUID, retry_failed: bool, background_ta
     target_status = "failed" if retry_failed else "pending"
     recipients = list(await session.scalars(select(PayrollRecipient).where(PayrollRecipient.batch_id == batch_id, PayrollRecipient.status == target_status).order_by(PayrollRecipient.row_number)))
     if not recipients:
-        raise HTTPException(status_code=409, detail="There are no failed deliveries to retry." if retry_failed else "There are no pending salary slips to send.")
+        slip_label = "bonus slips" if batch.slip_type == "bonus" else "salary slips"
+        raise HTTPException(status_code=409, detail="There are no failed deliveries to retry." if retry_failed else f"There are no pending {slip_label} to send.")
     batch.status = "sending"
     batch.sending_started_at = datetime.now(timezone.utc)
     batch.completed_at = None

@@ -149,11 +149,16 @@ export interface PayrollRecipient {
   gross: string
   deductions: string
   net_wages: string
+  bonus_amount: string
+  account_number: string
+  transaction_id: string
+  payment_date: string
   template_name: string
 }
 
 export interface PayrollBatch {
   id: string
+  slip_type: 'salary' | 'bonus'
   payroll_month: string
   original_filename: string
   status: 'draft' | 'sending' | 'completed' | 'partial' | 'failed'

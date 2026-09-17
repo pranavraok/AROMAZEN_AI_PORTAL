@@ -44,7 +44,7 @@ const SPECIALIZED_ACTIONS: Record<'hr' | 'qa_qc' | 'regulatory' | 'accounts' | '
     { key: 'attendance', title: 'Attendance', description: 'Upload attendance, review exceptions and export results.', href: '/department-tools/hr-attendance', icon: CalendarCheck2, employeeAccess: true },
     { key: 'leave', title: 'Leave Calculator', description: 'Calculate leave, LOP, paid days and overtime.', href: '/hr/leave-calculator', icon: ClipboardCheck },
     { key: 'letters', title: 'HR Letters', description: 'Prepare, review, download and email approved letters.', href: '/department-tools/hr-letters', icon: FileText, employeeAccess: true },
-    { key: 'payroll', title: 'Payroll & Salary Slips', description: 'Prepare salary slips and manage delivery results.', href: '/hr/salary-slips', icon: WalletCards },
+    { key: 'payroll', title: 'Automated Slip Generator', description: 'Prepare, review and email salary or bonus slips.', href: '/hr/salary-slips', icon: WalletCards },
     { key: 'rules', title: 'Rules & Reminders', description: 'Review HR rules, licences and renewal reminders.', href: '/knowledge/rules-reminders', icon: BookOpen, employeeAccess: true },
     { key: 'custom-letters', title: 'Custom Letters', description: 'Upload occasional masters and map their {{fields}} automatically.', href: '/department-tools/hr-custom-letters', icon: WandSparkles, employeeAccess: true },
   ],

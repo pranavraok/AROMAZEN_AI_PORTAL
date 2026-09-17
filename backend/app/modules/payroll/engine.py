@@ -32,6 +32,14 @@ COLUMNS = [
     ("present_days", "Present Days"), ("lop", "LOP"), ("ot_hours", "OT Hours"),
     ("net_wages", "Net Salary"), ("net_wages_words", "Net Salary in Words"),
 ]
+BONUS_COLUMNS = [
+    ("employee_name", "Employee Name"), ("personal_email", "Personal Email"),
+    ("date_of_birth", "Date of Birth"), ("employee_code", "Employee Code"),
+    ("date_of_joining", "Date of Joining"), ("designation", "Designation"),
+    ("uan", "UAN"), ("esi_number", "ESI Number"),
+    ("account_number", "Account Number"), ("transaction_id", "Transaction ID"),
+    ("payment_date", "Payment Date"), ("bonus_amount", "Bonus Amount"),
+]
 GROSS_FIELDS = ("basic_gross", "hra_gross", "special_allowance_gross", "overtime_gross", "variable_pay_gross")
 EARNING_FIELDS = ("basic_earnings", "hra_earnings", "special_allowance_earnings", "overtime_earnings", "variable_pay_earnings")
 DEDUCTION_FIELDS = ("pf", "esi_deduction", "professional_tax", "loan", "advance", "other_deductions", "tds")
@@ -136,6 +144,46 @@ def create_excel_template() -> bytes:
     for text in instructions:
         note.append([text])
     note.column_dimensions["A"].width = 125
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def create_bonus_excel_template() -> bytes:
+    approved_template = Path(__file__).resolve().parents[2] / "assets" / "payroll" / "AROMAZEN_Bonus_Upload_Template.xlsx"
+    if approved_template.is_file():
+        return approved_template.read_bytes()
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Bonus Data"
+    sheet.append([label for _, label in BONUS_COLUMNS])
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:{sheet.cell(1, len(BONUS_COLUMNS)).column_letter}1"
+    for cell in sheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="111827")
+    for index, (_, label) in enumerate(BONUS_COLUMNS, 1):
+        sheet.column_dimensions[sheet.cell(1, index).column_letter].width = max(15, min(28, len(label) + 3))
+    sheet.append([
+        "Sample Employee", "employee@example.com", date(1992, 5, 18), "EMP001",
+        date(2022, 1, 10), "Executive", "100000000000", "1234567890",
+        "123456789012", "TXN-2026-001", date.today(), 25000,
+    ])
+    for coordinate in ("C2", "E2", "K2"):
+        sheet[coordinate].number_format = "DD-MM-YYYY"
+    sheet["L2"].number_format = "#,##0.00"
+    note = workbook.create_sheet("Instructions")
+    instructions = [
+        "AROMAZEN Bonus Slip Upload",
+        "Use one row per employee. Do not rename or remove any column.",
+        "Personal Email is used for delivery. Date of Birth is used only to create the PDF password.",
+        "PDF password: first 4 letters of employee name in uppercase + four-digit birth year.",
+        "Bonus Amount in words is generated automatically from the uploaded numeric amount.",
+        "Choose the accounting year in the portal before preparing the batch.",
+    ]
+    for text in instructions:
+        note.append([text])
+    note.column_dimensions["A"].width = 115
     output = io.BytesIO()
     workbook.save(output)
     return output.getvalue()
@@ -422,6 +470,81 @@ def read_salary_excel(content: bytes) -> list[dict]:
     return parsed
 
 
+def read_bonus_excel(content: bytes) -> list[dict]:
+    try:
+        workbook = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
+    except Exception as error:
+        raise ValueError("The uploaded file is not a readable .xlsx workbook.") from error
+    sheet = workbook["Bonus Data"] if "Bonus Data" in workbook.sheetnames else workbook.active
+    rows = sheet.iter_rows(values_only=True)
+    headers = next(rows, None)
+    if not headers:
+        raise ValueError("The workbook is empty.")
+    expected = {_normalise_header(label): key for key, label in BONUS_COLUMNS}
+    expected.update({
+        "name": "employee_name", "employeename": "employee_name", "email": "personal_email",
+        "emailid": "personal_email", "dob": "date_of_birth", "empcode": "employee_code",
+        "doj": "date_of_joining", "esino": "esi_number", "esi": "esi_number",
+        "accountno": "account_number", "bankaccountnumber": "account_number",
+        "transactionid": "transaction_id", "utr": "transaction_id", "utrnumber": "transaction_id",
+        "date": "payment_date", "bonus": "bonus_amount", "netbonus": "bonus_amount",
+    })
+    indexes: dict[str, int] = {}
+    for index, value in enumerate(headers):
+        key = expected.get(_normalise_header(value))
+        if key and key not in indexes:
+            indexes[key] = index
+    required = tuple(key for key, _ in BONUS_COLUMNS)
+    labels = dict(BONUS_COLUMNS)
+    missing = [labels[key] for key in required if key not in indexes]
+    if missing:
+        raise ValueError("Missing required columns: " + ", ".join(missing))
+    parsed, errors = [], []
+    for row_number, row in enumerate(rows, 2):
+        if not any(value not in (None, "") for value in row):
+            continue
+        try:
+            values = {key: row[index] if index < len(row) else None for key, index in indexes.items()}
+            details = {key: _text(values.get(key)) for key, _ in BONUS_COLUMNS}
+            for key in required:
+                if not details[key]:
+                    raise ValueError(f"{labels[key]} is required.")
+            try:
+                email = validate_email(details["personal_email"], check_deliverability=False).normalized.lower()
+            except EmailNotValidError as error:
+                raise ValueError("Personal Email is invalid.") from error
+            birth_year = _birth_year(values.get("date_of_birth"))
+            bonus_amount = _money(values.get("bonus_amount"))
+            if bonus_amount <= 0:
+                raise ValueError("Bonus Amount must be greater than zero.")
+            details.update(
+                personal_email=email,
+                date_of_birth=str(birth_year),
+                date_of_joining=_date(values.get("date_of_joining"), "Date of Joining").strftime("%d-%m-%Y"),
+                payment_date=_date(values.get("payment_date"), "Payment Date").strftime("%d-%m-%Y"),
+                bonus_amount=f"{bonus_amount:.2f}",
+                bonus_amount_words=_indian_words(int(bonus_amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP))),
+            )
+            parsed.append({
+                "row_number": row_number,
+                "employee_name": details["employee_name"],
+                "employee_code": details["employee_code"],
+                "personal_email": email,
+                "birth_year": birth_year,
+                "details": details,
+            })
+        except ValueError as error:
+            errors.append(f"Row {row_number}: {error}")
+    if errors:
+        suffix = f" (+{len(errors) - 12} more)" if len(errors) > 12 else ""
+        raise ValueError(" | ".join(errors[:12]) + suffix)
+    if not parsed:
+        raise ValueError("No employee rows were found.")
+    if len(parsed) > 500:
+        raise ValueError("A bonus batch can contain at most 500 employees.")
+    return parsed
+
+
 def validate_template_pdf(content: bytes) -> None:
     try:
         reader = PdfReader(io.BytesIO(content))
@@ -699,6 +822,49 @@ def generate_salary_pdf(details: dict, payroll_month: str, output_path: Path, pa
     writer = PdfWriter()
     for page in reader.pages:
         writer.add_page(page)
+    writer.encrypt(password, algorithm="AES-256")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("wb") as file:
+        writer.write(file)
+
+
+def generate_bonus_pdf(details: dict, accounting_year: str, output_path: Path, password: str, template_path: Path) -> None:
+    template_reader = PdfReader(str(template_path))
+    template_page = template_reader.pages[0]
+    page_width, page_height = float(template_page.mediabox.width), float(template_page.mediabox.height)
+    scale_x, scale_y = page_width / A4[0], page_height / A4[1]
+    overlay_buffer = io.BytesIO()
+    overlay = canvas.Canvas(overlay_buffer, pagesize=(page_width, page_height))
+    overlay.scale(scale_x, scale_y)
+
+    # The supplied Canva master is a static A4 design. These coordinates place
+    # data inside its empty fields while keeping the master fully replaceable.
+    overlay.setFillColor(colors.white)
+    overlay.rect(40, 675, 515, 56, fill=1, stroke=0)
+    overlay.setFillColor(colors.HexColor("#242424"))
+    overlay.setStrokeColor(colors.HexColor("#111111"))
+    overlay.setLineWidth(1.1)
+    overlay.line(41, 724, 554, 724)
+    overlay.setFont("Helvetica-Bold", 14.5)
+    overlay.drawCentredString(A4[0] / 2, 709, f"BONUS FOR ACCOUNTING YEAR ENDING {accounting_year}")
+    overlay.setFont("Helvetica", 14)
+    overlay.drawCentredString(A4[0] / 2, 688, "PAYMENT OF BONUS ACT (FORM C)")
+
+    fields = [
+        ("employee_name", 106, 649, 110), ("employee_code", 284, 649, 107), ("uan", 458, 649, 108),
+        ("date_of_joining", 106, 628, 110), ("designation", 284, 628, 107), ("esi_number", 458, 628, 108),
+        ("account_number", 106, 607, 110), ("transaction_id", 284, 607, 107), ("payment_date", 458, 607, 108),
+    ]
+    overlay.setFillColor(colors.HexColor("#111827"))
+    for key, x, y, width in fields:
+        _fit_text(overlay, details.get(key, ""), x, y, width, size=7.5)
+    _fit_text(overlay, f"INR {_amount(details, 'bonus_amount')}", 185, 571, 285, align="center", size=9, bold=True)
+    _fit_text(overlay, details.get("bonus_amount_words", ""), 185, 547, 285, align="center", size=7.5)
+    overlay.save()
+
+    writer = PdfWriter()
+    writer.add_page(template_page)
+    writer.pages[0].merge_page(PdfReader(io.BytesIO(overlay_buffer.getvalue())).pages[0])
     writer.encrypt(password, algorithm="AES-256")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("wb") as file:

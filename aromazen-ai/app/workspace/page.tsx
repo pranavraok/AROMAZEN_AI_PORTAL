@@ -45,7 +45,7 @@ function suggestionsFor(user: CurrentUser | null): Suggestion[] {
     { icon: 'FileOutput', text: 'Create an HR letter', description: 'Prepare approved offer, appointment, appreciation, or increment letters.', href: '/department-tools/hr-letters' },
     { icon: 'ClipboardList', text: 'Prepare an interview checklist', description: 'Score a candidate and generate the branded interview PDF.', href: '/department-tools/hr-interview' },
     ...(permissions.has('users.manage') ? [
-      { icon: 'Payroll', text: 'Prepare salary slips', description: 'Create, review, and send the monthly salary-slip batch.', href: '/hr/salary-slips' },
+      { icon: 'Payroll', text: 'Generate employee slips', description: 'Create, review, and send salary or bonus-slip batches.', href: '/hr/salary-slips' },
       { icon: 'Boxes', text: 'Manage company assets', description: 'Track assignments, maintenance, recovery, and scrap decisions.', href: '/hr/assets' },
     ] : []),
   ]

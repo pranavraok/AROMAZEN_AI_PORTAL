@@ -4,6 +4,7 @@ const CANVA_EDIT_URL_BY_TEMPLATE_CATEGORY: Readonly<Record<string, string>> = {
   'hr_letter_template:spot_appreciation': 'https://www.canva.com/design/DAHUEEB-6E0/CT9TtPSezzIujpPzANqdAg/edit',
   'hr_letter_template:special_increment': 'https://www.canva.com/design/DAHUGkkmvBI/5pI0oRn9hbP_sNhAj4uD8w/edit',
   salary_slip_template: 'https://www.canva.com/design/DAHUClLJiSM/Rbjg2J5Od978rXjfNOZJvQ/edit',
+  bonus_slip_template: 'https://www.canva.com/design/DAHR--yBvfc/vklZe0RPkEhWuQQ1Wo4QXA/edit',
   qa_coa_template: 'https://www.canva.com/design/DAHUIbep1j4/h7gaNI5L-yAJ7wzdlCqT7g/edit',
 }
 
@@ -18,6 +19,10 @@ export function canvaEditUrlForKnowledgeTemplate(documentCategory: string | null
 
 export function canvaEditUrlForSalarySlip(): string {
   return CANVA_EDIT_URL_BY_TEMPLATE_CATEGORY.salary_slip_template
+}
+
+export function canvaEditUrlForBonusSlip(): string {
+  return CANVA_EDIT_URL_BY_TEMPLATE_CATEGORY.bonus_slip_template
 }
 
 export function canvaEditUrlForQaCoa(): string {

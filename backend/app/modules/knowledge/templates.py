@@ -52,7 +52,7 @@ async def cleanup_legacy_template_collection(session: AsyncSession, organization
     )))
     for document in documents:
         category = document.document_category or ""
-        if hr_collection and (category == "salary_slip_template" or category.startswith("hr_letter_template:")):
+        if hr_collection and (category in {"salary_slip_template", "bonus_slip_template"} or category.startswith("hr_letter_template:")):
             document.collection_id = hr_collection.id
         elif rnd_collection and category == "document_template":
             document.collection_id = rnd_collection.id

@@ -29,6 +29,7 @@ def is_master_template_upload(upload: DepartmentUpload) -> bool:
     return (
         category == "document_template"
         or category == "salary_slip_template"
+        or category == "bonus_slip_template"
         or category == "hr_custom_letter_template"
         or category.startswith("hr_letter_template:")
         or category.startswith("regulatory_template:")
