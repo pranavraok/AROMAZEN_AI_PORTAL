@@ -99,6 +99,12 @@ export async function apiFileRequest(path: string, accessToken: string, options:
     throw new ApiError(message, response.status, payload)
   }
   const disposition = response.headers.get('content-disposition') ?? ''
-  const match = disposition.match(/filename="?([^";]+)"?/i)
-  return { blob: await response.blob(), filename: match?.[1] ?? 'download' }
+  // Servers emit either filename="name.ext" or the RFC 5987 form
+  // filename*=utf-8''name%20ext (FastAPI FileResponse uses the latter).
+  const starMatch = disposition.match(/filename\*=(?:utf-8|UTF-8)''([^;]+)/i)
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i)
+  const rawName = starMatch?.[1] ?? plainMatch?.[1] ?? 'download'
+  let filename = 'download'
+  try { filename = decodeURIComponent(rawName.trim()) } catch { filename = rawName.trim() }
+  return { blob: await response.blob(), filename }
 }

@@ -3,17 +3,22 @@ from __future__ import annotations
 import io
 import re
 from copy import deepcopy
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+from docx.enum.section import WD_HEADER_FOOTER
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Inches, Pt
+from docx.shared import Emu
+from docx.shared import Inches, Pt, Twips
 from docx.text.paragraph import Paragraph
 from openpyxl import load_workbook
+from app.modules.regulatory.pictograms import fill_pictograms
+from app.modules.regulatory.transport import resolve_transport
 
 from app.modules.regulatory.reference_catalog import (
     CEDAR_SAGE_SDS_LABEL,
@@ -248,6 +253,9 @@ def _set_paragraph_value_preserving_layout(
                 run.text = ""
         if value_run is None:
             value_run = paragraph.add_run()
+        # Values render regular even when a heading style would inherit bold,
+        # so labels stay bold and values regular as in the approved reference.
+        value_run.bold = False
         needs_separator = bool(cleaned and text[:value_start] and not text[:value_start][-1].isspace() and not text[value_start:].startswith((" ", "\t")))
         value_run.text = f" {cleaned}" if needs_separator else cleaned
         return True
@@ -268,9 +276,40 @@ def _all_paragraphs(document):
 
 def _replace_product(document, product: str, code: str) -> None:
     for paragraph in _all_paragraphs(document):
-        _set_paragraph_value(paragraph, (r"^\s*PRODUCT\s+NAME",), product)
-        _set_paragraph_value(paragraph, (r"^\s*PRODUCT\s+CODE",), code)
-        _set_paragraph_value(paragraph, (r"^\s*Product\s+identifier\s*:",), f"{product} {code}".strip())
+        # The preserving variant keeps the master's label/value run split, so
+        # labels stay bold while values render regular like the reference PDF.
+        _set_paragraph_value_preserving_layout(paragraph, (r"^\s*PRODUCT\s+NAME",), product)
+        _set_paragraph_value_preserving_layout(paragraph, (r"^\s*PRODUCT\s+CODE",), code)
+        _set_paragraph_value_preserving_layout(paragraph, (r"^\s*Product\s+identifier\s*:",), f"{product} {code}".strip())
+
+
+def _uniform_font(run, name: str, size: float) -> None:
+    run.font.name = name
+    run.font.size = Pt(size)
+    fonts = run._element.get_or_add_rPr().rFonts
+    for key in ("ascii", "hAnsi", "eastAsia", "cs"):
+        fonts.set(qn(f"w:{key}"), name)
+        fonts.attrib.pop(qn(f"w:{key}Theme"), None)
+
+
+def _prepare_ifra_amendment(document) -> None:
+    # The first section of the supplied master still has the obsolete address.
+    # Reuse the later section's complete footer relationship, including artwork.
+    current = next((s for s in document.sections[1:] if "166A" in " ".join(s.footer._element.xpath(".//w:t/text()"))), None)
+    if current is not None:
+        reference = next((r for r in current._sectPr.findall(qn("w:footerReference")) if r.get(qn("w:type")) == "default"), None)
+        if reference is not None:
+            first = document.sections[0]
+            for node in list(first._sectPr.findall(qn("w:footerReference"))):
+                if node.get(qn("w:type")) in {"default", "first"}:
+                    first._sectPr.remove(node)
+            first._sectPr.add_footerReference(WD_HEADER_FOOTER.PRIMARY, reference.get(qn("r:id")))
+            if first.different_first_page_header_footer:
+                first._sectPr.add_footerReference(WD_HEADER_FOOTER.FIRST_PAGE, reference.get(qn("r:id")))
+    for paragraph in document.paragraphs:
+        if re.match(r"^\s*PRODUCT\s+(NAME|CODE)", paragraph.text, re.IGNORECASE):
+            for run in paragraph.runs:
+                _uniform_font(run, "Arial", 9)
 
 
 def _clear_paragraph(paragraph, remove_drawings: bool = False) -> None:
@@ -314,9 +353,8 @@ def _remove_output_placeholders(document) -> None:
 
 
 def _set_footer_metadata(document, fields: dict[str, str]) -> None:
-    version = clean_issue_value(fields.get("version"))
-    revision_date = clean_issue_value(fields.get("revision_date"))
-    pattern = re.compile(r"(?is)^(.*?Version\s*:)\s*.*?(\s+Date\s*:)\s*.*?$")
+    version = clean_issue_value(fields.get("version")) or "0.0"
+    revision_date = clean_issue_value(fields.get("revision_date")) or date.today().strftime("%d-%m-%Y")
     seen_parts: set[str] = set()
     for section in document.sections:
         for footer in (section.footer, section.first_page_footer, section.even_page_footer):
@@ -326,17 +364,31 @@ def _set_footer_metadata(document, fields: dict[str, str]) -> None:
             seen_parts.add(part_key)
             # Some uploaded masters place metadata inside a content control or
             # text box, which footer.paragraphs does not expose.
-            for node in footer._element.xpath(".//w:t"):
-                match = pattern.match(node.text or "")
-                if not match:
+            for paragraph in footer._element.xpath(".//w:p"):
+                # Metadata can be split across runs; retain page-number fields
+                # and drawings by editing text nodes only, not whole paragraphs.
+                nodes = [n for n in paragraph.xpath(".//w:t") if n.xpath("ancestor::w:p[1]")[0] is paragraph]
+                text = "".join(n.text or "" for n in nodes)
+                if not re.search(r"Version\s*:", text, re.I) or not re.search(r"Date\s*:", text, re.I):
                     continue
-                replacement = match.group(1)
-                if version:
-                    replacement += f" {version}"
-                replacement += match.group(2)
-                if revision_date:
-                    replacement += f" {revision_date}"
-                node.text = replacement
+                for pattern, value in ((r"(Date\s*:\s*)(.*)$", revision_date), (r"(Version\s*:\s*)(.*?)(?=Date\s*:|$)", version)):
+                    text = "".join(n.text or "" for n in nodes)
+                    match = re.search(pattern, text, re.I)
+                    if not match:
+                        continue
+                    start = match.start(2)
+                    end = start + len(match.group(2).rstrip())
+                    cursor = 0
+                    inserted = False
+                    for node in nodes:
+                        original = node.text or ""
+                        node_end = cursor + len(original)
+                        if cursor <= end and node_end >= start:
+                            left = max(0, start - cursor)
+                            right = min(len(original), max(0, end - cursor))
+                            node.text = original[:left] + (value if not inserted else "") + original[right:]
+                            inserted = True
+                        cursor = node_end
 
 
 def _remove_duplicate_particle_characteristics(document) -> None:
@@ -618,26 +670,52 @@ def _set_row_no_split(row, *, repeat_header: bool = False) -> None:
         tr_pr.append(OxmlElement("w:cantSplit"))
     if repeat_header and tr_pr.find(qn("w:tblHeader")) is None:
         tr_pr.append(OxmlElement("w:tblHeader"))
+    elif not repeat_header:
+        for node in list(tr_pr.findall(qn("w:tblHeader"))):
+            tr_pr.remove(node)
 
 
 def _set_compact_cell_text(
-    cell, value: Any, size: float = 8.5, line_spacing: float = 1, *, preserve_placeholder: bool = False
+    cell, value: Any, size: float | None = None, line_spacing: float = 1, *, preserve_placeholder: bool = False
 ) -> None:
+    text = str(value or "").strip() if preserve_placeholder else (clean_issue_value(value) or "")
+    lines = [line.strip() for line in text.split("\n") if line.strip()] or [""]
     paragraphs = list(cell.paragraphs)
     paragraph = paragraphs[0]
     for extra in paragraphs[1:]:
         cell._tc.remove(extra._p)
     if paragraph.runs:
         run = paragraph.runs[0]
-        run.text = str(value or "").strip() if preserve_placeholder else clean_issue_value(value)
+        run.text = lines[0]
         for extra in paragraph.runs[1:]:
             extra.text = ""
     else:
-        run = paragraph.add_run(str(value or "").strip() if preserve_placeholder else clean_issue_value(value))
-    run.font.size = Pt(size)
-    run.font.name = "Arial"
-    run.bold = False
-    run._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "Arial")
+        run = paragraph.add_run(lines[0])
+    # Values carrying embedded newlines (e.g. one ATE route per line, as in
+    # the reference SDS) render as separate paragraphs in the same cell.
+    # Each added paragraph reuses the first paragraph's style so all lines
+    # share the template typography (add_paragraph defaults to Normal).
+    for extra_line in lines[1:]:
+        extra_paragraph = cell.add_paragraph(style=paragraph.style)
+        extra_paragraph.paragraph_format.space_before = Pt(0)
+        extra_paragraph.paragraph_format.space_after = Pt(0)
+        extra_paragraph.paragraph_format.line_spacing = line_spacing
+        extra_paragraph.paragraph_format.left_indent = Pt(0)
+        extra_paragraph.paragraph_format.right_indent = Pt(0)
+        extra_paragraph.paragraph_format.first_line_indent = Pt(0)
+        extra_paragraph.add_run(extra_line)
+        if paragraph.runs and paragraph.runs[0].font.name:
+            added_run = extra_paragraph.runs[0]
+            added_run.font.name = paragraph.runs[0].font.name
+            added_run.font.size = paragraph.runs[0].font.size
+            added_run.font.bold = paragraph.runs[0].font.bold
+    if size is not None:
+        # Catalog documents request a fixed compact font; SDS tables keep the
+        # master's own typography (Calibri data / Arial headers) instead.
+        run.font.size = Pt(size)
+        run.font.name = "Arial"
+        run.bold = False
+        run._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "Arial")
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = Pt(0)
     paragraph.paragraph_format.line_spacing = line_spacing
@@ -648,7 +726,14 @@ def _set_compact_cell_text(
     cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
 
 
-def _format_sds_table(table, centered_columns: set[int], *, vertical_padding: int = 60) -> None:
+def _format_sds_table(
+    table,
+    centered_columns: set[int],
+    *,
+    vertical_padding: int = 60,
+    repeat_header: bool = True,
+    width_overrides: dict[int, float] | None = None,
+) -> None:
     """Normalize the template's cell-level overrides without changing data."""
     table.autofit = False
     # The supplied master uses negative body indents. Give all SDS tables
@@ -664,10 +749,25 @@ def _format_sds_table(table, centered_columns: set[int], *, vertical_padding: in
     widths = [column.width for column in table.columns]
     total_width = sum(widths)
     widths = [Inches(7.2 * width / total_width) for width in widths]
+    # Optional per-column width overrides (in points) so wide data columns
+    # (e.g. the composition ATE column) match the reference SDS layout.
+    for column_index, points in (width_overrides or {}).items():
+        if 0 <= column_index < len(widths):
+            widths[column_index] = Pt(points)
+    # Keep the table at its full printable width after any overrides.
+    # The difference is absorbed by the widest column that was NOT explicitly
+    # overridden (Length subclasses int, so use raw EMU arithmetic).
+    overridden = set((width_overrides or {}).keys())
+    total_emu = sum(int(width) for width in widths)
+    delta = int(Inches(7.2)) - total_emu
+    candidates = [index for index in range(len(widths)) if index not in overridden] or list(range(len(widths)))
+    if abs(delta) > 6350 and candidates:  # 6350 EMU = 0.5 pt
+        flexible = max(candidates, key=lambda index: int(widths[index]))
+        widths[flexible] = Emu(int(widths[flexible]) + delta)
     for column, width in zip(table.columns, widths):
         column.width = width
     for row_index, row in enumerate(table.rows):
-        _set_row_no_split(row, repeat_header=row_index == 0)
+        _set_row_no_split(row, repeat_header=repeat_header and row_index == 0)
         for column_index, cell in enumerate(row.cells):
             cell.width = widths[column_index]
             margins = cell._tc.get_or_add_tcPr().find(qn("w:tcMar"))
@@ -682,9 +782,15 @@ def _format_sds_table(table, centered_columns: set[int], *, vertical_padding: in
                 node.set(qn("w:w"), str(width))
                 node.set(qn("w:type"), "dxa")
             value = cell.text.strip()
-            size = 8.5
-            _set_compact_cell_text(cell, value, size=size, line_spacing=1.05, preserve_placeholder=True)
+            _set_compact_cell_text(cell, value, line_spacing=1.05, preserve_placeholder=True)
             paragraph = cell.paragraphs[0]
+            if row_index == 0:
+                # Header rows render Arial bold 10 exactly like the approved
+                # reference; data rows keep the master's Calibri typography.
+                for run in paragraph.runs:
+                    run.font.name = "Arial"
+                    run.font.size = Pt(10)
+                    run.bold = True
             paragraph.alignment = (
                 WD_ALIGN_PARAGRAPH.CENTER if row_index == 0 or column_index in centered_columns
                 else WD_ALIGN_PARAGRAPH.LEFT
@@ -696,7 +802,8 @@ def _align_sds_label_paragraph(paragraph, value_offset: float) -> None:
     if paragraph._p.xpath(".//w:drawing | .//w:pict") or "\t" not in paragraph.text:
         return
     label, value = paragraph.text.strip().split("\t", 1)
-    paragraph.text = label.rstrip() + "\t" + value.lstrip("\t ")
+    label_text = label.rstrip()
+    value_text = value.lstrip("\t ")
     fmt = paragraph.paragraph_format
     fmt.left_indent = Pt(value_offset)
     fmt.first_line_indent = Pt(-value_offset)
@@ -706,10 +813,18 @@ def _align_sds_label_paragraph(paragraph, value_offset: float) -> None:
     fmt.space_after = Pt(4)
     fmt.line_spacing = 1.05
     paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    # Rebuild the two runs so the label stays bold and the value regular,
+    # matching the approved reference rendering.
+    for run in list(paragraph.runs):
+        run._element.getparent().remove(run._element)
+    label_run = paragraph.add_run(label_text)
+    label_run.bold = True
+    if value_text:
+        value_run = paragraph.add_run("\t" + value_text)
+        value_run.bold = False
     for run in paragraph.runs:
         run.font.name = "Arial"
         run.font.size = Pt(10)
-        run.bold = False
 
 
 def _align_sds_labels(document) -> None:
@@ -729,12 +844,25 @@ def _align_sds_labels(document) -> None:
                 anchor._p.addnext(node)
                 anchor = Paragraph(node, paragraph._parent)
                 anchor.text = line
-                _align_sds_label_paragraph(anchor, 190)
+                # 170pt matches the reference rendering, where the longest
+                # Section 11 value stays on a single line.
+                _align_sds_label_paragraph(anchor, 170)
         elif re.match(r"^(Class and category of danger|Hazard statements|Supplemental Information|Precautionary statements)", paragraph.text.strip()):
-            _align_sds_label_paragraph(paragraph, 155)
-    for paragraph in document.paragraphs:
-        if re.match(r"^(Section \d+[.:]|\d+\.\d+\s|Respiratory Protection|Information about hazardous ingredients|Key to abbreviations)", paragraph.text.strip()):
+            # 180pt mirrors the reference rendering's value column position.
+            _align_sds_label_paragraph(paragraph, 180)
+    paragraphs = list(document.paragraphs)
+    for index, paragraph in enumerate(paragraphs):
+        text = paragraph.text.strip()
+        if re.match(r"^(Section \d+[.:]|\d+\.\d+\s|Respiratory Protection|Information about hazardous ingredients|Key to abbreviations)", text):
             paragraph.paragraph_format.keep_with_next = True
+        elif re.match(r"^Substances that are persistent", text):
+            # Bind the PBT heading and its spacer paragraphs to the value that
+            # follows so the value never lands alone on the next page.
+            paragraph.paragraph_format.keep_with_next = True
+            for follower in paragraphs[index + 1:]:
+                if follower.text.strip():
+                    break
+                follower.paragraph_format.keep_with_next = True
 
 
 def _populate_composition_table(table, template_row, ingredients: list[dict]) -> None:
@@ -752,11 +880,15 @@ def _populate_composition_table(table, template_row, ingredients: list[dict]) ->
             item.get("specific_concentration_limits") if item.get("classification_source") else
             (item.get("specific_concentration_limits") or item.get("toxicology")),
         ]
+        # Reference layout: each ATE route gets its own line in the last
+        # column instead of one wrapped ';'-separated paragraph.
+        ate_lines = _format_ate_lines(values[5])
+        if ate_lines is not None:
+            values[5] = ate_lines
         for index, value in enumerate(values):
             if index < len(row.cells):
                 _set_compact_cell_text(
                     row.cells[index], clean_issue_value(value) or "Not available",
-                    size=8 if index >= 4 else 8.5,
                     line_spacing=1,
                     preserve_placeholder=True,
                 )
@@ -771,6 +903,35 @@ def _reset_workplace_exposure_table(table) -> None:
     _set_row_no_split(table.rows[1])
     for index, cell in enumerate(table.rows[1].cells):
         _set_compact_cell_text(cell, "NONE" if index == 0 else "Not applicable", preserve_placeholder=True)
+
+
+def _format_ate_lines(value: Any) -> str | None:
+    """Render 'Oral: ...; Dermal: ...' as one line per route (reference SDS layout).
+
+    Returns None when the value carries no recognizable route entries so the
+    original text passes through untouched.
+    """
+    text = clean_issue_value(value)
+    if not text or not re.search(r"(?i)\b(oral|dermal|inhalation)\s*:", text):
+        return None
+    pieces = re.split(r"\s*;\s*", text)
+    lines: list[str] = []
+    trailing: list[str] = []
+    for piece in pieces:
+        piece = piece.strip()
+        if not piece:
+            continue
+        match = re.match(r"(?i)^(oral|dermal|inhalation)\s*:\s*(.*)$", piece)
+        if match:
+            if trailing:
+                lines.append("; ".join(trailing))
+                trailing = []
+            lines.append(f"{match.group(1).capitalize()}: {match.group(2).strip()}")
+        else:
+            trailing.append(piece)
+    if trailing:
+        lines.append("; ".join(trailing))
+    return "\n".join(lines) if lines else None
 
 
 def _split_toxicology(value: Any) -> tuple[str, str, str, str]:
@@ -841,6 +1002,65 @@ def _fill_catalog_tables(document, ingredients: list[dict], absent: str) -> None
             )
 
 
+def _align_value_column(table) -> None:
+    """Center actual values rather than spaces/tabs inherited from the master."""
+    for row in table.rows:
+        cell = row.cells[-1]
+        value = cell.text.strip()
+        # Preserve all percentages, wording, and line order.
+        value = "\n".join(line.strip() for line in value.splitlines() if line.strip())
+        _set_compact_cell_text(cell, value, size=9, preserve_placeholder=True)
+        paragraph = cell.paragraphs[0]
+        paragraph.paragraph_format.tab_stops.clear_all()
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        margins = cell._tc.get_or_add_tcPr().find(qn("w:tcMar"))
+        if margins is not None:
+            cell._tc.get_or_add_tcPr().remove(margins)
+        margins = OxmlElement("w:tcMar")
+        for side in ("left", "right"):
+            node = OxmlElement(f"w:{side}")
+            node.set(qn("w:w"), "60")
+            node.set(qn("w:type"), "dxa")
+            margins.append(node)
+        cell._tc.get_or_add_tcPr().append(margins)
+
+
+def _align_catalog_columns(document, document_type: str) -> None:
+    for table in document.tables:
+        if document_type == "ifra_amendment":
+            # Several page tables have a fragmented grid and different merged
+            # spans on each row. Normalize the five physical cells in place.
+            if not all(len(row._tr.tc_lst) == 5 for row in table.rows):
+                continue
+            widths = (4000, 1900, 1700, 1500, 1419)
+            grid = table._tbl.tblGrid
+            for node in list(grid):
+                grid.remove(node)
+            for width in widths:
+                col = OxmlElement("w:gridCol")
+                col.set(qn("w:w"), str(width))
+                grid.append(col)
+            for row in table.rows:
+                for tc, width in zip(row._tr.tc_lst, widths):
+                    props = tc.get_or_add_tcPr()
+                    for span in list(props.findall(qn("w:gridSpan"))):
+                        props.remove(span)
+                    tc.width = Twips(width)
+                tr_pr = row._tr.get_or_add_trPr()
+                for name in ("gridBefore", "gridAfter", "wBefore", "wAfter"):
+                    for node in list(tr_pr.findall(qn(f"w:{name}"))):
+                        tr_pr.remove(node)
+            table.autofit = False
+            for tag, value in (("tblInd", "113"), ("tblW", str(sum(widths)))):
+                node = table._tbl.tblPr.find(qn(f"w:{tag}"))
+                if node is None:
+                    node = OxmlElement(f"w:{tag}")
+                    table._tbl.tblPr.append(node)
+                node.set(qn("w:w"), value)
+                node.set(qn("w:type"), "dxa")
+        _align_value_column(table)
+
+
 def _set_cell_text_preserving_layout(cell, value: Any) -> None:
     paragraphs = list(cell.paragraphs)
     paragraph = paragraphs[0]
@@ -887,11 +1107,8 @@ def _fill_sds(document, fields: dict[str, str], ingredients: list[dict], product
     hazard_codes = set(filter(None, mixture_label["codes"].split(",")))
     if cedar_reference and not clean_issue_value(fields.get("ecology")):
         hazard_codes.add("H412")
-    stated_transport = normalise(fields.get("transport_un_number")).replace(" ", "")
-    transport_is_un3082 = (
-        stated_transport == "un3082" or
-        (not stated_transport and (cedar_reference or "H411" in hazard_codes))
-    )
+    transport_status = resolve_transport(fields, ingredients, cedar_reference)
+    transport_is_un3082 = transport_status == "UN3082"
     classification = _multiline_regulatory_value(mixture_label["classification"])
     hazard_statements = _multiline_regulatory_value(mixture_label["hazard_statements"], "H")
     precautionary_statements = _multiline_regulatory_value(mixture_label["precautionary_statements"], "P")
@@ -904,13 +1121,7 @@ def _fill_sds(document, fields: dict[str, str], ingredients: list[dict], product
     _replace_labeled_block(document, r"^Hazard statements", r"^Supplemental Information", hazard_statements)
     _replace_labeled_block(document, r"^Supplemental Information", r"^Precautionary statements", supplemental_information)
     _replace_labeled_block(document, r"^Precautionary statements", r"^Pictograms", precautionary_statements)
-    pictogram_names = {normalise(value) for value in mixture_label["pictograms"].split(",") if normalise(value)}
-    use_reference_artwork = {"irritant", "environmental hazard"}.issubset(pictogram_names)
-    _replace_labeled_block(
-        document, r"^Pictograms", r"^Other hazards",
-        mixture_label["pictograms"] or "Not applicable",
-        remove_drawings=not use_reference_artwork,
-    )
+    fill_pictograms(document, mixture_label)
     other_hazards = next((paragraph for paragraph in document.paragraphs if re.search(r"^\s*Other hazards", paragraph.text, re.IGNORECASE)), None)
     if other_hazards is not None:
         _set_paragraph_value_preserving_layout(other_hazards, (r"^Other hazards",), clean_issue_value(fields.get("other_hazards")) or "None")
@@ -923,7 +1134,7 @@ def _fill_sds(document, fields: dict[str, str], ingredients: list[dict], product
     if not ecology:
         ecology = "Toxic to aquatic life with long lasting effects." if "H411" in hazard_codes else "Based on available data the classification criteria are not met."
     _replace_section_body(document, r"^12\.1\s+Toxicity", r"^12\.2\s+", ecology)
-    _replace_section_body(document, r"^14\.5\s+Environmental hazards", r"^14\.6\s+", clean_issue_value(fields.get("transport_environmental_hazards")) or ("This is classified as an environmentally hazardous substance under the UN Model Regulations. This is classified as a Marine Pollutant under the IMDG Code." if transport_is_un3082 else "Not classified as environmentally hazardous for transport."))
+    _replace_section_body(document, r"^14\.5\s+Environmental hazards", r"^14\.6\s+", clean_issue_value(fields.get("transport_environmental_hazards")) or ("This is classified as an environmentally hazardous substance under the UN Model Regulations. This is classified as a Marine Pollutant under the IMDG Code." if transport_is_un3082 else "Not classified as environmentally hazardous for transport." if transport_status == "Not regulated" else "Transport classification not determined from the available mixture data."))
     _replace_section_body(document, r"^14\.6\s+Special precautions", r"^14\.7\s+", clean_issue_value(fields.get("transport_precautions")) or "None additional")
     _replace_section_body(document, r"^14\.7\s+Maritime transport", r"^Section 15", clean_issue_value(fields.get("transport_bulk")) or "Not applicable", preserve_placeholder=True)
     regulatory_information = clean_issue_value(fields.get("regulatory_information"))
@@ -981,13 +1192,13 @@ def _fill_sds(document, fields: dict[str, str], ingredients: list[dict], product
             values = [item.get("canonical_name") or item.get("name"), item.get("cas"), item.get("ec"), oral, dermal, inhalation, route]
             for index, cell_value in enumerate(values):
                 if index < len(cells):
-                    _set_compact_cell_text(cells[index], cell_value or "Not available", size=8, preserve_placeholder=True)
+                    _set_compact_cell_text(cells[index], cell_value or "Not available", preserve_placeholder=True)
         if len(toxicity.rows) == 1:
             toxicity._tbl.append(deepcopy(template_row)); cells = toxicity.rows[-1].cells
             values = ["NONE", "Not applicable", "Not applicable", "Not available", "Not available", "Not available", "Not available"]
             for index, cell_value in enumerate(values):
                 if index < len(cells):
-                    _set_compact_cell_text(cells[index], cell_value, size=8, preserve_placeholder=True)
+                    _set_compact_cell_text(cells[index], cell_value, preserve_placeholder=True)
 
     # Transport classification is a mixture-level decision. Never retain the
     # example product's ingredient names in a newly generated SDS.
@@ -1014,10 +1225,14 @@ def _fill_sds(document, fields: dict[str, str], ingredients: list[dict], product
                 if normalise(row.cells[0].text) == "imdg":
                     proper_name += " MARINE POLLUTANT"
                 values = ["UN3082", proper_name, "9", "-", "III"]
-            else:
+            elif transport_status == "Not regulated":
                 values = ["Not regulated", "Not regulated as dangerous goods", "-", "-", "-"]
+            else:
+                detail = (f"UN3082-listed ingredients: {', '.join(reference_names)}. Mixture transport assessment required."
+                          if reference_names else "See the reviewed mixture transport assessment.")
+                values = [transport_status, detail, "Not available", "Not available", "Not available"]
             for cell, value in zip(row.cells[1:], values):
-                _set_compact_cell_text(cell, value)
+                _set_compact_cell_text(cell, value, preserve_placeholder=True)
 
     # Clear any sample row in the generic ingredient/value table.
     generic = next((table for table in document.tables if table.rows and normalise(" ".join(c.text for c in table.rows[0].cells)) == "ingredient cas ec description value"), None)
@@ -1026,18 +1241,22 @@ def _fill_sds(document, fields: dict[str, str], ingredients: list[dict], product
             for index, cell in enumerate(row.cells):
                 _set_compact_cell_text(cell, "NONE" if index == 0 else "Not applicable", preserve_placeholder=True)
 
-    _format_sds_table(composition, {1, 2, 3})
+    # The ATE column gets extra width so "Dermal: LD50 20 000 mg/kg bw"
+    # (≈141pt at Calibri 11) fits on its own single line. LibreOffice squeezes
+    # the 518pt grid to the ~482pt printable width, so the grid value must
+    # exceed the required text width by that factor (172pt grid ≈ 152pt usable).
+    _format_sds_table(composition, {1, 2, 3}, repeat_header=False, width_overrides={5: 172})
     for table in composition_tables[1:]:
         _format_sds_table(table, {1, 2, 3})
     if toxicity is not None:
-        _format_sds_table(toxicity, {1, 2})
+        _format_sds_table(toxicity, {1, 2}, repeat_header=False)
     if transport is not None:
         _format_sds_table(transport, {1, 3, 4, 5})
     if generic is not None:
         _format_sds_table(generic, {1, 2, 4})
     for table in document.tables:
         if table.rows and normalise(" ".join(cell.text for cell in table.rows[0].cells)) == "abbreviation meaning":
-            _format_sds_table(table, set(), vertical_padding=40)
+            _format_sds_table(table, set(), vertical_padding=40, repeat_header=False)
     _align_sds_labels(document)
 
     _remove_duplicate_particle_characteristics(document)
@@ -1057,6 +1276,8 @@ def generate_regulatory_docx(template: Path, output: Path, document_type: str, p
     # rather than a separate product-code field, so retain the code on that line.
     display_product = f"{clean_product} {clean_code}".strip() if document_type in {"ifra_certificate", "allergen_report"} else clean_product
     _replace_product(document, display_product, clean_code)
+    if document_type == "ifra_amendment":
+        _prepare_ifra_amendment(document)
     # Every supplied regulatory master carries the same Version/Date footer.
     # Replace the example metadata for every generated document, not only SDS.
     _set_footer_metadata(document, fields)
@@ -1064,10 +1285,14 @@ def generate_regulatory_docx(template: Path, output: Path, document_type: str, p
         _fill_sds(document, fields, ingredients, clean_product, clean_code)
     elif document_type == "ifra_certificate":
         _tighten_ifra_certificate(document)
+        if document.tables:
+            _align_value_column(document.tables[0])
     elif document_type == "ifra_amendment":
         _fill_catalog_tables(document, ingredients, "NIL")
+        _align_catalog_columns(document, document_type)
     elif document_type == "allergen_report":
         _fill_catalog_tables(document, ingredients, "-")
+        _align_catalog_columns(document, document_type)
     elif document_type == "reach_declaration":
         _fill_catalog_tables(document, ingredients, "NIL")
     output.parent.mkdir(parents=True, exist_ok=True)

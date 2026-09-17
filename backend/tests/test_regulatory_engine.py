@@ -1,3 +1,4 @@
+import re
 from io import BytesIO
 from pathlib import Path
 
@@ -110,7 +111,7 @@ def test_section_14_does_not_infer_un3082_from_ingredient_list_alone(tmp_path: P
     untreated = tmp_path / "untreated.docx"
     generate_regulatory_docx(TEMPLATES / "sds.docx", untreated, "sds", "OTHER BLEND", "X1", {}, ingredients)
     transport = next(table for table in Document(untreated).tables if table.rows and "UN Proper Shipping Name" in " ".join(cell.text for cell in table.rows[0].cells))
-    assert all(row.cells[1].text == "Not regulated" for row in transport.rows[1:])
+    assert all(row.cells[1].text == "Not determined" for row in transport.rows[1:])
 
     reviewed = tmp_path / "reviewed.docx"
     generate_regulatory_docx(TEMPLATES / "sds.docx", reviewed, "sds", "OTHER BLEND", "X1", {"transport_un_number": "UN 3082"}, ingredients)
@@ -137,12 +138,13 @@ def test_sds_tables_have_explicit_missing_values_and_consistent_alignment(tmp_pa
     ]
     generate_regulatory_docx(TEMPLATES / "sds.docx", output, "sds", "ALIGNMENT CHECK", "A1", {}, ingredients)
     document = Document(output)
-    for table in document.tables[:5]:
+    for table_index, table in enumerate(document.tables[:5]):
         for row in table.rows:
             assert row._tr.get_or_add_trPr().find(qn("w:cantSplit")) is not None
             assert all(cell.text.strip() for cell in row.cells)
             assert all(cell._tc.get_or_add_tcPr().find(qn("w:tcMar")) is not None for cell in row.cells)
-        assert table.rows[0]._tr.get_or_add_trPr().find(qn("w:tblHeader")) is not None
+        repeated = table.rows[0]._tr.get_or_add_trPr().find(qn("w:tblHeader")) is not None
+        assert repeated == (table_index not in {0, 3})
     composition = document.tables[0]
     assert composition.rows[1].cells[5].text == "Not available"
     assert composition.rows[1].cells[1].paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
@@ -155,7 +157,7 @@ def test_sds_tables_have_explicit_missing_values_and_consistent_alignment(tmp_pa
     assert any(p.startswith("14.7 Maritime transport in bulk according to IMO instruments:") for p in paragraphs)
     assert any(p.startswith("15.1 Safety, health and environmental regulations/legislation specific") for p in paragraphs)
     acute = next(p for p in document.paragraphs if p.text.startswith("Acute Toxicity Dermal:"))
-    assert acute.paragraph_format.left_indent.pt == 190
+    assert acute.paragraph_format.left_indent.pt == 170
 
 
 def test_all_regulatory_documents_are_generated_without_internal_labels(tmp_path: Path) -> None:
@@ -196,7 +198,9 @@ def test_all_regulatory_documents_are_generated_without_internal_labels(tmp_path
     assert "ISO E SUPER" in sds_text
     assert "CHANDAN" not in sds_text
     assert "H412, Harmful to aquatic life with long lasting effects" not in sds_text
-    assert "Product identifier: CEDAR AND SAGE FS 12388" in sds_text
+    # The preserving layout keeps the master's tab separators between label
+    # and value, so compare with whitespace/tabs normalized away.
+    assert "Product identifier: CEDAR AND SAGE FS 12388" in re.sub(r"[\s\t]+", " ", sds_text)
     assert "1.1 Product Identifier CEDAR" not in sds_text
     assert "Skin Irrit. 2: H315" in sds_text
     assert "Skin Corrosion / Irritation Category 2" in sds_text
@@ -225,8 +229,10 @@ def test_all_regulatory_documents_are_generated_without_internal_labels(tmp_path
     assert len(composition_tables[1].rows) == 2
     assert composition_tables[1].rows[1].cells[0].text == "NONE"
     assert "LD50 2 200 mg/kg bw" in composition_tables[0].rows[2].cells[5].text
+    # Table data keeps the master's Calibri typography instead of a forced size.
     first_value_run = composition_tables[0].rows[1].cells[0].paragraphs[0].runs[0]
-    assert first_value_run.font.size.pt == 8.5
+    assert first_value_run.font.name == "Calibri"
+    assert first_value_run.font.size is None
 
     section_9 = sds_text.lower().split("section 9.", 1)[1].split("section 10.", 1)[0]
     assert section_9.count("undetermined") >= 12
