@@ -9,6 +9,7 @@ import { InfoTip } from '@/components/ui/info-tip'
 import { PageHeader } from '@/components/ui/page-header'
 import { useToast } from '@/components/ui/toast-provider'
 import { PdfPreview } from '@/components/document-viewer/pdf-preview'
+import { DocumentViewerModal } from '@/components/ui/document-viewer'
 import { ApiError } from '@/lib/api/client'
 import { api } from '@/lib/api/services'
 import type { RegulatoryDocumentType, RegulatoryIngredient, RegulatoryTemplate, RegulatoryWorkflow } from '@/lib/api/types'
@@ -56,6 +57,7 @@ export function RegulatoryDocumentsTool() {
   const [researchSummary, setResearchSummary] = useState<RegulatoryWorkflow['research_summary']>()
   const [sourceWarningsAcknowledged, setSourceWarningsAcknowledged] = useState(false)
   const [preview, setPreview] = useState<{ data: Uint8Array; title: string } | null>(null)
+  const [masterViewer, setMasterViewer] = useState<{ blob: Blob; filename: string; title: string } | null>(null)
   const [voiceNotes, setVoiceNotes] = useState(''); const [liveSpeech, setLiveSpeech] = useState(''); const [isListening, setIsListening] = useState(false); const [voiceStopSignal, setVoiceStopSignal] = useState(0)
   const uploadRefs = useRef<Partial<Record<RegulatoryDocumentType, HTMLInputElement | null>>>({})
   const templateMap = useMemo(() => Object.fromEntries(templates.map((item) => [item.document_type, item])), [templates])
@@ -141,7 +143,12 @@ export function RegulatoryDocumentsTool() {
   }
   async function viewMaster(type: RegulatoryDocumentType) {
     if (!accessToken) return
-    try { const file = await api.regulatory.templateContent(accessToken, type); await showPreview(file.blob, `${DOCUMENTS.find((item) => item.key === type)?.title ?? 'Document'} master`) }
+    try {
+      const file = await api.regulatory.templateContent(accessToken, type)
+      // Masters are Word templates: render with the docx-aware viewer instead of
+      // the PDF renderer, which fails with "Invalid PDF structure." on .docx input.
+      setMasterViewer({ blob: file.blob, filename: file.filename, title: `${DOCUMENTS.find((item) => item.key === type)?.title ?? 'Document'} master` })
+    }
     catch (error) { notify('error', errorMessage(error, 'Unable to open the master.')) }
   }
   async function generate(type: RegulatoryDocumentType, format: 'preview' | 'pdf' | 'word') {
@@ -159,6 +166,7 @@ export function RegulatoryDocumentsTool() {
 
   return <main className="space-y-5 p-4 md:p-6">
     {preview ? <div role="dialog" aria-modal="true" aria-label={preview.title} className="fixed inset-0 z-[100] bg-black/75 p-3 backdrop-blur-sm md:p-6"><div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"><div className="flex items-center justify-between border-b border-border px-4 py-3"><p className="font-semibold">{preview.title}</p><Button size="sm" variant="outline" onClick={() => setPreview(null)}><X className="mr-1 h-4 w-4" />Close preview</Button></div><div className="min-h-0 flex-1"><PdfPreview data={preview.data} /></div></div></div> : null}
+    <DocumentViewerModal file={masterViewer} onClose={() => setMasterViewer(null)} />
     <PageHeader title="Regulatory Affairs · Document Centre" description="Prepare, review and issue Regulatory documents." />
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{DOCUMENTS.map((document) => {
       const master = templateMap[document.key]; const unavailable = document.key === 'reach_declaration' && market !== 'eu'; const unlocked = document.key === 'sds' || locked

@@ -54,7 +54,10 @@ export function PdfPreview({ data, initialPage = 1 }: { data: Uint8Array; initia
 
     void import('pdfjs-dist')
       .then(async (pdfjs) => {
-        pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
+        // Bundler-resolved worker URLs (new URL(..., import.meta.url)) 404 under
+        // the Next dev server, leaving the preview stuck on "Preparing". Serve
+        // the worker as a static public asset with a bundled fallback instead.
+        pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
         loadingTask = pdfjs.getDocument({ data: data.slice() }) as unknown as typeof loadingTask
         if (!loadingTask) throw new Error('Unable to start the PDF renderer.')
         loadedDocument = await loadingTask.promise
