@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import io
+import json
+import threading
+from collections import OrderedDict
 from html import escape
 import os
 import re
@@ -24,12 +28,13 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import pdfplumber
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Pt
 from lxml import etree
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
 from pypdf import PdfReader, PdfWriter
 from pypdf.errors import PdfReadError
@@ -153,11 +158,23 @@ APPOINTMENT_REQUIRED_FIELDS = {
 }
 
 
+SALARY_ROW_KEY_PATTERN = r"^[a-z][a-z0-9_]{0,39}$"
+
+
+class AddedSalaryRow(BaseModel):
+    """A compensation annexure row added by HR in the portal."""
+
+    key: str = Field(pattern=SALARY_ROW_KEY_PATTERN)
+    label: str = Field(min_length=1, max_length=80)
+
+
 class LetterRequest(BaseModel):
     template_key: str
     unit_number: int = Field(default=1, ge=1, le=3)
     signer_key: Literal["swathi_nayak", "achyut_tendolkar", "deeksha_shettigar"] = "swathi_nayak"
     fields: dict[str, str] = Field(default_factory=dict)
+    deleted_salary_rows: list[str] = Field(default_factory=list, max_length=40)
+    added_salary_rows: list[AddedSalaryRow] = Field(default_factory=list, max_length=12)
 
 
 class SendLetterRequest(LetterRequest):
@@ -289,6 +306,109 @@ def _replace_xml_paragraph_tokens(paragraph, fields: dict[str, str]) -> bool:
     return True
 
 
+def _salary_token_key(token_key: str) -> str | None:
+    match = re.fullmatch(r"salary_(.+)_(existing|revised|monthly|annual)", token_key.strip())
+    return match.group(1) if match else None
+
+
+def _row_salary_keys(row) -> set[str]:
+    keys: set[str] = set()
+    for cell in row.cells:
+        for paragraph in cell.paragraphs:
+            for match in PLACEHOLDER_PATTERN.finditer(paragraph.text):
+                key = _salary_token_key(match.group(1))
+                if key:
+                    keys.add(key)
+    return keys
+
+
+def _cell_salary_columns(cell) -> list[str]:
+    columns: list[str] = []
+    for paragraph in cell.paragraphs:
+        for match in PLACEHOLDER_PATTERN.finditer(paragraph.text):
+            column_match = re.fullmatch(r"salary_.+?_(existing|revised|monthly|annual)", match.group(1).strip())
+            if column_match and column_match.group(1) not in columns:
+                columns.append(column_match.group(1))
+    return columns
+
+
+def _rewrite_cell_text(cell, text: str) -> None:
+    """Replace a cell's text while keeping the first run's formatting."""
+    paragraphs = list(cell.paragraphs)
+    for paragraph in paragraphs[1:]:
+        paragraph._element.getparent().remove(paragraph._element)
+    first = paragraphs[0]
+    runs = first.runs
+    if runs:
+        runs[0].text = text
+        for run in runs[1:]:
+            run.text = ""
+    else:
+        first.add_run(text)
+
+
+def _iter_salary_tables(document: Document):
+    """Yield every table, including tables nested inside other tables.
+
+    The special-increment annexure lives inside an outer layout table, and
+    ``document.tables`` only exposes top-level tables, so row surgery must
+    walk the raw ``w:tbl`` elements instead.
+    """
+    from docx.table import Table
+    from docx.oxml.ns import qn
+
+    for element in document.element.body.iter(qn("w:tbl")):
+        yield Table(element, document)
+
+
+def _apply_salary_row_changes(document: Document, deleted_keys: list[str], added_rows: list[dict]) -> None:
+    """Add/delete compensation annexure rows so the PDF matches the portal table.
+
+    Deletion removes every table row carrying the row's salary tokens. Addition
+    clones the first data row (keeps fonts, borders and column widths), then
+    rewrites the label cell and plants fresh ``salary_<key>_<column>`` tokens
+    that the normal token replacement fills afterwards.
+    """
+    if not deleted_keys and not added_rows:
+        return
+    delete_set = {key for key in deleted_keys if re.fullmatch(SALARY_ROW_KEY_PATTERN, key)}
+    additions = [row for row in added_rows if re.fullmatch(SALARY_ROW_KEY_PATTERN, row.get("key", "")) and str(row.get("label", "")).strip()]
+    additions = additions[:12]
+    for table in _iter_salary_tables(document):
+        token_rows = [row for row in table.rows if _row_salary_keys(row)]
+        if not token_rows:
+            continue
+        for row in list(table.rows):
+            if delete_set and _row_salary_keys(row) & delete_set:
+                table._tbl.remove(row._tr)
+        if not additions:
+            continue
+        remaining = [row for row in table.rows if _row_salary_keys(row)]
+        if not remaining:
+            continue
+        source_row = remaining[0]
+        anchor_tr = remaining[-1]._tr
+        cell_columns = [_cell_salary_columns(cell)[:1] for cell in source_row.cells]
+        inserted: list = []
+        for spec in additions:
+            key = spec["key"]
+            label = str(spec["label"]).strip()
+            new_tr = copy.deepcopy(source_row._tr)
+            anchor_tr.addnext(new_tr)
+            anchor_tr = new_tr
+            inserted.append((new_tr, key, label))
+        for row in table.rows:
+            for new_tr, key, label in inserted:
+                if row._tr is new_tr:
+                    for index, cell in enumerate(row.cells):
+                        if index == 0:
+                            _rewrite_cell_text(cell, label)
+                        else:
+                            columns = cell_columns[index] if index < len(cell_columns) else []
+                            _rewrite_cell_text(cell, f"{{{{salary_{key}_{columns[0]}}}}}" if columns else "")
+                    break
+
+
 def _replace_remaining_docx_tokens(path: Path, fields: dict[str, str]) -> None:
     """Fill placeholders stored in text boxes and other OOXML-only elements."""
     rewritten = path.with_name(f"{path.stem}-rewritten{path.suffix}")
@@ -325,16 +445,66 @@ def _pdf_template_tokens(path: Path) -> list[str]:
     return tokens
 
 
+def _salary_row_labels(path: Path) -> dict[str, str]:
+    """Map salary row keys to the component name printed in the master's annexure table.
+
+    Masters like the special-increment template use terse token keys
+    (salary_g_*, salary_pf_*); the human-readable component name lives in the
+    first non-token cell of the same table row ("Gross Salary - Total",
+    "Employer Contribution (PF) @12%", ...).
+    """
+    if path.suffix.lower() != ".docx":
+        return {}
+    try:
+        document = Document(path)
+    except Exception:  # noqa: BLE001 - labels are cosmetic; never break the schema
+        return {}
+
+    def iter_tables(tables):
+        for table in tables:
+            yield table
+            for row in table.rows:
+                for cell in row.cells:
+                    yield from iter_tables(cell.tables)
+
+    token_pattern = re.compile(r"\{salary_([a-z0-9_]+?)_(?:existing|revised|monthly|annual)\}")
+    labels: dict[str, str] = {}
+    for table in iter_tables(document.tables):
+        for row in table.rows:
+            row_keys: list[str] = []
+            label_text = ""
+            seen_tcs: set[int] = set()
+            for cell in row.cells:
+                if id(cell._tc) in seen_tcs:
+                    continue
+                seen_tcs.add(id(cell._tc))
+                matches = token_pattern.findall(cell.text)
+                if matches:
+                    row_keys.extend(matches)
+                elif not label_text:
+                    candidate = re.sub(r"[\u0000-\u001f\u007f-\u009f\ufffd]", "", cell.text)
+                    candidate = re.sub(r"\s+", " ", candidate).strip(" \t\u00a0")
+                    if candidate:
+                        label_text = candidate
+            for row_key in row_keys:
+                labels.setdefault(row_key, label_text)
+    return labels
+
+
 def _template_schema(template_key: str, path: Path) -> dict:
     tokens = _template_tokens(path)
     defaults = {**FIELD_DEFAULTS, **TEMPLATE_FIELD_DEFAULTS.get(template_key, {})}
+    salary_labels = _salary_row_labels(path)
     normal_fields = []
     salary_groups: dict[str, dict] = {}
     for key in tokens:
         salary_match = re.fullmatch(r"salary_(.+)_(existing|revised|monthly|annual)", key)
         if salary_match:
             row_key, column = salary_match.groups()
-            group = salary_groups.setdefault(row_key, {"key": row_key, "label": _field_label(row_key), "columns": []})
+            group = salary_groups.setdefault(
+                row_key,
+                {"key": row_key, "label": salary_labels.get(row_key) or _field_label(row_key), "columns": []},
+            )
             if column not in group["columns"]:
                 group["columns"].append(column)
             continue
@@ -412,6 +582,42 @@ def _replace_token(
             paragraph.runs[index].text = ""
 
 
+def _normalize_annexure_alignment(document: Document) -> None:
+    """Keep every annexure component sentence flush left.
+
+    Masters often carry right-aligned bold total rows ("(A) Gross Salary -
+    Total", "Cost To Company ...") and space/tab-indented rows; in print the
+    component column must align left like the other rows. Only the label
+    column is touched - amount columns keep their column alignment.
+    """
+    for table in _iter_salary_tables(document):
+        for row in table.rows:
+            if not _row_salary_keys(row):
+                continue
+            for paragraph in row.cells[0].paragraphs:
+                if not paragraph.text.strip():
+                    continue
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                formatting = paragraph.paragraph_format
+                formatting.left_indent = None
+                formatting.first_line_indent = None
+                try:
+                    formatting.tab_stops.clear_all()
+                except Exception:  # noqa: BLE001 - tab stop cleanup is best effort
+                    pass
+                consume_leading = True
+                for run in paragraph.runs:
+                    if not consume_leading:
+                        break
+                    if not run.text:
+                        continue
+                    stripped = run.text.lstrip(" \t")
+                    if stripped != run.text:
+                        run.text = stripped
+                    if stripped:
+                        consume_leading = False
+
+
 def _fill_docx(
     template_key: str,
     fields: dict[str, str],
@@ -419,9 +625,17 @@ def _fill_docx(
     *,
     appointment_scale: float = 1.0,
     source_path: Path | None = None,
+    deleted_salary_rows: list[str] | None = None,
+    added_salary_rows: list[dict] | None = None,
 ) -> Path:
     source = source_path or ASSET_ROOT / TEMPLATE_FILES[template_key]
     document = Document(source)
+    _apply_salary_row_changes(
+        document,
+        deleted_salary_rows or [],
+        added_salary_rows or [],
+    )
+    _normalize_annexure_alignment(document)
     for paragraph in _paragraphs(document):
         matches = list(PLACEHOLDER_PATTERN.finditer(paragraph.text))
         for match in reversed(matches):
@@ -590,9 +804,36 @@ def _validate_letter_fields(template_key: str, fields: dict[str, str], template_
         raise ValueError(f"missing_fields:{','.join(missing)}")
 
 
+# LibreOffice pays a 15-30s cold start for every fresh user profile. The
+# appointment template may need up to eight conversions per preview (page-fit
+# loop), so conversions share one persistent profile behind a process lock.
+# A corrupted profile (e.g. after a hard container kill) is detected and reset.
+_LIBREOFFICE_PROFILE_LOCK = threading.Lock()
+_LIBREOFFICE_PROFILE_STATE = {"dir": None, "usable": False}
+
+
+def _libreoffice_profile_dir() -> Path:
+    base = Path(tempfile.gettempdir()) / "aromazen-libreoffice-profile"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def _reset_libreoffice_profile() -> None:
+    shutil.rmtree(_libreoffice_profile_dir(), ignore_errors=True)
+    _LIBREOFFICE_PROFILE_STATE["dir"] = None
+    _LIBREOFFICE_PROFILE_STATE["usable"] = False
+
+
 def _convert_with_libreoffice(docx_path: Path, output_dir: Path, executable: str) -> Path:
-    profile_dir = output_dir / "libreoffice-profile"
-    profile_dir.mkdir(parents=True, exist_ok=True)
+    with _LIBREOFFICE_PROFILE_LOCK:
+        return _convert_with_libreoffice_locked(docx_path, output_dir, executable)
+
+
+def _convert_with_libreoffice_locked(docx_path: Path, output_dir: Path, executable: str) -> Path:
+    profile_dir = _libreoffice_profile_dir()
+    if _LIBREOFFICE_PROFILE_STATE["dir"] != str(profile_dir):
+        _LIBREOFFICE_PROFILE_STATE["dir"] = str(profile_dir)
+        _LIBREOFFICE_PROFILE_STATE["usable"] = False
     profile_uri = profile_dir.resolve().as_uri()
     environment = os.environ.copy()
     environment["HOME"] = str(output_dir)
@@ -624,7 +865,14 @@ def _convert_with_libreoffice(docx_path: Path, output_dir: Path, executable: str
             stdout=result.stdout[-2000:],
             stderr=result.stderr[-2000:],
         )
+        if _LIBREOFFICE_PROFILE_STATE["usable"]:
+            # A previously-working profile failing points at profile corruption
+            # (e.g. stale lock after a hard container kill); retry once clean.
+            logger.warning("hr_letter_libreoffice_profile_reset")
+            _reset_libreoffice_profile()
+            return _convert_with_libreoffice_locked(docx_path, output_dir, executable)
         raise RuntimeError("pdf_conversion_failed")
+    _LIBREOFFICE_PROFILE_STATE["usable"] = True
     return pdf_path
 
 
@@ -1048,11 +1296,57 @@ def _interview_checklist_pdf(fields: dict[str, str], rows: list[dict[str, str]])
     writer.write(result)
     return result.getvalue()
 
+# Repeated previews of the same form content reconvert an identical docx
+# through LibreOffice (30-90s+). Caching the finished PDF by the full letter
+# input makes repeat clicks/refreshes instant.
+_PDF_CACHE: OrderedDict[str, bytes] = OrderedDict()
+_PDF_CACHE_LOCK = threading.Lock()
+_PDF_CACHE_MAX = 32
+
+# Remember the compact scale that last made the appointment letter fit its
+# expected page count, so repeat generations skip the trial-and-error passes.
+_APPOINTMENT_SCALE_LOCK = threading.Lock()
+_APPOINTMENT_SCALE_CACHE: dict[str, float] = {}
+
+
+def _pdf_cache_key(template_key: str, fields: dict[str, str], signer_key: str, deleted: list[str], added: list[dict]) -> str:
+    payload = json.dumps(
+        [template_key, signer_key, sorted(fields.items()), sorted(deleted), sorted((row.get("key", ""), row.get("label", "")) for row in added)],
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _cached_generate_pdf(
+    template_key: str,
+    fields: dict[str, str],
+    template_path: Path | None,
+    signer_key: str,
+    deleted_salary_rows: list[str] | None,
+    added_salary_rows: list[dict] | None,
+) -> bytes:
+    key = _pdf_cache_key(template_key, fields, signer_key, deleted_salary_rows or [], added_salary_rows or [])
+    with _PDF_CACHE_LOCK:
+        cached = _PDF_CACHE.get(key)
+        if cached is not None:
+            _PDF_CACHE.move_to_end(key)
+            return cached
+    pdf = _generate_pdf(template_key, fields, template_path, signer_key, deleted_salary_rows, added_salary_rows)
+    with _PDF_CACHE_LOCK:
+        _PDF_CACHE[key] = pdf
+        _PDF_CACHE.move_to_end(key)
+        while len(_PDF_CACHE) > _PDF_CACHE_MAX:
+            _PDF_CACHE.popitem(last=False)
+    return pdf
+
+
 def _generate_pdf(
     template_key: str,
     fields: dict[str, str],
     template_path: Path | None = None,
     signer_key: str = "swathi_nayak",
+    deleted_salary_rows: list[str] | None = None,
+    added_salary_rows: list[dict] | None = None,
 ) -> bytes:
     if template_key not in TEMPLATE_FILES:
         raise ValueError("unknown_template")
@@ -1065,7 +1359,14 @@ def _generate_pdf(
     legacy_appointment = template_key == "appointment" and _legacy_appointment_layout(Document(source_path))
     with tempfile.TemporaryDirectory(prefix="aromazen-hr-letter-") as temporary:
         workdir = Path(temporary)
-        docx_path = _fill_docx(template_key, fields, workdir, source_path=source_path)
+        docx_path = _fill_docx(
+            template_key,
+            fields,
+            workdir,
+            source_path=source_path,
+            deleted_salary_rows=deleted_salary_rows,
+            added_salary_rows=added_salary_rows,
+        )
         pdf_path = _convert_docx_to_pdf(docx_path, workdir)
         pdf_bytes = pdf_path.read_bytes()
         if legacy_appointment:
@@ -1075,7 +1376,25 @@ def _generate_pdf(
                 and not os.environ.get("DOCUMENT_CONVERTER_URL")
                 and not os.environ.get("DOCUMENT_CONVERTER_DIR")
             ):
-                for scale in (0.96, 0.92, 0.88, 0.84, 0.80, 0.76, 0.72):
+                with _APPOINTMENT_SCALE_LOCK:
+                    remembered_scale = _APPOINTMENT_SCALE_CACHE.get(template_key)
+                # Pages grow roughly with the square of the font scale, so the
+                # measured overflow estimates the scale that fits directly
+                # instead of stepping through a fixed ladder one pass at a time.
+                estimate = round(max(0.5, min(0.98, (EXPECTED_APPOINTMENT_PAGE_COUNT / page_count) ** 0.5)), 2)
+                candidates: list[float] = []
+                if remembered_scale is not None:
+                    candidates.append(remembered_scale)
+                candidates.append(estimate)
+                step = 0.04
+                while estimate - step >= 0.5:
+                    candidates.append(round(estimate - step, 2))
+                    step += 0.04
+                tried_scales: set[float] = set()
+                for scale in candidates:
+                    if scale in tried_scales:
+                        continue
+                    tried_scales.add(scale)
                     compact_dir = workdir / f"compact-{int(scale * 100)}"
                     compact_dir.mkdir()
                     compact_docx = _fill_docx(
@@ -1084,6 +1403,8 @@ def _generate_pdf(
                         compact_dir,
                         appointment_scale=scale,
                         source_path=source_path,
+                        deleted_salary_rows=deleted_salary_rows,
+                        added_salary_rows=added_salary_rows,
                     )
                     compact_pdf = _convert_docx_to_pdf(compact_docx, compact_dir)
                     compact_bytes = compact_pdf.read_bytes()
@@ -1092,6 +1413,8 @@ def _generate_pdf(
                         pdf_bytes = compact_bytes
                         page_count = compact_page_count
                     if page_count <= EXPECTED_APPOINTMENT_PAGE_COUNT:
+                        with _APPOINTMENT_SCALE_LOCK:
+                            _APPOINTMENT_SCALE_CACHE[template_key] = scale
                         break
             if page_count != EXPECTED_APPOINTMENT_PAGE_COUNT:
                 pdf_bytes = _trim_appointment_footer_overflow(pdf_bytes)
@@ -1622,11 +1945,13 @@ async def preview_letter(payload: LetterRequest, user: User = Depends(require_pe
     letter_fields = _fields_for_unit(payload.fields, payload.unit_number)
     try:
         pdf = await run_in_threadpool(
-            _generate_pdf,
+            _cached_generate_pdf,
             payload.template_key,
             letter_fields,
             template_path,
             payload.signer_key,
+            payload.deleted_salary_rows,
+            [row.model_dump() for row in payload.added_salary_rows],
         )
     except ValueError as error:
         if str(error).startswith("missing_fields:"):
@@ -1642,7 +1967,7 @@ async def preview_letter(payload: LetterRequest, user: User = Depends(require_pe
         logger.exception("hr_letter_preview_converter_failed", template_key=payload.template_key)
         raise HTTPException(status_code=500, detail="The server document converter timed out. Please try again.") from error
     filename = f"{payload.template_key}-unit-{payload.unit_number}-{payload.fields.get('employee_name', 'employee')}.pdf"
-    return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"'})
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"'})
 
 
 @router.post("/custom-preview")
@@ -1665,8 +1990,8 @@ async def preview_custom_letter(
         logger.exception("hr_custom_letter_preview_converter_failed", template_id=str(payload.template_id))
         raise HTTPException(status_code=500, detail="The server document converter timed out. Please try again.") from error
     filename = _custom_pdf_filename(document)
-    return StreamingResponse(
-        io.BytesIO(pdf),
+    return Response(
+        content=pdf,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
@@ -1681,7 +2006,7 @@ async def preview_interview_checklist(payload: InterviewChecklistRequest, user: 
         raise HTTPException(status_code=422, detail="The interview checklist could not be generated. Please review the entered details.") from error
     candidate = re.sub(r"[^A-Za-z0-9_-]+", "-", payload.fields.get("candidate", "candidate")).strip("-") or "candidate"
     filename = f"interview-checklist-{candidate}.pdf"
-    return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"'})
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{filename}"'})
 
 @router.post("/send")
 async def send_letter(payload: SendLetterRequest, user: User = Depends(require_permissions("ai.workspace.use")), session: AsyncSession = Depends(get_db_session)) -> dict:
@@ -1700,6 +2025,8 @@ async def send_letter(payload: SendLetterRequest, user: User = Depends(require_p
             letter_fields,
             template_path,
             payload.signer_key,
+            payload.deleted_salary_rows,
+            [row.model_dump() for row in payload.added_salary_rows],
         )
         await run_in_threadpool(_send_email, payload, pdf, mailbox)
     except ValueError as error:

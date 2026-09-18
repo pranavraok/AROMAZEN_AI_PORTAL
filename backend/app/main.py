@@ -1,4 +1,7 @@
+import tempfile
+import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from redis.asyncio import Redis
@@ -17,6 +20,20 @@ from app.modules.knowledge.department_uploads import purge_transient_workflow_kb
 
 settings = get_settings()
 logger = structlog.get_logger(__name__)
+
+
+def _prewarm_document_converter() -> None:
+    """Prime the LibreOffice profile so the first preview skips the cold start."""
+    try:
+        from app.modules.hr_letters.routes import _libreoffice_profile_dir, _convert_docx_to_pdf, _fill_docx
+
+        with tempfile.TemporaryDirectory(prefix="aromazen-converter-prewarm-") as temporary:
+            workdir = Path(temporary)
+            docx = _fill_docx("spot_appreciation", {}, workdir)
+            _convert_docx_to_pdf(docx, workdir)
+        logger.info("document_converter_prewarmed", profile=_libreoffice_profile_dir().as_posix())
+    except Exception as error:  # noqa: BLE001 - pre-warming is an optimization only
+        logger.warning("document_converter_prewarm_failed", error=str(error))
 
 
 @asynccontextmanager
@@ -45,6 +62,7 @@ async def lifespan(app: FastAPI):
         except Exception as error:
             await session.rollback()
             logger.exception("regulatory_template_seed_failed", error=str(error))
+    threading.Thread(target=_prewarm_document_converter, name="converter-prewarm", daemon=True).start()
     yield
     await redis.aclose()
 

@@ -3,6 +3,10 @@ const nextConfig = {
   experimental: {
     // Keep the same production limit across the browser proxy and API.
     proxyClientMaxBodySize: '120mb',
+    // Letter previews convert docx -> PDF through LibreOffice (appointment
+    // letters may need several page-fit passes, 30-90s+). The default rewrite
+    // proxy timeout aborts those requests and returns its own 500.
+    proxyTimeout: 300_000,
   },
   images: {
     unoptimized: true,

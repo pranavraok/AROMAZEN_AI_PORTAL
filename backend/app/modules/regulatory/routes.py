@@ -11,7 +11,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -709,7 +709,7 @@ async def _generation_pdf(generation_id: str, user: User, session: AsyncSession,
             pdf = _convert_docx_to_pdf(path, Path(directory)); content = pdf.read_bytes()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="PDF preview conversion is unavailable.") from exc
-    return StreamingResponse(io.BytesIO(content), media_type="application/pdf", headers={"Content-Disposition": f'{disposition}; filename="{Path(generation.output_original_filename).stem}.pdf"'})
+    return Response(content=content, media_type="application/pdf", headers={"Content-Disposition": f'{disposition}; filename="{Path(generation.output_original_filename).stem}.pdf"'})
 
 
 @router.get("/generations/{generation_id}/preview")

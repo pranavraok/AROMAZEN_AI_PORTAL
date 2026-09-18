@@ -2,7 +2,7 @@ import io
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pypdf import PdfReader
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -120,4 +120,4 @@ async def generate(
     filename = f"AROMAZEN_Cash_Flow_{report_month}.pdf"
     session.add(AuditEvent(organization_id=user.organization_id, actor_user_id=user.id, action="cash_flow.report_generated", target_type="cash_flow_report", target_id=report_month, metadata_json={"fixed_assets_included": bool(assets), "page_source_files": 5 if assets_content else 4, "previous_comparison_included": include_previous_comparison, "previous_report_month": previous_snapshot.report_month if previous_snapshot else None, "password_protected": True}))
     await session.commit()
-    return StreamingResponse(io.BytesIO(output), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
+    return Response(content=output, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
