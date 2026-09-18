@@ -14,13 +14,22 @@ import type { HRCustomTemplate, HRTemplateField } from '@/lib/api/types'
 import { beginBlobPreview, showBlobPreview } from '@/lib/open-blob-preview'
 import { parseEmailList } from '@/lib/email-recipients'
 
-function FieldInputs({ items, values, onChange }: { items: HRTemplateField[]; values: Record<string, string>; onChange: (key: string, value: string) => void }) {
-  return items.map((field) => <label key={field.key} className={field.multiline ? 'md:col-span-2' : ''}>
-    <span className="mb-1.5 block text-xs text-muted-foreground">{field.label}</span>
-    {field.multiline
-      ? <textarea rows={3} value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-xl border border-border bg-background p-3 text-sm" />
-      : <input value={values[field.key] ?? ''} onChange={(event) => onChange(field.key, event.target.value)} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm" />}
-  </label>)
+function FieldInputs({ items, values, isIncluded, onChange, onIncludeChange }: { items: HRTemplateField[]; values: Record<string, string>; isIncluded: (key: string) => boolean; onChange: (key: string, value: string) => void; onIncludeChange: (key: string, included: boolean) => void }) {
+  return items.map((field) => {
+    const included = isIncluded(field.key)
+    return <div key={field.key} className={field.multiline ? 'md:col-span-2' : ''}>
+      <div className="mb-1.5 flex items-center justify-between gap-3">
+        <span className="text-xs text-muted-foreground">{field.label}</span>
+        <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-medium text-foreground">
+          <input type="checkbox" checked={included} onChange={(event) => onIncludeChange(field.key, event.target.checked)} className="size-4 accent-primary" />
+          Include in this document
+        </label>
+      </div>
+      {field.multiline
+        ? <textarea rows={3} value={values[field.key] ?? ''} disabled={!included} aria-label={field.label} onChange={(event) => onChange(field.key, event.target.value)} className="w-full rounded-xl border border-border bg-background p-3 text-sm disabled:cursor-not-allowed disabled:opacity-50" />
+        : <input value={values[field.key] ?? ''} disabled={!included} aria-label={field.label} onChange={(event) => onChange(field.key, event.target.value)} className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50" />}
+    </div>
+  })
 }
 
 export function HrCustomLettersTool() {
@@ -31,6 +40,7 @@ export function HrCustomLettersTool() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [values, setValues] = useState<Record<string, string>>({})
   const [salaryValues, setSalaryValues] = useState<Record<string, string>>({})
+  const [includedFields, setIncludedFields] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [replacing, setReplacing] = useState(false)
@@ -45,13 +55,22 @@ export function HrCustomLettersTool() {
   const template = templates.find((item) => item.id === selectedId) ?? templates[0] ?? null
   const fieldValues = useMemo(() => template ? Object.fromEntries(template.fields.map((field) => [field.key, values[`${template.id}:${field.key}`] ?? field.default_value])) : {}, [template, values])
   const salaryColumns = useMemo(() => template ? [...new Set(template.salary_rows.flatMap((row) => row.columns))] : [], [template])
-  const payloadFields = useMemo(() => ({
-    ...fieldValues,
-    ...(template ? Object.fromEntries(template.salary_rows.flatMap((row) => row.columns.map((column) => [
-      `salary_${row.key}_${column}`,
-      salaryValues[`${template.id}:${row.key}:${column}`] ?? '',
-    ]))) : {}),
-  }), [fieldValues, salaryValues, template])
+  const templateFieldKeys = useMemo(() => template ? [
+    ...template.fields.map((field) => field.key),
+    ...template.salary_rows.flatMap((row) => row.columns.map((column) => `salary_${row.key}_${column}`)),
+  ] : [], [template])
+  const excludedFields = useMemo(() => template ? templateFieldKeys.filter((key) => includedFields[`${template.id}:${key}`] === false) : [], [includedFields, template, templateFieldKeys])
+  const payloadFields = useMemo(() => {
+    if (!template) return {}
+    const salaryFields = Object.fromEntries(template.salary_rows.flatMap((row) => row.columns.map((column) => {
+      const key = `salary_${row.key}_${column}`
+      return [key, includedFields[`${template.id}:${key}`] === false ? '' : salaryValues[`${template.id}:${row.key}:${column}`] ?? '']
+    })))
+    return {
+      ...Object.fromEntries(template.fields.map((field) => [field.key, includedFields[`${template.id}:${field.key}`] === false ? '' : fieldValues[field.key] ?? ''])),
+      ...salaryFields,
+    }
+  }, [fieldValues, includedFields, salaryValues, template])
 
   useEffect(() => {
     if (!accessToken) return
@@ -87,6 +106,16 @@ export function HrCustomLettersTool() {
     clearPreview()
   }
 
+  function isIncluded(key: string) {
+    return template ? includedFields[`${template.id}:${key}`] !== false : true
+  }
+
+  function changeInclusion(key: string, included: boolean) {
+    if (!template) return
+    setIncludedFields((current) => ({ ...current, [`${template.id}:${key}`]: included }))
+    clearPreview()
+  }
+
   async function createTemplate() {
     if (!accessToken || !newFile) return
     setReplacing(true)
@@ -113,6 +142,7 @@ export function HrCustomLettersTool() {
       setTemplates((current) => current.map((item) => item.id === updated.id ? updated : item))
       setValues((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${template.id}:`))))
       setSalaryValues((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${template.id}:`))))
+      setIncludedFields((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${template.id}:`))))
       clearPreview()
       notify('success', `${updated.title} v${updated.version} is active with ${updated.detected_field_count} mapped fields.`)
     } catch (error) {
@@ -141,7 +171,7 @@ export function HrCustomLettersTool() {
       const response = await fetch('/api/v1/hr-letters/custom-preview', {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ template_id: template.id, fields: payloadFields }),
+        body: JSON.stringify({ template_id: template.id, fields: payloadFields, excluded_fields: excludedFields }),
       })
       if (!response.ok) {
         const error = await response.json().catch(() => null)
@@ -185,7 +215,7 @@ export function HrCustomLettersTool() {
       const response = await fetch('/api/v1/hr-letters/custom-send', {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ template_id: template.id, fields: payloadFields, recipient_email: email.recipient, cc_emails: parseEmailList(email.cc), subject: email.subject, message: email.message }),
+        body: JSON.stringify({ template_id: template.id, fields: payloadFields, excluded_fields: excludedFields, recipient_email: email.recipient, cc_emails: parseEmailList(email.cc), subject: email.subject, message: email.message }),
       })
       if (!response.ok) {
         const error = await response.json().catch(() => null)
@@ -223,8 +253,8 @@ export function HrCustomLettersTool() {
 
       <section className="flex flex-col gap-4 rounded-2xl border border-primary/25 bg-primary/5 p-4 md:flex-row md:items-center md:justify-between"><div className="min-w-0"><h2 className="font-semibold">Current custom master</h2><p className="truncate text-sm text-muted-foreground">{template.filename} · Version {template.version} · HR Knowledge Base</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void viewTemplate()}><Eye className="mr-2 h-4 w-4" />View master</Button>{template.canva_edit_url && <Button variant="outline" onClick={() => window.open(template.canva_edit_url!, '_blank', 'noopener,noreferrer')}><ExternalLink className="mr-2 h-4 w-4" />Edit in Canva</Button>}{hasPermission('knowledge.write') && <><input ref={replaceRef} hidden type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(event) => void replaceTemplate(event.target.files?.[0] ?? null)} /><Button onClick={() => replaceRef.current?.click()} disabled={replacing}>{replacing ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}{replacing ? 'Mapping fields' : 'Upload revised master'}</Button></>}</div></section>
 
-      <div className={`grid gap-5 ${previewUrl ? 'xl:grid-cols-[minmax(0,1fr)_minmax(440px,.9fr)]' : 'mx-auto w-full max-w-3xl'}`}><div className="space-y-5"><section className="rounded-2xl border border-border bg-card p-4 md:p-5"><div className="mb-5"><p className="text-xs font-medium uppercase tracking-[.14em] text-primary">Step 1 · Enter details</p><div className="flex items-center gap-1"><h2 className="mt-1 text-lg font-semibold">{template.title}</h2><InfoTip label="About letter fields">These fields come directly from the placeholders in the uploaded master.</InfoTip></div></div><div className="grid gap-4 md:grid-cols-2"><FieldInputs items={template.fields.slice(0, 8)} values={fieldValues} onChange={change} />{template.fields.length > 8 && <details className="md:col-span-2 rounded-xl border border-border"><summary className="cursor-pointer p-3 text-sm font-medium">Additional details <span className="ml-1 text-xs font-normal text-muted-foreground">{template.fields.length - 8} fields</span></summary><div className="grid gap-4 border-t border-border p-3 md:grid-cols-2"><FieldInputs items={template.fields.slice(8)} values={fieldValues} onChange={change} /></div></details>}</div></section>
-        {template.salary_rows.length > 0 && <details className="rounded-2xl border border-border bg-card"><summary className="cursor-pointer p-4 text-sm font-medium">Compensation details <span className="ml-1 text-xs font-normal text-muted-foreground">{template.salary_rows.length} rows</span></summary><div className="overflow-auto border-t border-border p-4"><table className="w-full min-w-[600px] text-sm"><thead><tr><th className="p-3 text-left">Salary component</th>{salaryColumns.map((column) => <th key={column} className="p-3 text-left">{column.charAt(0).toUpperCase() + column.slice(1)}</th>)}</tr></thead><tbody>{template.salary_rows.map((row) => <tr key={row.key} className="border-t border-border"><td className="p-3 text-xs">{row.label}</td>{salaryColumns.map((column) => <td key={column} className="p-2">{row.columns.includes(column) ? <input value={salaryValues[`${template.id}:${row.key}:${column}`] ?? ''} onChange={(event) => { setSalaryValues((current) => ({ ...current, [`${template.id}:${row.key}:${column}`]: event.target.value })); clearPreview() }} className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm" /> : <span className="block text-center text-muted-foreground">—</span>}</td>)}</tr>)}</tbody></table></div></details>}
+      <div className={`grid gap-5 ${previewUrl ? 'xl:grid-cols-[minmax(0,1fr)_minmax(440px,.9fr)]' : 'mx-auto w-full max-w-3xl'}`}><div className="space-y-5"><section className="rounded-2xl border border-border bg-card p-4 md:p-5"><div className="mb-5"><p className="text-xs font-medium uppercase tracking-[.14em] text-primary">Step 1 · Enter details</p><div className="flex items-center gap-1"><h2 className="mt-1 text-lg font-semibold">{template.title}</h2><InfoTip label="About letter fields">These fields come directly from the placeholders in the uploaded master. Uncheck a field to leave it blank in this document only.</InfoTip></div></div><div className="grid gap-4 md:grid-cols-2"><FieldInputs items={template.fields.slice(0, 8)} values={fieldValues} isIncluded={isIncluded} onChange={change} onIncludeChange={changeInclusion} />{template.fields.length > 8 && <details className="md:col-span-2 rounded-xl border border-border"><summary className="cursor-pointer p-3 text-sm font-medium">Additional details <span className="ml-1 text-xs font-normal text-muted-foreground">{template.fields.length - 8} fields</span></summary><div className="grid gap-4 border-t border-border p-3 md:grid-cols-2"><FieldInputs items={template.fields.slice(8)} values={fieldValues} isIncluded={isIncluded} onChange={change} onIncludeChange={changeInclusion} /></div></details>}</div></section>
+        {template.salary_rows.length > 0 && <details className="rounded-2xl border border-border bg-card"><summary className="cursor-pointer p-4 text-sm font-medium">Compensation details <span className="ml-1 text-xs font-normal text-muted-foreground">{template.salary_rows.length} rows</span></summary><div className="overflow-auto border-t border-border p-4"><table className="w-full min-w-[600px] text-sm"><thead><tr><th className="p-3 text-left">Salary component</th>{salaryColumns.map((column) => <th key={column} className="p-3 text-left">{column.charAt(0).toUpperCase() + column.slice(1)}</th>)}</tr></thead><tbody>{template.salary_rows.map((row) => <tr key={row.key} className="border-t border-border"><td className="p-3 text-xs">{row.label}</td>{salaryColumns.map((column) => { const key = `salary_${row.key}_${column}`; const included = isIncluded(key); return <td key={column} className="p-2">{row.columns.includes(column) ? <div className="space-y-1.5"><label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium"><input type="checkbox" checked={included} onChange={(event) => changeInclusion(key, event.target.checked)} className="size-4 accent-primary" />Include</label><input value={salaryValues[`${template.id}:${row.key}:${column}`] ?? ''} disabled={!included} aria-label={`${row.label} ${column}`} onChange={(event) => { setSalaryValues((current) => ({ ...current, [`${template.id}:${row.key}:${column}`]: event.target.value })); clearPreview() }} className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" /></div> : <span className="block text-center text-muted-foreground">—</span>}</td>})}</tr>)}</tbody></table></div></details>}
         <section className="flex justify-end rounded-2xl border border-border bg-card p-4"><Button onClick={() => void generatePreview()} disabled={busy}>{busy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}{busy ? 'Preparing review' : 'Review final letter'}</Button></section></div>
         {previewUrl && <section className="sticky top-4 h-fit overflow-hidden rounded-2xl border border-border bg-card"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4"><div><p className="text-xs font-medium uppercase tracking-[.14em] text-primary">Step 2 · Review</p><h2 className="mt-1 font-semibold">Final print preview</h2></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={download}><Download className="mr-1.5 h-4 w-4" />PDF</Button><Button size="sm" variant="outline" onClick={print}><Printer className="mr-1.5 h-4 w-4" />Print</Button><Button size="sm" onClick={() => setShowEmail(true)}><Mail className="mr-1.5 h-4 w-4" />Email</Button></div></div><iframe id="hr-custom-letter-preview" title="Custom letter preview" src={previewUrl} className="h-[72vh] w-full bg-white" /></section>}</div>
     </>}

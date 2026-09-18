@@ -171,6 +171,7 @@ class SendLetterRequest(LetterRequest):
 class CustomLetterRequest(BaseModel):
     template_id: uuid.UUID
     fields: dict[str, str] = Field(default_factory=dict)
+    excluded_fields: list[str] = Field(default_factory=list, max_length=500)
 
 
 class SendCustomLetterRequest(CustomLetterRequest):
@@ -258,17 +259,22 @@ def _template_tokens(path: Path) -> list[str]:
     return tokens
 
 
-def _replace_xml_paragraph_tokens(paragraph, fields: dict[str, str]) -> bool:
+def _replace_xml_paragraph_tokens(
+    paragraph,
+    fields: dict[str, str],
+    excluded_fields: set[str] | None = None,
+) -> bool:
     namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
     nodes = paragraph.xpath(".//w:t", namespaces=namespace)
     combined = "".join(node.text or "" for node in nodes)
     matches = list(PLACEHOLDER_PATTERN.finditer(combined))
     if not matches:
         return False
+    excluded = excluded_fields or set()
     for match in reversed(matches):
         key = match.group(1).strip()
-        value = fields.get(key, "").strip()
-        if key.startswith("salary_") and not value:
+        value = "" if key in excluded else fields.get(key, "").strip()
+        if key.startswith("salary_") and not value and key not in excluded:
             value = "NIL"
         offsets: list[tuple[int, int]] = []
         cursor = 0
@@ -290,7 +296,11 @@ def _replace_xml_paragraph_tokens(paragraph, fields: dict[str, str]) -> bool:
     return True
 
 
-def _replace_remaining_docx_tokens(path: Path, fields: dict[str, str]) -> None:
+def _replace_remaining_docx_tokens(
+    path: Path,
+    fields: dict[str, str],
+    excluded_fields: set[str] | None = None,
+) -> None:
     """Fill placeholders stored in text boxes and other OOXML-only elements."""
     rewritten = path.with_name(f"{path.stem}-rewritten{path.suffix}")
     with ZipFile(path) as source, ZipFile(rewritten, "w", ZIP_DEFLATED) as destination:
@@ -304,7 +314,7 @@ def _replace_remaining_docx_tokens(path: Path, fields: dict[str, str]) -> None:
                 if root is not None:
                     changed = False
                     for paragraph in root.xpath(".//w:p", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}):
-                        changed = _replace_xml_paragraph_tokens(paragraph, fields) or changed
+                        changed = _replace_xml_paragraph_tokens(paragraph, fields, excluded_fields) or changed
                     if changed:
                         data = etree.tostring(root, encoding="UTF-8", xml_declaration=True, standalone=True)
             destination.writestr(item, data)
@@ -420,15 +430,17 @@ def _fill_docx(
     *,
     appointment_scale: float = 1.0,
     source_path: Path | None = None,
+    excluded_fields: set[str] | None = None,
 ) -> Path:
     source = source_path or ASSET_ROOT / TEMPLATE_FILES[template_key]
     document = Document(source)
+    excluded = excluded_fields or set()
     for paragraph in _paragraphs(document):
         matches = list(PLACEHOLDER_PATTERN.finditer(paragraph.text))
         for match in reversed(matches):
             key = match.group(1).strip()
-            value = fields.get(key, "").strip()
-            if key.startswith("salary_") and not value:
+            value = "" if key in excluded else fields.get(key, "").strip()
+            if key.startswith("salary_") and not value and key not in excluded:
                 value = "NIL"
             _replace_token(
                 paragraph,
@@ -576,7 +588,7 @@ def _fill_docx(
                 formatting.space_after = Pt(formatting.space_after.pt * appointment_scale)
     output = workdir / f"{template_key}.docx"
     document.save(output)
-    _replace_remaining_docx_tokens(output, fields)
+    _replace_remaining_docx_tokens(output, fields, excluded)
     return output
 
 
@@ -1106,10 +1118,20 @@ def _generate_pdf(
         return pdf_bytes
 
 
-def _generate_custom_pdf(template_path: Path, fields: dict[str, str]) -> bytes:
+def _generate_custom_pdf(
+    template_path: Path,
+    fields: dict[str, str],
+    excluded_fields: set[str] | None = None,
+) -> bytes:
     with tempfile.TemporaryDirectory(prefix="aromazen-hr-custom-letter-") as temporary:
         workdir = Path(temporary)
-        docx_path = _fill_docx("custom", fields, workdir, source_path=template_path)
+        docx_path = _fill_docx(
+            "custom",
+            fields,
+            workdir,
+            source_path=template_path,
+            excluded_fields=excluded_fields,
+        )
         return _convert_docx_to_pdf(docx_path, workdir).read_bytes()
 
 
@@ -1656,8 +1678,9 @@ async def preview_custom_letter(
     await _require_hr(session, user)
     document = await _custom_template_document(session, user.organization_id, payload.template_id)
     template_path = _custom_template_path(document)
+    excluded_fields = set(payload.excluded_fields).intersection(_template_tokens(template_path))
     try:
-        pdf = await run_in_threadpool(_generate_custom_pdf, template_path, payload.fields)
+        pdf = await run_in_threadpool(_generate_custom_pdf, template_path, payload.fields, excluded_fields)
     except RuntimeError as error:
         if str(error) == "document_converter_unavailable":
             raise HTTPException(status_code=503, detail="The server document converter is unavailable. Please contact the administrator.") from error
@@ -1738,8 +1761,9 @@ async def send_custom_letter(
     document = await _custom_template_document(session, user.organization_id, payload.template_id)
     template_path = _custom_template_path(document)
     attachment_name = _custom_pdf_filename(document)
+    excluded_fields = set(payload.excluded_fields).intersection(_template_tokens(template_path))
     try:
-        pdf = await run_in_threadpool(_generate_custom_pdf, template_path, payload.fields)
+        pdf = await run_in_threadpool(_generate_custom_pdf, template_path, payload.fields, excluded_fields)
         await run_in_threadpool(_send_custom_email, payload, pdf, mailbox, attachment_name)
     except RuntimeError as error:
         if str(error) == "document_converter_unavailable":

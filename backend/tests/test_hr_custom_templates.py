@@ -40,3 +40,27 @@ def test_ooxml_only_placeholder_replacement_handles_multiple_text_nodes() -> Non
 
     assert _replace_xml_paragraph_tokens(paragraph, {"job_title": "Manager"})
     assert "".join(paragraph.xpath(".//w:t/text()", namespaces={"w": namespace})) == "Manager"
+
+
+def test_excluded_custom_fields_are_blank_including_salary_fields(tmp_path: Path) -> None:
+    template = tmp_path / "optional-fields.docx"
+    document = Document()
+    document.add_paragraph("Bank account: {{bank_account_number}}")
+    document.add_paragraph("Monthly basic: {{salary_basic_monthly}}")
+    document.save(template)
+
+    output = _fill_docx(
+        "custom",
+        {
+            "bank_account_number": "1234567890",
+            "salary_basic_monthly": "50,000",
+        },
+        tmp_path,
+        source_path=template,
+        excluded_fields={"bank_account_number", "salary_basic_monthly"},
+    )
+
+    generated = Document(output)
+    assert generated.paragraphs[0].text == "Bank account: "
+    assert generated.paragraphs[1].text == "Monthly basic: "
+    assert "NIL" not in "\n".join(paragraph.text for paragraph in generated.paragraphs)
