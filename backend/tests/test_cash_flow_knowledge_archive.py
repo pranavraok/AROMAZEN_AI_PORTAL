@@ -86,7 +86,9 @@ class CashFlowStoragePolicyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.commits, 1)
         self.assertEqual(session.rollbacks, 0)
         self.assertEqual(response.media_type, "application/pdf")
-        downloaded_bytes = b"".join([chunk async for chunk in response.body_iterator])
+        # Download endpoints return a buffered Response (single write, correct
+        # Content-Length) since the StreamingResponse(BytesIO) refactor.
+        downloaded_bytes = response.body if isinstance(response.body, bytes) else bytes(response.body)
         reader = PdfReader(io.BytesIO(downloaded_bytes))
         self.assertTrue(reader.is_encrypted)
         self.assertEqual(reader.decrypt(password).name, "OWNER_PASSWORD")

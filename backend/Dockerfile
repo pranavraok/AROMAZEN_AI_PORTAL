@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     fonts-noto-core \
     fonts-noto-extra \
+    fonts-crosextra-carlito \
+    fonts-crosextra-caladea \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 

@@ -618,6 +618,97 @@ def _normalize_annexure_alignment(document: Document) -> None:
                         consume_leading = False
 
 
+def _set_kannada_size(run, size: Pt) -> None:
+    """Apply a Kannada font size to a run including its complex-script variant.
+
+    Word renders Indic scripts through w:szCs (complex-script size). Setting
+    only w:sz leaves LibreOffice/Word free to fall back to the theme default,
+    which is why Kannada previously rendered at inflated 8-12pt sizes next to
+    7.5pt English body text.
+    """
+    run.font.size = size
+    rpr = run._element.get_or_add_rPr()
+    sz_cs = rpr.find(qn("w:szCs"))
+    if sz_cs is None:
+        sz_cs = rpr.makeelement(qn("w:szCs"), {})
+        rpr.append(sz_cs)
+    sz_cs.set(qn("w:val"), str(int(size.pt * 2)))
+
+
+APPOINTMENT_KANNADA_SIZE = 8.0
+APPOINTMENT_ENGLISH_BODY_SIZE = 8.5
+
+
+def _demote_kannada_runs(document: Document) -> None:
+    """Give Kannada secondary billing: uniform small size, never bold.
+
+    The bilingual appointment letter reads English first. Kannada is
+    normalized to a single 8pt size (pinned on both w:sz and w:szCs so the
+    renderer cannot inflate Indic text), switched to regular weight, and set
+    to one consistent font so the previous mix of Nirmala UI/Noto Serif
+    fallback rendering disappears. English headings stay bold so the emphasis
+    hierarchy stays intact.
+    """
+    kannada_pattern = re.compile(r"[\u0C80-\u0CFF]")
+    for paragraph in _paragraphs(document):
+        for run in paragraph.runs:
+            if not run.text or not kannada_pattern.search(run.text):
+                continue
+            _set_kannada_size(run, Pt(APPOINTMENT_KANNADA_SIZE))
+            # Explicitly clear both the Latin and complex-script bold flags so
+            # renderer-side bold fallback for Indic scripts cannot kick in.
+            run.bold = False
+            run.font.name = KANNADA_FONT_NAME
+            run_fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+            for font_type in ("ascii", "hAnsi", "eastAsia", "cs"):
+                run_fonts.set(qn(f"w:{font_type}"), KANNADA_FONT_NAME)
+            run._element.get_or_add_rPr().get_or_add_bCs().set(qn("w:val"), "0")
+
+
+def _prioritize_english_runs(document: Document) -> None:
+    """Bump the 7.5pt English body text above the Kannada support text.
+
+    The approved template set English body copy at 7.5pt while Kannada
+    rendered larger, inverting the reading priority. English runs are raised
+    one point; headings already larger than 7.5pt keep their size.
+    """
+    kannada_pattern = re.compile(r"[\u0C80-\u0CFF]")
+    for style in document.styles:
+        style_font = getattr(style, "font", None)
+        if style_font is not None and style_font.size and abs(style_font.size.pt - 7.5) < 0.01:
+            style_font.size = Pt(APPOINTMENT_ENGLISH_BODY_SIZE)
+    for paragraph in _paragraphs(document):
+        for run in paragraph.runs:
+            if not run.text or kannada_pattern.search(run.text):
+                continue
+            if run.font.size and abs(run.font.size.pt - 7.5) < 0.01:
+                run.font.size = Pt(APPOINTMENT_ENGLISH_BODY_SIZE)
+
+
+def _reserve_appointment_signing_space(document: Document) -> None:
+    """Guarantee a decent handwriting gap above the employee signature lines.
+
+    The Word converter reflows whitespace, so plain blank paragraphs cannot be
+    trusted as signing space. Explicit space-before on the underscore line
+    survives conversion and puts a measurable gap between the acceptance text
+    and the signature rule on the page 9 consent block and the page 10
+    annexure block. Only the final two employee-signature anchors get the gap:
+    the earlier per-section blocks sit near their page bottoms and extra space
+    there would push them onto the following page and break the ten-page
+    layout.
+    """
+    paragraphs = document.paragraphs
+    anchors: list[int] = []
+    for index, paragraph in enumerate(paragraphs):
+        if paragraph.text.strip() != "________________":
+            continue
+        following = paragraphs[index + 1].text.strip() if index + 1 < len(paragraphs) else ""
+        if following.startswith("Ms/"):
+            anchors.append(index)
+    for anchor in anchors[-2:]:
+        paragraphs[anchor].paragraph_format.space_before = Pt(48)
+
+
 def _fill_docx(
     template_key: str,
     fields: dict[str, str],
@@ -688,15 +779,18 @@ def _fill_docx(
 
         def add_kannada(text: str, *, bold: bool = False, underline: bool = False) -> None:
             run = kannada_compensation.add_run(text)
-            run.bold = bold
+            # Kannada mirrors the sentence but stays visually secondary to the
+            # English sentence above: normal weight, one step below the 10pt
+            # English compensation text.
+            run.bold = False
             run.underline = underline
             run.font.name = KANNADA_FONT_NAME
-            run.font.size = Pt(11)
+            _set_kannada_size(run, Pt(APPOINTMENT_KANNADA_SIZE))
             run_fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
             for font_type in ("ascii", "hAnsi", "eastAsia", "cs"):
                 run_fonts.set(qn(f"w:{font_type}"), KANNADA_FONT_NAME)
 
-        add_kannada("ಪರಿಹಾರ: ", bold=True)
+        add_kannada("ಪರಿಹಾರ: ")
         add_kannada("ನೀವು ರೂ. ")
         add_kannada(fields.get("gross_salary", "").strip(), underline=True)
         add_kannada(" (")
@@ -713,7 +807,7 @@ def _fill_docx(
         confidentiality_kannada.paragraph_format.line_spacing = 1.15
         for run in confidentiality_kannada.runs:
             run.font.name = KANNADA_FONT_NAME
-            run.font.size = Pt(11)
+            _set_kannada_size(run, Pt(APPOINTMENT_KANNADA_SIZE))
             run_fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
             for font_type in ("ascii", "hAnsi", "eastAsia", "cs"):
                 run_fonts.set(qn(f"w:{font_type}"), KANNADA_FONT_NAME)
@@ -773,6 +867,12 @@ def _fill_docx(
                     if not candidate.text.strip():
                         candidate._element.getparent().remove(candidate._element)
                         break
+        # Applied last so the rebuilt bilingual sentences above are already in
+        # their final size, and so the signing-space anchors reflect the
+        # post-cleanup paragraph list.
+        _reserve_appointment_signing_space(document)
+        _prioritize_english_runs(document)
+        _demote_kannada_runs(document)
     if legacy_appointment and appointment_scale < 1.0:
         for style in document.styles:
             style_font = getattr(style, "font", None)
@@ -782,11 +882,26 @@ def _fill_docx(
             for run in paragraph.runs:
                 if run.font.size:
                     run.font.size = Pt(run.font.size.pt * appointment_scale)
+                # Complex-script sizes (Kannada) must scale in lockstep or the
+                # page-fit estimate below diverges from the rendered output.
+                rpr = run._element.rPr
+                if rpr is not None:
+                    sz_cs = rpr.find(qn("w:szCs"))
+                    if sz_cs is not None:
+                        val = sz_cs.get(qn("w:val"))
+                        if val and val.isdigit():
+                            sz_cs.set(qn("w:val"), str(max(1, int(int(val) * appointment_scale))))
             formatting = paragraph.paragraph_format
             if formatting.space_before:
                 formatting.space_before = Pt(formatting.space_before.pt * appointment_scale)
             if formatting.space_after:
                 formatting.space_after = Pt(formatting.space_after.pt * appointment_scale)
+    elif template_key == "appointment":
+        # Custom (non-legacy) appointment masters get the same typography
+        # rules: Kannada secondary and normal weight, plus signing space.
+        _reserve_appointment_signing_space(document)
+        _prioritize_english_runs(document)
+        _demote_kannada_runs(document)
     output = workdir / f"{template_key}.docx"
     document.save(output)
     _replace_remaining_docx_tokens(output, fields)

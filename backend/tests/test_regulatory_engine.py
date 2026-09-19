@@ -141,7 +141,14 @@ def test_sds_tables_have_explicit_missing_values_and_consistent_alignment(tmp_pa
     for table_index, table in enumerate(document.tables[:5]):
         for row in table.rows:
             assert row._tr.get_or_add_trPr().find(qn("w:cantSplit")) is not None
-            assert all(cell.text.strip() for cell in row.cells)
+            # Placeholder rows follow the approved reference convention: the
+            # first cell reads NONE and the companion cells stay empty. Filling
+            # them with "Not applicable" squeezes narrow columns into mid-word
+            # breaks in the converted PDF.
+            if row.cells[0].text.strip() == "NONE":
+                assert all(not cell.text.strip() for cell in row.cells[1:])
+            else:
+                assert all(cell.text.strip() for cell in row.cells)
             assert all(cell._tc.get_or_add_tcPr().find(qn("w:tcMar")) is not None for cell in row.cells)
         repeated = table.rows[0]._tr.get_or_add_trPr().find(qn("w:tblHeader")) is not None
         assert repeated == (table_index not in {0, 3})

@@ -733,13 +733,21 @@ def _format_sds_table(
     vertical_padding: int = 60,
     repeat_header: bool = True,
     width_overrides: dict[int, float] | None = None,
+    table_width_inches: float = 7.2,
 ) -> None:
-    """Normalize the template's cell-level overrides without changing data."""
+    """Normalize the template's cell-level overrides without changing data.
+
+    width_overrides are expressed in points, matching the measured column
+    geometry of the approved reference SDS. table_width_inches is the total
+    grid budget: when every column is overridden explicitly (e.g. the
+    composition table mirrors the reference's 7.5in / 540pt grid), the grid
+    must grow to fit or the difference would be stolen from a data column.
+    """
     table.autofit = False
     # The supplied master uses negative body indents. Give all SDS tables
     # the same left edge and printable width instead of each table's offset.
     props = table._tbl.tblPr
-    for tag, value in (("tblInd", "-576"), ("tblW", "10368")):
+    for tag, value in (("tblInd", "-576"), ("tblW", str(int(table_width_inches * 1440)))):
         node = props.find(qn(f"w:{tag}"))
         if node is None:
             node = OxmlElement(f"w:{tag}")
@@ -748,7 +756,7 @@ def _format_sds_table(
         node.set(qn("w:type"), "dxa")
     widths = [column.width for column in table.columns]
     total_width = sum(widths)
-    widths = [Inches(7.2 * width / total_width) for width in widths]
+    widths = [Inches(table_width_inches * width / total_width) for width in widths]
     # Optional per-column width overrides (in points) so wide data columns
     # (e.g. the composition ATE column) match the reference SDS layout.
     for column_index, points in (width_overrides or {}).items():
@@ -759,7 +767,7 @@ def _format_sds_table(
     # overridden (Length subclasses int, so use raw EMU arithmetic).
     overridden = set((width_overrides or {}).keys())
     total_emu = sum(int(width) for width in widths)
-    delta = int(Inches(7.2)) - total_emu
+    delta = int(Inches(table_width_inches)) - total_emu
     candidates = [index for index in range(len(widths)) if index not in overridden] or list(range(len(widths)))
     if abs(delta) > 6350 and candidates:  # 6350 EMU = 0.5 pt
         flexible = max(candidates, key=lambda index: int(widths[index]))
@@ -902,7 +910,11 @@ def _reset_workplace_exposure_table(table) -> None:
     _set_row_no_split(table.rows[0], repeat_header=True)
     _set_row_no_split(table.rows[1])
     for index, cell in enumerate(table.rows[1].cells):
-        _set_compact_cell_text(cell, "NONE" if index == 0 else "Not applicable", preserve_placeholder=True)
+        # The approved reference prints just "NONE" in the first cell and
+        # leaves the rest empty - filling every cell with "Not applicable"
+        # squeezes the narrow CAS/% columns into mid-word breaks
+        # ("applicabl / e") in the converted PDF.
+        _set_compact_cell_text(cell, "NONE" if index == 0 else "", preserve_placeholder=True)
 
 
 def _format_ate_lines(value: Any) -> str | None:
@@ -1239,15 +1251,38 @@ def _fill_sds(document, fields: dict[str, str], ingredients: list[dict], product
     if generic is not None:
         for row in generic.rows[1:]:
             for index, cell in enumerate(row.cells):
-                _set_compact_cell_text(cell, "NONE" if index == 0 else "Not applicable", preserve_placeholder=True)
+                # Same reference convention as the exposure table: NONE alone,
+                # empty companions - "Not applicable" breaks mid-word in the
+                # narrow CAS/EC columns.
+                _set_compact_cell_text(cell, "NONE" if index == 0 else "", preserve_placeholder=True)
 
     # The ATE column gets extra width so "Dermal: LD50 20 000 mg/kg bw"
     # (≈141pt at Calibri 11) fits on its own single line. LibreOffice squeezes
-    # the 518pt grid to the ~482pt printable width, so the grid value must
-    # exceed the required text width by that factor (172pt grid ≈ 152pt usable).
-    _format_sds_table(composition, {1, 2, 3}, repeat_header=False, width_overrides={5: 172})
+    # the grid to the printable width, so the grid value must exceed the
+    # required text width by that factor.
+    # Column geometry mirrors the approved reference SDS: an all-columns
+    # override on the reference's 7.5in (540pt) grid so the ATE width no
+    # longer steals space from the Classification column. Squeezing that
+    # column to ~80pt cut "(CLP)1272/2008" mid-token and wrapped every
+    # hazard phrase awkwardly.
+    _format_sds_table(
+        composition,
+        {1, 2, 3},
+        repeat_header=False,
+        width_overrides={0: 86, 1: 71, 2: 64, 3: 56, 4: 113, 5: 149},
+        table_width_inches=7.5,
+    )
+    # The workplace-exposure / endocrine tables share the composition grid, so
+    # they need the same reference geometry - on the shared default grid their
+    # first column squeezes below the width of "Not applicable" and Word
+    # breaks the word mid-token ("applicabl / e").
     for table in composition_tables[1:]:
-        _format_sds_table(table, {1, 2, 3})
+        _format_sds_table(
+            table,
+            {1, 2, 3},
+            width_overrides={0: 86, 1: 71, 2: 64, 3: 56, 4: 113, 5: 149},
+            table_width_inches=7.5,
+        )
     if toxicity is not None:
         _format_sds_table(toxicity, {1, 2}, repeat_header=False)
     if transport is not None:
