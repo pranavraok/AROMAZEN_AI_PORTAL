@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from sqlalchemy import or_, select
@@ -396,4 +396,4 @@ async def export_assets(
     workbook.close()
     output.seek(0)
     filename = f"AROMAZEN {asset_group} Asset Register.xlsx" if asset_group != "All" else "AROMAZEN Unified Asset Register.xlsx"
-    return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return Response(content=output.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{filename}"'})

@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from openpyxl import Workbook
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
@@ -637,4 +637,4 @@ async def preview_generation(generation_id: str, user: User = Depends(require_pe
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="PDF preview is unavailable because document conversion is not configured.") from exc
     pdf_name = f"{Path(generation.output_original_filename).stem}.pdf"
-    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{pdf_name}"'})
+    return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{pdf_name}"'})

@@ -12,7 +12,7 @@ from email.utils import formataddr
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -323,7 +323,7 @@ async def salary_excel_template(
     session: AsyncSession = Depends(get_db_session),
 ) -> StreamingResponse:
     await _ensure_hr_access(user, session)
-    return StreamingResponse(io.BytesIO(create_excel_template()), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=AROMAZEN_Salary_Upload_Template.xlsx"})
+    return Response(content=create_excel_template(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=AROMAZEN_Salary_Upload_Template.xlsx"})
 
 
 @router.get("/bonus/templates")
@@ -1370,4 +1370,4 @@ async def merge_employee_leaves(
     analysis, workbook, salary_sheet, indexes = await run_in_threadpool(_leave_calculator_analysis, salary_content, attendance_content, payroll_month, shift_rules, attendance_file.filename or "attendance.xlsx", salary_file.filename or "salary.xlsx", roster_content, shift_roster_file.filename if shift_roster_file else "")
     content = await run_in_threadpool(_merged_leave_workbook, analysis, workbook, salary_sheet, indexes, adjustments_json)
     filename = f"AROMAZEN_Salary_With_Attendance_{payroll_month}.xlsx"
-    return StreamingResponse(io.BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return Response(content=content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{filename}"'})

@@ -17,11 +17,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
   const notify = useCallback((kind: ToastKind, message: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000)
-    setToasts((current) => [...current, { id, kind, message }])
-    window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 5000)
+    // All toast kinds auto-dismiss after 7 seconds; the × button closes early.
+    setToasts((current) => [...current.slice(-4), { id, kind, message }])
+    window.setTimeout(() => setToasts((current) => current.filter((toast) => toast.id !== id)), 7000)
   }, [])
   const value = useMemo(() => ({ notify }), [notify])
-  return <ToastContext.Provider value={value}>{children}<div aria-live="polite" className="viewport-toast pointer-events-none fixed left-1/2 top-4 z-[120] w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 space-y-2 sm:left-auto sm:right-5 sm:top-5 sm:translate-x-0">{toasts.map((toast) => <div key={toast.id} role="alert" className={`pointer-events-auto flex items-start justify-between gap-3 rounded-lg border p-4 shadow-xl backdrop-blur ${styles[toast.kind]}`}><p className="min-w-0 text-sm font-medium">{toast.message}</p><button aria-label="Dismiss notification" onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))} className="shrink-0 text-current/80 hover:text-current">×</button></div>)}</div></ToastContext.Provider>
+  // Positioning: top-right on desktop via sm:right-5. On mobile (<768px) the
+  // .viewport-toast rule in globals.css centers the stack horizontally. No
+  // translate-based centering here: Tailwind v4 emits `translate:` which the
+  // mobile rule's `transform: none` cannot cancel and which would skew the
+  // desktop corner placement.
+  return <ToastContext.Provider value={value}>{children}<div aria-live="polite" className="viewport-toast pointer-events-none fixed top-4 z-[120] w-[min(24rem,calc(100vw-2rem))] space-y-2 sm:right-5 sm:top-5">{toasts.map((toast) => <div key={toast.id} role="alert" className={`pointer-events-auto flex items-start justify-between gap-3 rounded-lg border p-4 shadow-xl backdrop-blur ${styles[toast.kind]}`}><p className="min-w-0 text-sm font-medium">{toast.message}</p><button aria-label="Dismiss notification" onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))} className="shrink-0 text-current/80 hover:text-current">×</button></div>)}</div></ToastContext.Provider>
 }
 
 export function useToast() {
