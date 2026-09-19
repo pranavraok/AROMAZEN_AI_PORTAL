@@ -277,6 +277,7 @@ export const api = {
       return apiRequest<MarketingLeadList>(`/marketing-leads${query}`, { headers: { Authorization: `Bearer ${accessToken}` } })
     },
     create: (accessToken: string, payload: CreateMarketingLeadPayload) => apiRequest<MarketingLead>('/marketing-leads', { method: 'POST', body: payload, headers: { Authorization: `Bearer ${accessToken}` } }),
+    deleteLead: (accessToken: string, leadId: string) => apiRequest<void>(`/marketing-leads/${leadId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }),
     decide: (accessToken: string, leadId: string, action: 'accept' | 'reject' | 'question', message?: string) => apiRequest<MarketingLead>(`/marketing-leads/${leadId}/decision`, { method: 'POST', body: { action, message: message || null }, headers: { Authorization: `Bearer ${accessToken}` } }),
     reply: (accessToken: string, leadId: string, message: string) => apiRequest<MarketingLead>(`/marketing-leads/${leadId}/reply`, { method: 'POST', body: { message }, headers: { Authorization: `Bearer ${accessToken}` } }),
     monthlyReport: (accessToken: string, month: string) => apiRequest<MarketingMonthlyReport>(`/marketing-leads/report/monthly?month=${encodeURIComponent(month)}`, { headers: { Authorization: `Bearer ${accessToken}` } }),

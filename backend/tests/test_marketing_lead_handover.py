@@ -13,6 +13,7 @@ from app.modules.marketing_leads.pdf import build_marketing_employee_report
 from app.modules.marketing_leads.routes import (
     _analysis_period,
     _breakdown,
+    _can_delete_marketing_lead,
     _can_view_marketing_report,
     _lead_access_scope,
     _month_bounds,
@@ -121,6 +122,28 @@ def test_marketing_report_is_for_marketing_admin_and_top_admin_only() -> None:
     assert _can_view_marketing_report({"employee"}, "marketing") is False
     assert _can_view_marketing_report({"department_admin"}, "merchandising") is False
     assert _can_view_marketing_report({"super_admin"}, None) is True
+
+
+def test_only_the_marketing_creator_can_delete_a_lead() -> None:
+    creator_id = uuid4()
+    assert _can_delete_marketing_lead(
+        {"employee"},
+        "marketing",
+        creator_user_id=creator_id,
+        current_user_id=creator_id,
+    ) is True
+    assert _can_delete_marketing_lead(
+        {"department_admin"},
+        "marketing",
+        creator_user_id=creator_id,
+        current_user_id=uuid4(),
+    ) is False
+    assert _can_delete_marketing_lead(
+        {"employee"},
+        "merchandising",
+        creator_user_id=creator_id,
+        current_user_id=creator_id,
+    ) is False
 
 
 def test_live_analysis_uses_supported_ranges_and_safe_rates() -> None:

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
@@ -77,6 +77,18 @@ def _can_view_marketing_report(roles: set[str], department_slug: str | None) -> 
         roles.intersection(TOP_ADMIN_ROLES)
         or (department_slug == MARKETING_SLUG and "department_admin" in roles)
     )
+
+
+def _can_delete_marketing_lead(
+    roles: set[str],
+    department_slug: str | None,
+    *,
+    creator_user_id: UUID | None,
+    current_user_id: UUID,
+) -> bool:
+    is_marketing_user = department_slug == MARKETING_SLUG
+    is_top_admin = bool(roles.intersection(TOP_ADMIN_ROLES))
+    return (is_marketing_user or is_top_admin) and creator_user_id == current_user_id
 
 
 def _apply_lead_scope(query, *, scope: str, user: User):
@@ -813,6 +825,86 @@ async def reply_to_marketing_question(
     await session.commit()
     await session.refresh(lead)
     return (await _serialize_leads(session, [lead]))[0]
+
+
+@router.delete("/{lead_id}", status_code=204)
+async def delete_marketing_lead(
+    lead_id: UUID,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> None:
+    roles, department_slug = await _access_context(session, user)
+    lead = await _lead_or_404(session, user, lead_id)
+    if not _can_delete_marketing_lead(
+        roles,
+        department_slug,
+        creator_user_id=lead.created_by_user_id,
+        current_user_id=user.id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="You can permanently delete only the Marketing leads you created.",
+        )
+
+    sample_batch_ids = list(await session.scalars(
+        select(MarketingSampleBatch.id).where(
+            MarketingSampleBatch.organization_id == user.organization_id,
+            MarketingSampleBatch.linked_lead_id == lead.id,
+        )
+    ))
+    if sample_batch_ids:
+        await session.execute(
+            delete(MarketingSampleItem).where(
+                MarketingSampleItem.organization_id == user.organization_id,
+                MarketingSampleItem.batch_id.in_(sample_batch_ids),
+            )
+        )
+        await session.execute(
+            delete(MarketingSampleBatch).where(
+                MarketingSampleBatch.organization_id == user.organization_id,
+                MarketingSampleBatch.id.in_(sample_batch_ids),
+            )
+        )
+
+    await session.execute(
+        delete(MarketingLeadActivity).where(
+            MarketingLeadActivity.organization_id == user.organization_id,
+            MarketingLeadActivity.lead_id == lead.id,
+        )
+    )
+    await session.execute(
+        delete(PortalNotification).where(
+            PortalNotification.organization_id == user.organization_id,
+            PortalNotification.dedupe_key.like(f"marketing-lead:{lead.id}:%"),
+        )
+    )
+    await session.execute(
+        delete(AuditEvent).where(
+            AuditEvent.organization_id == user.organization_id,
+            AuditEvent.target_type == "marketing_lead",
+            AuditEvent.target_id == str(lead.id),
+        )
+    )
+    if sample_batch_ids:
+        await session.execute(
+            delete(AuditEvent).where(
+                AuditEvent.organization_id == user.organization_id,
+                AuditEvent.target_type == "marketing_sample",
+                AuditEvent.target_id.in_([str(batch_id) for batch_id in sample_batch_ids]),
+            )
+        )
+    session.add(AuditEvent(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="marketing_lead.deleted",
+        target_type="marketing_lead",
+        target_id=str(lead.id),
+        metadata_json={
+            "linked_sample_batches_deleted": len(sample_batch_ids),
+        },
+    ))
+    await session.delete(lead)
+    await session.commit()
 
 
 def _month_bounds(month: str) -> tuple[datetime, datetime]:

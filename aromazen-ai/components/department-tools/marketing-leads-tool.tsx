@@ -160,6 +160,7 @@ export function MarketingLeadsTool({ initialView = 'leads' }: { initialView?: Ma
   const [leadSample, setLeadSample] = useState<CreateMarketingSamplePayload>(emptySample)
   const [decisionAction, setDecisionAction] = useState<DecisionAction>(null)
   const [message, setMessage] = useState('')
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [samples, setSamples] = useState<MarketingSample[]>([])
   const [sampleCounts, setSampleCounts] = useState<Record<MarketingSampleStatus, number>>({ recorded: 0, dispatched: 0, awaiting_feedback: 0, satisfied: 0, not_satisfied: 0, order_received: 0, closed: 0 })
   const [sampleLoading, setSampleLoading] = useState(false)
@@ -298,6 +299,17 @@ export function MarketingLeadsTool({ initialView = 'leads' }: { initialView?: Ma
     finally { setBusy('') }
   }
 
+  async function deleteLead(lead: MarketingLead) {
+    if (!accessToken) return
+    setBusy(`delete-${lead.id}`)
+    try {
+      await api.marketingLeads.deleteLead(accessToken, lead.id)
+      notify('success', 'Lead and its linked sample request were permanently deleted.')
+      setSelectedId(null); setConfirmingDelete(false); await loadLeads()
+    } catch (error) { notify('error', error instanceof ApiError ? error.message : 'Unable to delete this lead.') }
+    finally { setBusy('') }
+  }
+
   const tabs: { key: LeadTab; label: string; count: number }[] = [
     { key: 'all', label: 'All', count: Object.values(counts).reduce((sum, count) => sum + count, 0) },
     { key: 'awaiting', label: 'Awaiting review', count: counts.submitted + counts.resubmitted },
@@ -369,7 +381,7 @@ export function MarketingLeadsTool({ initialView = 'leads' }: { initialView?: Ma
           <div className="flex flex-wrap gap-2">{tabs.map((item) => <button key={item.key} type="button" onClick={() => setTab(item.key)} className={`rounded-full px-3 py-1.5 text-xs font-medium ${tab === item.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>{item.label} · {item.count}</button>)}</div>
           <div className="relative max-w-xl"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search company, contact, region or product" className="h-10 w-full rounded-xl border border-border bg-background pl-10 pr-3 text-sm" /></div>
         </div>
-        {loading ? <div className="grid min-h-64 place-items-center"><LoaderCircle className="h-6 w-6 animate-spin text-primary" /></div> : shown.length === 0 ? <div className="py-16 text-center"><Send className="mx-auto h-9 w-9 text-muted-foreground" /><p className="mt-3 font-medium">No lead handovers here</p><p className="mt-1 text-sm text-muted-foreground">{canCreate ? 'Send a new lead when it is ready for Merchandising.' : 'New Marketing leads will appear here automatically.'}</p></div> : <div className="divide-y divide-border">{shown.map((lead) => <button key={lead.id} type="button" onClick={() => { setSelectedId(lead.id); setDecisionAction(null); setMessage('') }} className="grid w-full gap-3 p-4 text-left transition hover:bg-muted/30 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] md:items-center">
+        {loading ? <div className="grid min-h-64 place-items-center"><LoaderCircle className="h-6 w-6 animate-spin text-primary" /></div> : shown.length === 0 ? <div className="py-16 text-center"><Send className="mx-auto h-9 w-9 text-muted-foreground" /><p className="mt-3 font-medium">No lead handovers here</p><p className="mt-1 text-sm text-muted-foreground">{canCreate ? 'Send a new lead when it is ready for Merchandising.' : 'New Marketing leads will appear here automatically.'}</p></div> : <div className="divide-y divide-border">{shown.map((lead) => <button key={lead.id} type="button" onClick={() => { setSelectedId(lead.id); setDecisionAction(null); setMessage(''); setConfirmingDelete(false) }} className="grid w-full gap-3 p-4 text-left transition hover:bg-muted/30 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] md:items-center">
           <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="truncate font-semibold">{lead.company_name}</p><LeadStatus status={lead.status} />{lead.priority === 'hot' ? <span className="inline-flex items-center text-xs font-medium text-orange-500"><Flame className="mr-1 h-3.5 w-3.5" />Hot</span> : null}</div><p className="mt-1 truncate text-sm text-muted-foreground">{lead.product_interest} · {lead.region}{lead.country ? `, ${lead.country}` : ''}</p></div>
           <div className="text-sm"><p>{lead.contact_person}</p><p className="mt-1 text-xs text-muted-foreground">Submitted by {lead.created_by_name}</p></div>
           <div className="flex items-center justify-between gap-4 md:justify-end"><span className="text-xs text-muted-foreground">{humanDate(lead.submitted_at)}</span><ArrowRight className="h-4 w-4 text-muted-foreground" /></div>
@@ -424,8 +436,8 @@ export function MarketingLeadsTool({ initialView = 'leads' }: { initialView?: Ma
       </div>
     </ModalShell> : null}
 
-    {selected ? <ModalShell label={`Lead from ${selected.company_name}`} width="max-w-4xl" onClose={() => setSelectedId(null)}>
-      <div className="flex items-start justify-between border-b border-border p-5"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-semibold">{selected.company_name}</h2><LeadStatus status={selected.status} /></div><p className="mt-1 text-sm text-muted-foreground">Submitted by {selected.created_by_name} · {humanDate(selected.submitted_at)}</p></div><button type="button" onClick={() => setSelectedId(null)} aria-label="Close"><X className="h-5 w-5" /></button></div>
+    {selected ? <ModalShell label={`Lead from ${selected.company_name}`} width="max-w-4xl" onClose={() => { setSelectedId(null); setConfirmingDelete(false) }}>
+      <div className="flex items-start justify-between border-b border-border p-5"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-semibold">{selected.company_name}</h2><LeadStatus status={selected.status} /></div><p className="mt-1 text-sm text-muted-foreground">Submitted by {selected.created_by_name} · {humanDate(selected.submitted_at)}</p></div><button type="button" onClick={() => { setSelectedId(null); setConfirmingDelete(false) }} aria-label="Close"><X className="h-5 w-5" /></button></div>
       <div className="space-y-5 p-5">
         <section className="grid gap-3 rounded-xl border border-border p-4 sm:grid-cols-2 lg:grid-cols-3">{[
           ['Contact', selected.contact_person], ['Phone', selected.phone_number || '—'], ['Email', selected.email || '—'], ['Region', `${selected.region}${selected.country ? `, ${selected.country}` : ''}`], ['Product', selected.product_interest], ['Expected quantity', selected.expected_quantity || '—'], ['Source', selected.lead_source], ['Priority', selected.priority],
@@ -441,6 +453,11 @@ export function MarketingLeadsTool({ initialView = 'leads' }: { initialView?: Ma
         {isMarketing && selected.status === 'clarification_required' && (selected.created_by_user_id === user?.id || user?.role_names.includes('Department Admin')) ? <section className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4"><h3 className="font-semibold">Answer Merchandising</h3><p className="mt-1 text-sm text-muted-foreground">Your answer returns the lead to their review queue.</p><textarea rows={3} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Type the clarification…" className="mt-3 w-full rounded-xl border border-border bg-background p-3 text-sm" /><div className="mt-3 flex justify-end"><Button disabled={!message.trim() || Boolean(busy)} onClick={() => void reply(selected)}>{busy ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}Send answer</Button></div></section> : null}
 
         <section><div className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-primary" /><h3 className="font-semibold">Handover history</h3></div><div className="mt-3 space-y-3">{selected.activities.map((activity) => <div key={activity.id} className="flex gap-3"><span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" /><div className="min-w-0 flex-1 rounded-xl bg-muted/40 p-3"><div className="flex flex-wrap justify-between gap-2"><p className="text-sm font-medium">{activity.actor_name}<span className="ml-1 font-normal text-muted-foreground">· {activity.action.replaceAll('_', ' ')}</span></p><span className="text-xs text-muted-foreground">{humanDate(activity.created_at)}</span></div>{activity.message ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{activity.message}</p> : null}</div></div>)}</div></section>
+
+        {isMarketing && selected.created_by_user_id === user?.id ? <section className="rounded-xl border border-destructive/30 bg-destructive/[.04] p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-semibold text-destructive">Delete this lead</h3><p className="mt-1 text-sm text-muted-foreground">This permanently removes the lead, its handover history and any sample request attached to it.</p></div>{!confirmingDelete ? <Button variant="destructive" onClick={() => setConfirmingDelete(true)}><Trash2 className="mr-2 h-4 w-4" />Delete lead</Button> : null}</div>
+          {confirmingDelete ? <div className="mt-4 rounded-xl border border-destructive/30 bg-background p-4"><p className="text-sm font-medium">Permanently delete {selected.company_name}?</p><p className="mt-1 text-xs text-muted-foreground">This action cannot be undone.</p><div className="mt-4 flex justify-end gap-2"><Button variant="outline" disabled={busy === `delete-${selected.id}`} onClick={() => setConfirmingDelete(false)}>Cancel</Button><Button variant="destructive" disabled={busy === `delete-${selected.id}`} onClick={() => void deleteLead(selected)}>{busy === `delete-${selected.id}` ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}Yes, delete permanently</Button></div></div> : null}
+        </section> : null}
       </div>
     </ModalShell> : null}
   </main>
