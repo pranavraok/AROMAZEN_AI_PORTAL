@@ -191,6 +191,10 @@ class CustomLetterRequest(BaseModel):
     excluded_fields: list[str] = Field(default_factory=list, max_length=500)
 
 
+class CustomTemplateRenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=495)
+
+
 class SendCustomLetterRequest(CustomLetterRequest):
     recipient_email: EmailStr
     cc_emails: list[EmailStr] = Field(default_factory=list, max_length=20)
@@ -1533,6 +1537,20 @@ def _custom_pdf_filename(document: KnowledgeDocument) -> str:
     return f"{stem or 'custom-hr-letter'}.pdf"
 
 
+def _custom_template_filename(requested_name: str) -> str:
+    name = requested_name.strip()
+    if not name or name in {".", ".."} or name.endswith((".", " ")) or any(char in name for char in '\\/:*?"<>|'):
+        raise HTTPException(status_code=422, detail="Enter a valid template name.")
+    if any(ord(char) < 32 for char in name):
+        raise HTTPException(status_code=422, detail="Enter a valid template name.")
+    if Path(name).suffix and Path(name).suffix.lower() != ".docx":
+        raise HTTPException(status_code=422, detail="The template must remain a DOCX file.")
+    filename = name if Path(name).suffix else f"{name}.docx"
+    if len(filename) > 500:
+        raise HTTPException(status_code=422, detail="The template name is too long.")
+    return filename
+
+
 async def _validated_custom_template_upload(template_file: UploadFile) -> tuple[str, bytes]:
     original_filename = Path(template_file.filename or "custom-template.docx").name
     if Path(original_filename).suffix.lower() != ".docx":
@@ -1744,6 +1762,51 @@ async def replace_custom_letter_template(
         document.external_edit_url = normalized_canva_url
     await session.commit()
     return _custom_template_response(document)
+
+
+@router.patch("/custom-templates/{template_id}")
+async def rename_custom_letter_template(
+    template_id: uuid.UUID,
+    payload: CustomTemplateRenameRequest,
+    user: User = Depends(require_permissions("knowledge.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict:
+    await _require_hr(session, user)
+    document = await _custom_template_document(session, user.organization_id, template_id)
+    previous_name = document.original_filename
+    document.original_filename = _custom_template_filename(payload.name)
+    session.add(AuditEvent(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="hr.custom_template_renamed",
+        target_type="hr_custom_template",
+        target_id=str(document.id),
+        metadata_json={"previous_name": previous_name, "name": document.original_filename},
+    ))
+    await session.commit()
+    return _custom_template_response(document)
+
+
+@router.delete("/custom-templates/{template_id}", status_code=204)
+async def delete_custom_letter_template(
+    template_id: uuid.UUID,
+    user: User = Depends(require_permissions("knowledge.write")),
+    session: AsyncSession = Depends(get_db_session),
+) -> None:
+    await _require_hr(session, user)
+    document = await _custom_template_document(session, user.organization_id, template_id)
+    stored_path = _custom_template_path(document)
+    session.add(AuditEvent(
+        organization_id=user.organization_id,
+        actor_user_id=user.id,
+        action="hr.custom_template_deleted",
+        target_type="hr_custom_template",
+        target_id=str(document.id),
+        metadata_json={"name": document.original_filename},
+    ))
+    await session.delete(document)
+    await session.commit()
+    stored_path.unlink(missing_ok=True)
 
 
 @router.get("/custom-templates/{template_id}/content")

@@ -1,9 +1,11 @@
 from pathlib import Path
 
+from fastapi import HTTPException
 from docx import Document
 from lxml import etree
 
 from app.modules.hr_letters.routes import (
+    _custom_template_filename,
     _fill_docx,
     _replace_xml_paragraph_tokens,
     _template_tokens,
@@ -64,3 +66,18 @@ def test_excluded_custom_fields_are_blank_including_salary_fields(tmp_path: Path
     assert generated.paragraphs[0].text == "Bank account: "
     assert generated.paragraphs[1].text == "Monthly basic: "
     assert "NIL" not in "\n".join(paragraph.text for paragraph in generated.paragraphs)
+
+
+def test_custom_template_rename_preserves_docx_extension() -> None:
+    assert _custom_template_filename("Bank Confirmation") == "Bank Confirmation.docx"
+    assert _custom_template_filename("Bank Confirmation.docx") == "Bank Confirmation.docx"
+
+
+def test_custom_template_rename_rejects_paths_and_other_file_types() -> None:
+    for invalid_name in ("../Bank Confirmation", "Bank Confirmation.pdf", "Bank Confirmation."):
+        try:
+            _custom_template_filename(invalid_name)
+        except HTTPException as error:
+            assert error.status_code == 422
+        else:
+            raise AssertionError(f"Expected {invalid_name!r} to be rejected")

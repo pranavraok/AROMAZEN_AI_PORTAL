@@ -310,6 +310,8 @@ export const api = {
       const form = new FormData(); form.append('template_file', file); if (canvaEditUrl !== undefined) form.append('canva_edit_url', canvaEditUrl)
       return apiRequest<HRCustomTemplate>(`/hr-letters/custom-templates/${templateId}`, { method: 'POST', body: form, headers: { Authorization: `Bearer ${accessToken}` } })
     },
+    customRename: (accessToken: string, templateId: string, name: string) => apiRequest<HRCustomTemplate>(`/hr-letters/custom-templates/${templateId}`, { method: 'PATCH', body: { name }, headers: { Authorization: `Bearer ${accessToken}` } }),
+    customDelete: (accessToken: string, templateId: string) => apiRequest<void>(`/hr-letters/custom-templates/${templateId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }),
     customContent: (accessToken: string, templateId: string) => apiFileRequest(`/hr-letters/custom-templates/${templateId}/content`, accessToken),
   },
   admin: {
